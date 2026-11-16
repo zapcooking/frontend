@@ -17,6 +17,22 @@ export const RECEIPT_RELAYS = [
 ];
 
 /**
+ * The one receipt relay list for Go live zap totals: the stream chat's
+ * live total (StreamChat) and the metrics recorder
+ * (src/lib/live/metrics.server.ts) both read receipts from exactly these,
+ * so the two totals see the same receipts. The chat adds the stream's own
+ * relays and the signed-in user's relay list on top.
+ */
+export const STREAM_RECEIPT_RELAYS: readonly string[] = Object.freeze([
+  ...new Set([...DISCOVERY_RELAYS, ...RECEIPT_RELAYS, 'wss://offchain.pub'])
+]);
+
+/** The chat's starting receipt set: the stream's own relays, then the shared list. */
+export function chatReceiptRelays(itemRelays: readonly string[] = []): string[] {
+  return [...new Set([...itemRelays, ...STREAM_RECEIPT_RELAYS])];
+}
+
+/**
  * Relays that archive many zap receipts, scanned in a second pass once the
  * stream is already playing so the first paint never waits on them.
  */

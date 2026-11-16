@@ -60,7 +60,7 @@
   import LiveReport from './LiveReport.svelte';
   import { mentionedPubkeys, tokenizeChatText, type ChatSegment } from '$lib/streams/chatText';
   import { dayDividerLabel, formatChatTime, isBeforeToday } from '$lib/streams/chatTime';
-  import { DISCOVERY_RELAYS, RECEIPT_RELAYS } from '$lib/streams/relays';
+  import { DISCOVERY_RELAYS, chatReceiptRelays } from '$lib/streams/relays';
   import { resolveAuthorPubkey, zapReceiptRelayUrls } from '$lib/nip65Routing';
   import type { NostrEventLike, StreamItem } from '$lib/streams/types';
 
@@ -172,7 +172,7 @@
    * own zap's receipt lands there first — if the chat listened on the
    * generic aggregator set alone, zaps you just sent could go unseen live.
    */
-  let receiptSources: string[] = [...sources, ...RECEIPT_RELAYS];
+  let receiptSources: string[] = chatReceiptRelays(item.relays || []);
 
   async function widenReceiptSources() {
     try {

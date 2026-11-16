@@ -17,8 +17,10 @@
  * This runs from the sweep rather than from each End path (host, sweep,
  * admin, kill switch, account deletion) so every ending is covered in one
  * place and a failure is retried on the next run. If the object or every
- * relay stays unreachable for LIVE_METRICS_GIVE_UP_SECONDS, the session is
- * recorded with what could be read (viewer time NULL, zaps 0).
+ * relay stays unreachable for LIVE_METRICS_GIVE_UP_SECONDS (24 hours) after
+ * the end, the session is recorded with what could be read (viewer time
+ * NULL, zaps 0); until then it stays waiting. Each run works through the
+ * whole queue, oldest first, until it is empty or the time budget runs out.
  *
  * Nothing about any viewer is stored: per session, two more integers; per
  * host and month, a handful of sums. Migration 0010.
@@ -31,7 +33,7 @@ import {
 } from './config';
 import { verifyEvent } from 'nostr-tools/pure';
 import { collect, type NostrEvent } from '$lib/relayCollect';
-import { RECEIPT_RELAYS } from '$lib/streams/relays';
+import { STREAM_RECEIPT_RELAYS } from '$lib/streams/relays';
 import { ZapTotals, zapHistory, type PageResult } from '$lib/streams/zapTotals';
 import type { EventVerifier, NostrEventLike } from '$lib/streams/types';
 import type { PresenceTotals } from './presence.server';
@@ -59,21 +61,45 @@ export interface PendingMetricsRow {
   note_id: string | null;
 }
 
-/** Ended sessions not recorded yet that ended at or before `endedBy`, oldest first. */
+/** Where a close-out run has got to: the last (ended_at, id) it looked at. */
+export interface PendingCursor {
+  ended_at: number;
+  id: string;
+}
+
+/**
+ * Ended sessions not recorded yet that ended at or before `endedBy`,
+ * oldest first (by ended_at, then id), after `after` when given. The
+ * cursor lets one run walk the whole queue once, so a session that stays
+ * waiting is not picked up again in the same run.
+ */
 export async function listPendingMetrics(
   db: LiveDb,
   endedBy: number,
-  limit: number
+  limit: number,
+  after: PendingCursor | null = null
 ): Promise<PendingMetricsRow[]> {
   const { results } = await db
     .prepare(
       `SELECT id, host_pubkey, started_at, ended_at, note_id FROM live_sessions
         WHERE status = 'ended' AND metrics_at IS NULL AND ended_at <= ?1
-        ORDER BY ended_at LIMIT ?2`
+          AND (?3 IS NULL OR ended_at > ?3 OR (ended_at = ?3 AND id > ?4))
+        ORDER BY ended_at, id LIMIT ?2`
     )
-    .bind(endedBy, limit)
+    .bind(endedBy, limit, after?.ended_at ?? null, after?.id ?? '')
     .all<PendingMetricsRow>();
   return results;
+}
+
+/** Ended sessions not recorded yet, for any reason (the queue the page shows). */
+export async function countWaiting(db: LiveDb): Promise<number> {
+  const row = await db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM live_sessions WHERE status = 'ended' AND metrics_at IS NULL`
+    )
+    .bind()
+    .first<{ n: number }>();
+  return row?.n ?? 0;
 }
 
 export interface SessionMetrics {
@@ -145,11 +171,14 @@ export async function recordSessionMetrics(
 }
 
 export interface CloseOutSummary {
+  /** Recorded this run (gaveUp included). */
   recorded: number;
-  /** Waiting for the presence object or a relay; retried next run. */
-  waiting: number;
-  /** Recorded without viewer time after LIVE_METRICS_GIVE_UP_SECONDS. */
+  /** Of those, recorded with what could be read after LIVE_METRICS_GIVE_UP_SECONDS. */
   gaveUp: number;
+  /** Looked at this run but the presence object or relays did not answer; retried later. */
+  retry: number;
+  /** Ended sessions still not recorded after this run, for any reason. */
+  waiting: number;
 }
 
 /**
@@ -163,57 +192,75 @@ export async function closeOutEndedSessions(
   now: number,
   outOfTime: () => boolean
 ): Promise<CloseOutSummary> {
-  const summary: CloseOutSummary = { recorded: 0, waiting: 0, gaveUp: 0 };
+  const summary: CloseOutSummary = { recorded: 0, gaveUp: 0, retry: 0, waiting: 0 };
   try {
-    const rows = await listPendingMetrics(db, now - LIVE_METRICS_DELAY_SECONDS, LIVE_METRICS_BATCH);
-    for (const row of rows) {
-      if (outOfTime()) break;
-      const giveUp = now - row.ended_at >= LIVE_METRICS_GIVE_UP_SECONDS;
-
-      if (row.started_at === null) {
-        // Never went live: no viewers, no presence object, nothing to fold.
-        if (
-          await recordSessionMetrics(db, row.id, { viewer_seconds: 0, peak: 0, zap_sats: 0 }, now)
-        )
-          summary.recorded++;
-        continue;
-      }
-
-      const [totals, sats] = await Promise.all([
-        deps.readTotals(row.id),
-        row.note_id ? deps.zapSats(row.note_id, row.host_pubkey) : Promise.resolve(0)
-      ]);
-      if ((totals === null || sats === null) && !giveUp) {
-        summary.waiting++;
-        console.log(
-          `[LiveSweep] session=${row.id} metrics=waiting presence=${totals ? 'ok' : 'unreachable'} zaps=${sats === null ? 'unreachable' : 'ok'}`
-        );
-        continue;
-      }
-      const did = await recordSessionMetrics(
+    // The whole queue, oldest first, in batches, until it is empty or the
+    // time budget runs out. The cursor walks each session once per run.
+    let cursor: PendingCursor | null = null;
+    drain: while (!outOfTime()) {
+      const rows = await listPendingMetrics(
         db,
-        row.id,
-        {
-          viewer_seconds: totals?.viewer_seconds ?? null,
-          peak: totals?.peak ?? 0,
-          zap_sats: sats ?? 0
-        },
-        now
+        now - LIVE_METRICS_DELAY_SECONDS,
+        LIVE_METRICS_BATCH,
+        cursor
       );
-      if (!did) continue; // another sweep recorded it
-      if (totals === null || sats === null) {
-        summary.gaveUp++;
-        console.warn(
-          `[LiveSweep] session=${row.id} metrics=gave_up presence=${totals ? 'ok' : 'unreachable'} zaps=${sats === null ? 'unreachable' : 'ok'}`
+      if (rows.length === 0) break;
+      for (const row of rows) {
+        if (outOfTime()) break drain;
+        cursor = { ended_at: row.ended_at, id: row.id };
+        const giveUp = now - row.ended_at >= LIVE_METRICS_GIVE_UP_SECONDS;
+
+        if (row.started_at === null) {
+          // Never went live: no viewers, no presence object, nothing to fold.
+          if (
+            await recordSessionMetrics(db, row.id, { viewer_seconds: 0, peak: 0, zap_sats: 0 }, now)
+          )
+            summary.recorded++;
+          continue;
+        }
+
+        const [totals, sats] = await Promise.all([
+          deps.readTotals(row.id),
+          row.note_id ? deps.zapSats(row.note_id, row.host_pubkey) : Promise.resolve(0)
+        ]);
+        if ((totals === null || sats === null) && !giveUp) {
+          summary.retry++;
+          console.log(
+            `[LiveSweep] session=${row.id} metrics=waiting presence=${totals ? 'ok' : 'unreachable'} zaps=${sats === null ? 'unreachable' : 'ok'}`
+          );
+          continue;
+        }
+        const did = await recordSessionMetrics(
+          db,
+          row.id,
+          {
+            viewer_seconds: totals?.viewer_seconds ?? null,
+            peak: totals?.peak ?? 0,
+            zap_sats: sats ?? 0
+          },
+          now
         );
-      } else {
-        summary.recorded++;
+        if (!did) continue; // another sweep recorded it
+        if (totals === null || sats === null) {
+          summary.gaveUp++;
+          summary.recorded++;
+          console.warn(
+            `[LiveSweep] session=${row.id} metrics=gave_up presence=${totals ? 'ok' : 'unreachable'} zaps=${sats === null ? 'unreachable' : 'ok'}`
+          );
+        } else {
+          summary.recorded++;
+        }
+        // Recorded: the presence object keeps nothing more about the session.
+        await deps.finish(row.id);
       }
-      // Recorded: the presence object keeps nothing more about the session.
-      await deps.finish(row.id);
     }
   } catch (err) {
     console.error(`[LiveSweep] metrics close-out failed: ${(err as Error)?.name ?? 'error'}`);
+  }
+  try {
+    summary.waiting = await countWaiting(db);
+  } catch {
+    // A database without migration 0010: nothing is counted.
   }
   return summary;
 }
@@ -228,29 +275,24 @@ const PROVIDER_TIMEOUT_MS = 4000;
 const ZAP_PAGE_SIZE = 250;
 const ZAP_MAX_PAGES = 20;
 
-/**
- * The receipt relays plus the zap aggregators. A copy of
- * ZAP_AGGREGATOR_RELAYS (src/lib/recipeZaps.ts), which cannot be imported
- * here: that module loads the browser's NDK instance.
- */
-const ZAP_AGGREGATORS = [
-  'wss://nos.lol',
-  'wss://relay.primal.net',
-  'wss://nostr.wine',
-  'wss://offchain.pub',
-  'wss://relay.snort.social'
-];
-const ZAP_RELAYS = [...new Set([...RECEIPT_RELAYS, ...ZAP_AGGREGATORS])];
+/** The same receipt relays as the stream chat's live zap total. */
+const ZAP_RELAYS: string[] = [...STREAM_RECEIPT_RELAYS];
 /** Where the host's profile (kind 0, for the lightning address) is read. */
 const PROFILE_RELAYS = [...new Set(['wss://purplepag.es', ...ZAP_RELAYS])];
+
+export type Provider = { pubkey: string } | 'none' | 'unreachable';
 
 export interface ZapReadDeps {
   collect?: typeof collect;
   fetch?: typeof fetch;
   verify?: EventVerifier;
+  /**
+   * Providers already looked up in this run, by host. One run often
+   * records several of one host's streams (a backlog), so each host's
+   * profile and LNURL document are read once per run.
+   */
+  providers?: Map<string, Promise<Provider>>;
 }
-
-type Provider = { pubkey: string } | 'none' | 'unreachable';
 
 /**
  * The host's zap provider: the nostrPubkey of the LNURL document behind
@@ -328,7 +370,12 @@ export async function fetchNoteZapSats(
   deps: ZapReadDeps = {}
 ): Promise<number | null> {
   const signal = AbortSignal.timeout(ZAP_BUDGET_MS);
-  const provider = await resolveProvider(host, deps);
+  let lookup = deps.providers?.get(host);
+  if (!lookup) {
+    lookup = resolveProvider(host, deps);
+    deps.providers?.set(host, lookup);
+  }
+  const provider = await lookup;
   if (provider === 'unreachable') return null;
   if (provider === 'none') return 0;
   const read = deps.collect ?? collect;

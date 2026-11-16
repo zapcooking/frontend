@@ -59,7 +59,7 @@ const IDLE_KEY = 'idle';
 /**
  * How long the totals outlive the last heartbeat when nobody collects
  * them. The sweep collects them a few minutes after the stream ends and
- * gives up after an hour (LIVE_METRICS_GIVE_UP_SECONDS), so two days
+ * gives up 24 hours after the end (LIVE_METRICS_GIVE_UP_SECONDS), so two days
  * leaves plenty of room for a sweep outage.
  */
 export const TOTALS_RETAIN_MS = 2 * 24 * 60 * 60 * 1000;
