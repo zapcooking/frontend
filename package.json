@@ -1,7 +1,7 @@
 {
   "name": "zap.cooking",
   "license": "MIT",
-  "version": "4.2.1158",
+  "version": "4.2.1140",
   "private": true,
   "scripts": {
     "dev": "vite dev",
@@ -73,9 +73,9 @@
     "webln": "^0.3.2"
   },
   "devDependencies": {
-    "@sveltejs/adapter-cloudflare": "^7.2.9",
-    "@sveltejs/adapter-vercel": "^6.3.4",
-    "@sveltejs/kit": "^2.70.3",
+    "@sveltejs/adapter-cloudflare": "^7.2.10",
+    "@sveltejs/adapter-vercel": "^6.3.5",
+    "@sveltejs/kit": "^2.70.4",
     "@sveltejs/vite-plugin-svelte": "^3.1.2",
     "@tailwindcss/forms": "^0.5.11",
     "@tailwindcss/postcss": "^4.3.3",
@@ -117,7 +117,7 @@
       "defu": "^6.1.5",
       "devalue": "^5.8.1",
       "picomatch": "^4.0.4",
-      "minimatch": "^10.2.3",
+      "minimatch": "^11.0.1",
       "@xmldom/xmldom": "^0.8.13",
       "handlebars": "^4.7.9",
       "rollup": "^4.60.2",
@@ -141,10 +141,11 @@
       "diff@>=4.0.0 <4.0.4": "^4.0.4",
       "diff@>=5.0.0 <5.2.2": "^5.2.2",
       "tinypool": ">=2.1.2",
+      "glob@>=9.0.0 <14.0.2": "^14.0.2",
       "postcss-selector-parser": ">=7.1.6"
     },
     "patchedDependencies": {
-      "@sveltejs/kit@2.70.3": "patches/@sveltejs__kit@2.70.3.patch"
+      "@sveltejs/kit@2.70.4": "patches/@sveltejs__kit@2.70.4.patch"
     }
   }
 }
