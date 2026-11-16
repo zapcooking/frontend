@@ -14,6 +14,7 @@
   import SunIcon from 'phosphor-svelte/lib/Sun';
   import MoonIcon from 'phosphor-svelte/lib/Moon';
   import GearIcon from 'phosphor-svelte/lib/Gear';
+  import DeviceMobileIcon from 'phosphor-svelte/lib/DeviceMobile';
   import SignOutIcon from 'phosphor-svelte/lib/SignOut';
   import FlameIcon from 'phosphor-svelte/lib/Flame';
 
@@ -24,7 +25,7 @@
   import { getAuthManager } from '$lib/authManager';
   import { profileFor, authorLabel } from '$lib/profileStore';
   import NameLabel from './NameLabel.svelte';
-  import { userSidePanelOpen } from '$lib/stores/userSidePanel';
+  import { userSidePanelOpen, userSidePanelSide } from '$lib/stores/userSidePanel';
 
   // Use the store for open state
   $: open = $userSidePanelOpen;
@@ -182,8 +183,9 @@
   <!-- Side panel -->
   <aside
     class="user-panel-aside"
+    class:user-panel-left={$userSidePanelSide === 'left'}
     transition:fly={{
-      x: 320,
+      x: $userSidePanelSide === 'left' ? -320 : 320,
       duration: 300,
       easing: (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2)
     }}
@@ -301,6 +303,15 @@
         </li>
         <li>
           <button
+            on:click={() => navigate('/downloads')}
+            class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
+          >
+            <DeviceMobileIcon size={22} />
+            <span class="font-medium">Get the app</span>
+          </button>
+        </li>
+        <li>
+          <button
             on:click={() => navigate('/settings')}
             class="w-full flex items-center gap-4 px-4 py-3 rounded-xl hover:bg-opacity-50 transition-colors cursor-pointer"
             style="color: var(--color-text-primary);"
@@ -377,6 +388,16 @@
     border-bottom: 1px solid color-mix(in srgb, var(--color-input-border) 60%, transparent);
     border-bottom-left-radius: 16px;
     box-shadow: -4px 0 20px rgba(0, 0, 0, 0.25);
+  }
+  /* Docked left: opened from the sidebar's avatar — mirror everything. */
+  .user-panel-aside.user-panel-left {
+    left: 0;
+    right: auto;
+    border-left: none;
+    border-right: 1px solid color-mix(in srgb, var(--color-input-border) 60%, transparent);
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 16px;
+    box-shadow: 4px 0 20px rgba(0, 0, 0, 0.25);
   }
 
   /* Live connection dot — green while relays are connected, muted when
