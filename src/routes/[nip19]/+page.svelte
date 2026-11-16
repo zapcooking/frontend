@@ -627,6 +627,9 @@ import { eventPath } from '$lib/utils/eventUrl';
   function revealMutedContext(id: string) {
     revealedMutedContext = new Set([...revealedMutedContext, id]);
   }
+  // The focused note hides the same way when its author is muted: opening
+  // a permalink must not surface the muted account's content unasked.
+  let revealedMutedFocus = false;
 
   // The sibling-filter fetch returns the whole conversation — including
   // the focused note's own ancestors, which match `#E` like any other
@@ -1014,6 +1017,17 @@ import { eventPath } from '$lib/utils/eventUrl';
          below it must be at least a viewport tall, or the arrival scroll
          clamps at the page bottom and leaves the parent half in view. -->
     <div class:focus-runway={contextRows.length > 0}>
+    {#if isEventMutedBy($muteListStore.muteList, event) && !revealedMutedFocus}
+      <article class="py-4 focused-note" bind:this={mainNoteEl}>
+        <button
+          type="button"
+          class="muted-reply-reveal"
+          on:click|stopPropagation={() => (revealedMutedFocus = true)}
+        >
+          Post from an account you muted · <span class="muted-reply-view">view</span>
+        </button>
+      </article>
+    {:else}
     <article class="py-4 focused-note" bind:this={mainNoteEl} class:arrival-flash={arrivalFlash}>
       <div class="flex items-start justify-between gap-3 mb-2">
         <div class="flex items-center gap-3 min-w-0">
@@ -1060,6 +1074,7 @@ import { eventPath } from '$lib/utils/eventUrl';
       <NoteReactionPills {event} />
       <NoteActionBar {event} showCheffy={false} onCommentClick={() => openReplyModal()} />
     </article>
+    {/if}
 
     <!-- Inline reply box directly below a top-level note (iOS detail-view
          parity); reply-focused views use the modal instead. -->
