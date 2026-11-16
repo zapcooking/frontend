@@ -28,7 +28,6 @@ ios/
 build/
 
 # Claude Code
-CLAUDE.md
 
 # Local investigation notes and throwaway spikes (never committed)
 .scratch/
@@ -52,3 +51,4 @@ tmp/
 
 # Dev-only preview assets (never shipped).
 static/dev/
+CLAUDE.md
