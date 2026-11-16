@@ -14,6 +14,7 @@ import {
   type MetricsDeps
 } from './metrics.server';
 import { runLiveSweep } from './sweep.server';
+import { STREAM_RECEIPT_RELAYS, chatReceiptRelays } from '$lib/streams/relays';
 import type { PresenceTotals } from './presence.server';
 
 // 2027-01-15T08:00:00Z
@@ -95,8 +96,9 @@ describe('closeOutEndedSessions', () => {
     const d = deps({ [id]: { viewer_seconds: 5400, peak: 4 } }, 2100);
     expect(await closeOutEndedSessions(db, d, NOW, never)).toEqual({
       recorded: 1,
-      waiting: 0,
-      gaveUp: 0
+      gaveUp: 0,
+      retry: 0,
+      waiting: 0
     });
     expect(sessionRow(id)).toEqual({
       viewer_seconds: 5400,
@@ -183,23 +185,43 @@ describe('closeOutEndedSessions', () => {
     const id = ended({ note: NOTE });
     expect(await closeOutEndedSessions(db, deps({ [id]: null }), NOW, never)).toEqual({
       recorded: 0,
-      waiting: 1,
-      gaveUp: 0
+      gaveUp: 0,
+      retry: 1,
+      waiting: 1
     });
-    expect((await closeOutEndedSessions(db, deps({}, null), NOW, never)).waiting).toBe(1);
+    expect(await closeOutEndedSessions(db, deps({}, null), NOW, never)).toMatchObject({
+      retry: 1,
+      waiting: 1
+    });
     expect(sessionRow(id).metrics_at).toBeNull();
     expect(monthly()).toEqual([]);
   });
 
-  it('gives up after an hour: viewer time NULL, zaps 0, still counted as a stream', async () => {
-    const id = ended({ ended: NOW - 61 * MIN, started: NOW - 120 * MIN, note: NOTE });
+  it('keeps waiting until 24 hours after the end, then records what it could read', async () => {
+    const HOUR = 60 * MIN;
+    const id = ended({ ended: NOW - 23 * HOUR, started: NOW - 24 * HOUR, note: NOTE });
     const d = deps({ [id]: null }, null);
-    expect(await closeOutEndedSessions(db, d, NOW, never)).toEqual({
+    // 23 h after the end: still waiting, nothing saved.
+    expect(await closeOutEndedSessions(db, d, NOW, never)).toMatchObject({
       recorded: 0,
-      waiting: 0,
-      gaveUp: 1
+      retry: 1,
+      waiting: 1
     });
-    expect(sessionRow(id)).toMatchObject({ viewer_seconds: null, zap_sats: 0, metrics_at: NOW });
+    expect(sessionRow(id).metrics_at).toBeNull();
+    // Just short of 24 h: still waiting.
+    expect((await closeOutEndedSessions(db, d, NOW + HOUR - 1, never)).retry).toBe(1);
+    // 24 h: recorded with what could be read.
+    expect(await closeOutEndedSessions(db, d, NOW + HOUR, never)).toEqual({
+      recorded: 1,
+      gaveUp: 1,
+      retry: 0,
+      waiting: 0
+    });
+    expect(sessionRow(id)).toMatchObject({
+      viewer_seconds: null,
+      zap_sats: 0,
+      metrics_at: NOW + HOUR
+    });
     expect(monthly()[0]).toMatchObject({ streams: 1, viewer_seconds: 0, zap_sats: 0 });
   });
 
@@ -210,12 +232,55 @@ describe('closeOutEndedSessions', () => {
     expect(sessionRow(id).zap_sats).toBe(0);
   });
 
-  it('stops when the sweep runs out of time', async () => {
+  it('stops when the time budget runs out, and reports how many are still waiting', async () => {
+    ended();
     ended();
     ended();
     let calls = 0;
-    const summary = await closeOutEndedSessions(db, deps(), NOW, () => ++calls > 1);
-    expect(summary.recorded).toBe(1);
+    // One check before the batch, one per session: time runs out at the second session.
+    const summary = await closeOutEndedSessions(db, deps(), NOW, () => ++calls > 2);
+    expect(summary).toMatchObject({ recorded: 1, waiting: 2 });
+  });
+
+  it('works through the whole queue in one run, oldest first, past one batch', async () => {
+    const ids = Array.from({ length: 12 }, (_, i) => ended({ ended: NOW - (60 - i) * MIN }));
+    const order: string[] = [];
+    const d = deps();
+    const read = d.readTotals;
+    d.readTotals = async (id) => {
+      order.push(id);
+      return read(id);
+    };
+    expect(await closeOutEndedSessions(db, d, NOW, never)).toMatchObject({
+      recorded: 12,
+      waiting: 0
+    });
+    expect(order).toEqual(ids);
+  });
+
+  it('looks at each session once per run, so sessions that keep waiting do not loop', async () => {
+    for (let i = 0; i < 8; i++) ended({ note: NOTE, ended: NOW - (30 - i) * MIN });
+    let reads = 0;
+    const d = deps({}, null); // relays never answer
+    d.readTotals = async () => {
+      reads++;
+      return { viewer_seconds: 0, peak: 0 };
+    };
+    expect(await closeOutEndedSessions(db, d, NOW, never)).toMatchObject({
+      recorded: 0,
+      retry: 8,
+      waiting: 8
+    });
+    expect(reads).toBe(8);
+  });
+
+  it('counts sessions still inside the 5-minute wait as waiting', async () => {
+    ended({ ended: NOW - 2 * MIN });
+    expect(await closeOutEndedSessions(db, deps(), NOW, never)).toMatchObject({
+      recorded: 0,
+      retry: 0,
+      waiting: 1
+    });
   });
 
   it('fails soft on a database without migration 0010', async () => {
@@ -228,8 +293,9 @@ describe('closeOutEndedSessions', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     expect(await closeOutEndedSessions(bare, deps(), NOW, never)).toEqual({
       recorded: 0,
-      waiting: 0,
-      gaveUp: 0
+      gaveUp: 0,
+      retry: 0,
+      waiting: 0
     });
   });
 });
@@ -470,6 +536,27 @@ describe('fetchNoteZapSats (verified)', () => {
     ).toBe(0);
   });
 
+  it('reads receipts from the shared receipt relay list (relay.damus.io included)', async () => {
+    const asked = new Set<string>();
+    const collect = relays((url) => {
+      asked.add(url);
+      return { events: [] };
+    });
+    await fetchNoteZapSats(NOTE, HOST, { collect: collect as never, fetch: lnurl(), verify });
+    expect([...asked].sort()).toEqual([...STREAM_RECEIPT_RELAYS].sort());
+    expect(asked.has('wss://relay.damus.io')).toBe(true);
+  });
+
+  it("looks up each host's provider once per run", async () => {
+    const collect = relays(() => ({ events: [receipt()] }));
+    const fetch = lnurl();
+    const providers = new Map();
+    for (let i = 0; i < 3; i++) {
+      await fetchNoteZapSats(NOTE, HOST, { collect: collect as never, fetch, verify, providers });
+    }
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it('walks history backward past the first page', async () => {
     const calls: Record<string, unknown>[] = [];
     const collect = vi.fn(async (_url: string, subs: Record<string, Record<string, unknown>>) => {
@@ -486,5 +573,15 @@ describe('fetchNoteZapSats (verified)', () => {
     ).toBe(2000);
     // Each relay asked again below the oldest receipt seen.
     expect(calls.some((f) => f.until === 59)).toBe(true);
+  });
+});
+
+describe('one receipt relay list for the chat and the recorder', () => {
+  it("the chat starts from the stream's relays plus the shared list", () => {
+    const chat = chatReceiptRelays(['wss://stream.example']);
+    expect(chat[0]).toBe('wss://stream.example');
+    expect(chat.slice(1)).toEqual([...STREAM_RECEIPT_RELAYS]);
+    expect(STREAM_RECEIPT_RELAYS).toContain('wss://relay.damus.io');
+    expect(new Set(STREAM_RECEIPT_RELAYS).size).toBe(STREAM_RECEIPT_RELAYS.length);
   });
 });

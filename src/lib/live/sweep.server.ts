@@ -55,7 +55,12 @@ import {
   LIVE_SWEEP_BATCH,
   LIVE_SWEEP_BUDGET_MS
 } from './config';
-import { closeOutEndedSessions, deleteOldMonthly, type MetricsDeps } from './metrics.server';
+import {
+  closeOutEndedSessions,
+  deleteOldMonthly,
+  type CloseOutSummary,
+  type MetricsDeps
+} from './metrics.server';
 import { removeInputAfterEnd } from './relay.server';
 import { cleanupSafetyRecords } from './safety.server';
 import {
@@ -90,7 +95,7 @@ export interface SweepSummary {
   retried: { deleted: number; pending: number };
   orphans: { listed: number | null; candidates: number; deleted: number; failed: number };
   rowsDeleted: number;
-  metrics: { recorded: number; waiting: number; gaveUp: number };
+  metrics: CloseOutSummary;
   monthlyDeleted: number;
   outOfTime: boolean;
   streamConfigured: boolean;
@@ -138,7 +143,7 @@ export async function runLiveSweep(
     retried: { deleted: 0, pending: 0 },
     orphans: { listed: null, candidates: 0, deleted: 0, failed: 0 },
     rowsDeleted: 0,
-    metrics: { recorded: 0, waiting: 0, gaveUp: 0 },
+    metrics: { recorded: 0, gaveUp: 0, retry: 0, waiting: 0 },
     monthlyDeleted: 0,
     outOfTime: false,
     streamConfigured: cfg !== null
