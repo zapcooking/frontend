@@ -330,7 +330,6 @@
    */
   let signedNote: { sessionId: string; event: NDKEvent } | null = null;
   let signedAnnouncement: { sessionId: string; event: NDKEvent } | null = null;
-  let announceFailed = false;
   let announcePublishedFor: string | null = null;
   let announceRefreshTimer: ReturnType<typeof setInterval> | null = null;
   const ANNOUNCE_REFRESH_MS = 30 * 60 * 1000;
@@ -453,27 +452,30 @@
         await event.sign();
         signedAnnouncement = { sessionId: forSession.id, event };
       }
+      // Marked as published at sign time: a relay may accept what the
+      // 10s race abandoned, and the refresh + ended replacement must
+      // still run for it.
+      announcePublishedFor = forSession.id;
+      if (status === 'live') startAnnouncementRefresh();
       const urls = [...new Set([...$ndk.pool.relays.keys(), ...DISCOVERY_RELAYS])];
       await Promise.race([
         event.publish(NDKRelaySet.fromRelayUrls(urls, $ndk, true)),
         new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 10000))
       ]);
-      announcePublishedFor = forSession.id;
-      if (status === 'live') startAnnouncementRefresh();
     } catch {
-      announceFailed = true;
+      // Best-effort: the Live now note is the primary surface.
     }
   }
 
   /**
    * The directory treats announcements older than an hour as ended, so a
    * long broadcast re-signs and republishes a fresh replacement while
-   * still live.
+   * still live — regardless of whether the tab is in the background.
    */
   function startAnnouncementRefresh() {
     if (announceRefreshTimer) return;
     announceRefreshTimer = setInterval(() => {
-      if (session && !document.hidden) void postLiveAnnouncement('live', session, true);
+      if (session) void postLiveAnnouncement('live', session, true);
     }, ANNOUNCE_REFRESH_MS);
   }
 
@@ -1099,10 +1101,11 @@
     }
     startedAt = Date.now();
     // The note (if any) was posted before the reload: show its comments,
-    // never post a second one. The announcement, though, gets a fresh
-    // signature — the directory treats stale announcements as ended.
+    // never post a second one. The announcement also waits for the
+    // session read: it only republishes when the host kept the note (a
+    // host who turned it off must not get a public 30311), and it needs
+    // the restored recipe/title and the real start time first.
     postNote = false;
-    void postLiveAnnouncement('live', session);
     void fetchSession(session.id).then((read) => {
       if (!read || session?.id !== read.id) return;
       if (read.note_id) noteId = read.note_id;
@@ -1111,6 +1114,10 @@
       if (read.recipe_a && !recipeA) {
         recipeA = read.recipe_a;
         recipeTitle = read.title;
+      }
+      if (read.note_id && read.started_at) {
+        startedAt = read.started_at * 1000;
+        void postLiveAnnouncement('live', session);
       }
     });
     await publish();

@@ -8,6 +8,7 @@
    */
   import { onDestroy, onMount } from 'svelte';
   import type { SimplePool } from 'nostr-tools/pool';
+  import { verifyEvent } from 'nostr-tools/pure';
   import { DISCOVERY_RELAYS } from '$lib/streams/relays';
 
   export let goalId: string;
@@ -41,6 +42,9 @@
     );
     // NIP-75 zap receipts can target the goal event itself; count those
     // toward progress on top of the stream's zap total.
+    // Goal-directed receipts (NIP-75): trust the amount only from the
+    // receipt's embedded zap request after verifying its signature — the
+    // receipt's own amount tag is trivially forgeable.
     const zapSub = pool.subscribeMany(
       goalRelays,
       { kinds: [9735], '#e': [goalId] } as never,
@@ -48,9 +52,22 @@
         onevent: (event: unknown) => {
           const e = event as { tags: string[][] };
           if (!Array.isArray(e.tags)) return;
-          const amount = e.tags.find((t) => Array.isArray(t) && t[0] === 'amount')?.[1];
-          const msat = /^\d+$/.test(amount || '') ? Number(amount) : 0;
-          if (msat > 0) goalZapSats += Math.round(msat / 1000);
+          const description = e.tags.find((t) => Array.isArray(t) && t[0] === 'description')?.[1];
+          if (!description) return;
+          try {
+            const request = JSON.parse(description) as {
+              kind?: number;
+              tags?: string[][];
+            };
+            if (request.kind !== 9734 || !Array.isArray(request.tags) || !verifyEvent(request as never)) {
+              return;
+            }
+            const amount = request.tags.find((t) => Array.isArray(t) && t[0] === 'amount')?.[1];
+            const msat = /^\d+$/.test(amount || '') ? Number(amount) : 0;
+            if (msat > 0) goalZapSats += Math.round(msat / 1000);
+          } catch {
+            // Malformed embedded request: ignore this receipt.
+          }
         }
       } as never
     );

@@ -147,7 +147,9 @@
         const id = /^\/api\/live\/([0-9a-f-]+)\/join$/.exec(u.pathname)?.[1];
         if (recognized && id && redirectedFor !== id) {
           redirectedFor = id;
-          goto(`/live/s/${id}`);
+          // replaceState: pressing Back must not land back here and
+          // redirect again — that would trap the back button.
+          goto(`/live/s/${id}`, { replaceState: true });
         }
       } catch {
         // Unparseable URL: it renders as-is, no redirect.

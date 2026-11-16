@@ -73,6 +73,7 @@
   let holdTimer: ReturnType<typeof setInterval> | null = null;
   /** Set on pointerdown: the click that follows is pointer-generated. */
   let pointerActivated = false;
+  let outsideClosedAt = 0;
   let myPubkey = '';
   let lastPublishAt = 0;
   let sub: NDKSubscription | null = null;
@@ -111,6 +112,7 @@
       return;
     }
     const id = idCounter++;
+    const life = 2.6 + Math.random() * 1.2;
     hearts = [
       ...hearts.slice(-(MAX_LIVE_HEARTS - 1)),
       {
@@ -120,12 +122,12 @@
         rise: 100 + Math.random() * 60,
         drift: (Math.random() - 0.5) * 70,
         scale: 0.65 + Math.random() * 0.35,
-        duration: 2.6 + Math.random() * 1.2,
+        duration: life,
         ghost: true
       }
     ];
     // Clear on the heart's own clock, so short ghosts free the guard early.
-    setTimeout(() => (hearts = hearts.filter((h) => h.id !== id)), (2.6 + Math.random() * 1.2) * 1000 + 150);
+    setTimeout(() => (hearts = hearts.filter((h) => h.id !== id)), life * 1000 + 150);
   }
 
   function spawn(id: ReactionId = reaction) {
@@ -153,8 +155,8 @@
   function press() {
     pointerActivated = true;
     if (holdTimer) return;
-    spawn();
-    holdTimer = setInterval(() => spawn(), 90);
+    spawnLocal();
+    holdTimer = setInterval(spawnLocal, 90);
   }
 
   function release() {
@@ -171,7 +173,7 @@
       pointerActivated = false;
       return;
     }
-    spawn();
+    spawnLocal();
   }
 
   /** Throttled ephemeral publish: at most one signed event per 400ms of
@@ -179,13 +181,18 @@
   async function publishLike() {
     const item = $streamPlayer.item;
     if (!item || !browser) return;
+    // A Go live session with no note yet has nothing to hang a like on.
+    const aTag = item.key.startsWith('30311:') ? item.key : null;
+    if (!aTag && !item.noteId) return;
     try {
       const ev = new NDKEvent($ndk);
       ev.kind = LIKE_KIND;
       ev.content = reaction;
-      const aTag = item.key.startsWith('30311:') ? item.key : null;
-      ev.tags = aTag ? [['a', aTag]] : item.noteId ? [['e', item.noteId]] : [];
+      const noteTarget = item.noteId ?? null;
+      ev.tags = aTag ? [['a', aTag]] : noteTarget ? [['e', noteTarget]] : [];
       await ev.sign();
+      // Know our own hearts on receive, even after a late login.
+      myPubkey = ev.pubkey;
       const urls = [
         ...new Set([...(item.relays || []), ...DISCOVERY_RELAYS, ...$ndk.pool.relays.keys()])
       ];
@@ -269,6 +276,10 @@
 
   $: resubscribe(streamKey, aTag, noteId, itemRelays);
 
+  function handleKeydown(event: KeyboardEvent) {
+    if (event.key === 'Escape') paletteOpen = false;
+  }
+
   onDestroy(() => {
     release();
     if (ambientTimer) clearTimeout(ambientTimer);
@@ -283,7 +294,10 @@
     role="radiogroup"
     aria-label="Choose a reaction"
     use:clickOutside
-    on:click_outside={() => (paletteOpen = false)}
+    on:click_outside={() => {
+      paletteOpen = false;
+      outsideClosedAt = Date.now();
+    }}
   >
     {#each Object.entries(REACTIONS) as [id, r] (id)}
       <button
@@ -302,6 +316,8 @@
 
 <!-- The reaction buttons sit in a small cluster above the player's
      control bar, so they never land on top of the video UI. -->
+<svelte:window on:keydown={handleKeydown} />
+
 <div class="like-cluster">
   <div class="like-wrap">
     <button
@@ -331,7 +347,12 @@
       aria-label="Change reaction"
       aria-expanded={paletteOpen}
       title="Change reaction"
-      on:click={() => (paletteOpen = !paletteOpen)}
+      on:click={() => {
+        // clickOutside closed it on the capture phase; this very click
+        // must not immediately reopen it.
+        if (Date.now() - outsideClosedAt < 250) return;
+        paletteOpen = !paletteOpen;
+      }}
     >
       <PlusIcon size={9} weight="bold" />
     </button>

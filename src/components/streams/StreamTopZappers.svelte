@@ -28,8 +28,10 @@
     }
   }
 
-  function name(pubkey: string): string {
-    return profiles.get(pubkey)?.displayName || profiles.get(pubkey)?.name || pseudonym(pubkey);
+  /** Takes the profiles map explicitly so the template re-renders when
+      profile lookups land (Svelte 4 tracks direct references only). */
+  function name(pubkey: string, source: Map<string, ChatProfile>): string {
+    return source.get(pubkey)?.displayName || source.get(pubkey)?.name || pseudonym(pubkey);
   }
 
   function compact(n: number): string {
@@ -50,7 +52,7 @@
         type="button"
         class="flex shrink-0 items-center gap-1 rounded-full py-0.5 pl-0.5 pr-2 text-xs transition-colors hover:bg-accent-gray cursor-pointer"
         style="background-color: var(--color-bg-secondary);"
-        title={'#' + (i + 1) + ' ' + name(zapper.pubkey) + ' — ' + zapper.sats.toLocaleString() + ' sats'}
+        title={'#' + (i + 1) + ' ' + name(zapper.pubkey, profiles) + ' — ' + zapper.sats.toLocaleString() + ' sats'}
         on:click={() => openProfilePreview(zapper.pubkey)}
       >
         <span
@@ -61,11 +63,11 @@
             pubkey={zapper.pubkey}
             src={profiles.get(zapper.pubkey)?.picture || null}
             size={20}
-            alt={name(zapper.pubkey)}
+            alt={name(zapper.pubkey, profiles)}
             interactive={false}
           />
         </span>
-        <span class="max-w-24 truncate" style="color: var(--color-text-primary);">{name(zapper.pubkey)}</span>
+        <span class="max-w-24 truncate" style="color: var(--color-text-primary);">{name(zapper.pubkey, profiles)}</span>
         <span class="font-semibold tabular-nums text-amber-500">
           {compact(zapper.sats)}
         </span>

@@ -67,7 +67,6 @@
   let appliedGeneration = -1;
   let appliedUrl: string | null = null;
   let autoplayRejected = false;
-  /** A portrait picture (a phone held upright): the page player grows taller for it. */
   /**
    * Dev-only preview: `?orientation=portrait|landscape` on the URL forces
    * the layout branch without a real broadcast in that shape. No-op in

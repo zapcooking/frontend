@@ -361,7 +361,7 @@
               </span>
             {/if}
           </div>
-          <div class="p-3">
+          <div class="p-3 pr-12">
             <div class="flex items-start justify-between gap-2">
               <div class="min-w-0">
                 <p

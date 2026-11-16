@@ -203,7 +203,7 @@
             {item}
             {pool}
             {topZappers}
-            expanded={railCollapsed}
+            expanded={railCollapsed || $streamSlot === null}
             expandable={twoCol}
             on:toggleExpand={toggleChatExpand}
           />
@@ -217,7 +217,7 @@
               {topZappers}
               target={item.noteId}
               closed={item.status === 'ended'}
-              expanded={railCollapsed}
+              expanded={railCollapsed || $streamSlot === null}
               expandable={twoCol}
               on:toggleExpand={toggleChatExpand}
               on:zaps={(e) => dispatch('zaps', e.detail)}
