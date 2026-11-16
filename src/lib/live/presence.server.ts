@@ -107,3 +107,36 @@ export async function readWatching(
     return null;
   }
 }
+
+/** What the object summed for the session: viewer time and the peak. */
+export interface PresenceTotals {
+  viewer_seconds: number;
+  peak: number;
+}
+
+/** The session's totals, or null when the object cannot be reached. */
+export async function readPresenceTotals(
+  platform: Readonly<App.Platform> | undefined,
+  sessionId: string
+): Promise<PresenceTotals | null> {
+  const res = await call(platform, sessionId, '/totals');
+  if (!res?.ok) return null;
+  try {
+    const data = (await res.json()) as { viewer_seconds?: unknown; peak?: unknown };
+    const vs = data.viewer_seconds;
+    const peak = data.peak;
+    if (!Number.isSafeInteger(vs) || (vs as number) < 0) return null;
+    if (!Number.isSafeInteger(peak) || (peak as number) < 0) return null;
+    return { viewer_seconds: vs as number, peak: peak as number };
+  } catch {
+    return null;
+  }
+}
+
+/** Wipe the object once its totals are recorded. Best effort. */
+export async function finishPresence(
+  platform: Readonly<App.Platform> | undefined,
+  sessionId: string
+): Promise<void> {
+  await call(platform, sessionId, '/finish', { method: 'POST' });
+}

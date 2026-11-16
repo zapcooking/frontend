@@ -15,8 +15,9 @@ preview_urls = false
 enabled = true
 
 # One object per Go live session. Its storage holds only unexpired
-# heartbeat codes and the peak; an alarm deletes each code ~1 s after it
-# expires and wipes the storage when none are left.
+# heartbeat codes, the peak and the viewer-time total; an alarm deletes
+# each code ~1 s after it expires. The totals stay until the sweep
+# collects them (POST /finish wipes the storage), at most 2 days.
 [[durable_objects.bindings]]
 name = "LIVE_PRESENCE"
 class_name = "LivePresence"

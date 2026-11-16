@@ -4,12 +4,14 @@
  * input. An input whose delete cannot be confirmed stays on the row for
  * the sweep.
  */
+import { deleteMonthlyForHost } from './metrics.server';
 import { removeInputAfterEnd } from './relay.server';
 import {
   deleteRowsForHost,
   endSession,
   listOpenSessionIdsForHost,
   listOpenSessions,
+  nowSeconds,
   setHostBlocked,
   type LiveDb,
   type LiveEndReason
@@ -89,8 +91,10 @@ export async function blockHost(
  * block is NOT removed: deleting an account must not lift it. The hosting
  * agreement is removed too, unless one of the rows is under a hold or the
  * account is blocked from hosting (the sweep removes it once neither is
- * true: cleanupTermsAcceptances). The account is removed from the
- * approved-hosts list: a returning key asks again.
+ * true: cleanupTermsAcceptances). The host's monthly metrics rows are
+ * deleted, and kept rows are marked so they are never folded in later.
+ * The account is removed from the approved-hosts list: a returning key
+ * asks again.
  */
 export async function purgeLiveSessions(
   db: LiveDb,
@@ -99,6 +103,21 @@ export async function purgeLiveSessions(
 ): Promise<number> {
   for (const id of await listOpenSessionIdsForHost(db, pubkey)) {
     await endAndRemove(db, cfg, id, 'admin');
+  }
+  // Rows kept under a hold are never folded into the monthly metrics
+  // later, and the host's monthly rows go now. Logged, never fatal: a
+  // database without migration 0010 must not block an account deletion.
+  try {
+    await db
+      .prepare(
+        `UPDATE live_sessions SET metrics_at = ?2
+          WHERE host_pubkey = ?1 AND status = 'ended' AND metrics_at IS NULL`
+      )
+      .bind(pubkey, nowSeconds())
+      .run();
+    await deleteMonthlyForHost(db, pubkey);
+  } catch (err) {
+    console.error(`[Live] metrics purge failed: ${(err as Error)?.name ?? 'error'}`);
   }
   const removed = await deleteRowsForHost(db, pubkey);
   await deleteTermsAcceptancesFor(db, pubkey);
