@@ -1,18 +1,18 @@
 <script lang="ts">
   /**
-   * Stream page: embedded player, host, zaps, About, and the permanent
-   * NIP-22 comment thread on the announcement. Announcement updates are
-   * re-fetched on an interval while the page is mounted, so status changes
-   * (live → ended) and viewer counts stay current.
+   * Stream page: embedded player, host, zaps, and About. Announcement
+   * updates are re-fetched on an interval while the page is mounted, so
+   * status changes (live → ended) and viewer counts stay current.
    */
   import { onDestroy } from 'svelte';
+  import { goto } from '$app/navigation';
   import { page } from '$app/stores';
+  import { getSiteOrigin } from '$lib/utils/share';
   import { browser } from '$app/environment';
   import type { SimplePool } from 'nostr-tools/pool';
-  import { NDKEvent } from '@nostr-dev-kit/ndk';
   import StreamView from '../../../components/streams/StreamView.svelte';
   import StreamPageSkeleton from '../../../components/streams/StreamPageSkeleton.svelte';
-  import { ndk, userPublickey } from '$lib/nostr';
+  import { userPublickey } from '$lib/nostr';
   import { get } from 'svelte/store';
   import { zapReceiptRelayUrls } from '$lib/nip65Routing';
   import { createStreamPool } from '$lib/streams/relayPage';
@@ -34,8 +34,8 @@
   let notFound = false;
   let pool: SimplePool | null = null;
   let refreshTimer: ReturnType<typeof setInterval> | null = null;
-  // Zap tally, owned here so the player (bolt + total) and the chat (top
-  // zappers strip) share one scan.
+  // Zap tally, owned here so the zap strip (goal bar + total) and the chat
+  // (top zappers strip) share one scan.
   let tally: StreamZapTally | null = null;
   let tallyLoading = false;
   /** The stream the shown tally belongs to. */
@@ -123,6 +123,37 @@
       }
     }, TALLY_RESCAN_MS);
   }
+
+  /**
+   * Go live announcements point their `streaming` tag at the session's
+   * WHEP join endpoint. Local viewers play on the session page, which owns
+   * the full WebRTC viewer and live chat; WHEP-capable clients (Sidecar,
+   * zap.stream…) use the endpoint straight from the announcement instead.
+   * Only our own origins redirect — a third-party WHEP URL stays as that
+   * stream's playback source.
+   */
+  let redirectedFor: string | null = null;
+  $: {
+    const url = stream?.item?.url;
+    if (url) {
+      try {
+        const u = new URL(url);
+        const own = new URL(getSiteOrigin());
+        const recognized =
+          u.hostname === own.hostname ||
+          u.hostname.endsWith('.zap.cooking') ||
+          u.hostname === 'localhost' ||
+          u.hostname === '127.0.0.1';
+        const id = /^\/api\/live\/([0-9a-f-]+)\/join$/.exec(u.pathname)?.[1];
+        if (recognized && id && redirectedFor !== id) {
+          redirectedFor = id;
+          goto(`/live/s/${id}`);
+        }
+      } catch {
+        // Unparseable URL: it renders as-is, no redirect.
+      }
+    }
+  }
   // SvelteKit reuses this component when only the naddr changes — reload
   // reactively so following another stream link swaps content immediately
   // (with a fresh tally, not first=false's deferred one).
@@ -135,9 +166,6 @@
     pool = null;
   });
 
-  // The announcement as an NDKEvent, so zaps and comments ride the app's
-  // existing NDK flows.
-  $: ndkEvent = stream && $ndk ? new NDKEvent($ndk, stream.event as never) : null;
   $: item = stream?.item ?? null;
 </script>
 
@@ -152,7 +180,7 @@
   {#if loading}
     <!-- Skeleton mirrors the player + host row while the announcement resolves. -->
     <StreamPageSkeleton />
-  {:else if notFound || !item || !ndkEvent || !pool}
+  {:else if notFound || !item || !pool}
     <div class="flex h-64 flex-col items-center justify-center gap-2 text-center">
       <p class="text-sm text-zinc-500">
         This stream could not be found. It may have ended and been removed, or the link is wrong.
@@ -162,7 +190,6 @@
     <StreamView
       {item}
       {pool}
-      {ndkEvent}
       {tally}
       {tallyLoading}
       {topZappers}

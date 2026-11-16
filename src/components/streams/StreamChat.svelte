@@ -10,13 +10,15 @@
    * any signed-in viewer can report a comment (the existing report path);
    * and once the stream has ended the chat is read-only. The viewer's own
    * (private) mute list keeps applying on top. History pages backward
-   * with an "Older messages" button, a live subscription appends new
-   * messages, and posting signs through the app's NDK signer into the
+   * through an "older" link in the header bar, a live subscription appends
+   * new messages, and posting signs through the app's NDK signer into the
    * stream's relays. Chat profiles read straight from relays (newest
    * kind 0 wins), with Sidecar-style stable pseudonyms as the fallback.
    */
   import { createEventDispatcher, onDestroy, tick } from 'svelte';
   import { get } from 'svelte/store';
+  import ArrowsIn from 'phosphor-svelte/lib/ArrowsIn';
+  import ArrowsOutSimple from 'phosphor-svelte/lib/ArrowsOutSimple';
   import { page } from '$app/stores';
   import { NDKEvent, NDKRelaySet } from '@nostr-dev-kit/ndk';
   import type { SimplePool } from 'nostr-tools/pool';
@@ -76,8 +78,9 @@
   export let item: StreamItem;
   export let pool: SimplePool;
   /**
-   * Top senders by verified sats, from the page's tally scan. Rendered as
-   * the strip under the chat header, Sidecar-style.
+   * Top senders by verified sats, from the page's tally scan. Rendered
+   * under the video by StreamView; here it only drives the batched
+   * profile lookups that zap rows in the chat reuse for names.
    */
   export let topZappers: { pubkey: string; sats: number }[] = [];
   /**
@@ -87,9 +90,16 @@
   export let target: string | null = null;
   /** The stream has ended: the chat is shown read-only. */
   export let closed = false;
+  /** The chat is taking the full content width (docked video or user choice). */
+  export let expanded = false;
+  /** Show the expand/contract toggle (only meaningful beside a video column). */
+  export let expandable = false;
 
   /** Verified zaps seen by the chat so far (the Go live host page shows them). */
-  const dispatch = createEventDispatcher<{ zaps: { sats: number; count: number } }>();
+  const dispatch = createEventDispatcher<{
+    zaps: { sats: number; count: number };
+    toggleExpand: void;
+  }>();
   function reportZaps() {
     dispatch('zaps', { sats: Math.floor(totals.msats / 1000), count: totals.count });
   }
@@ -110,6 +120,14 @@
   let noticeTimer: ReturnType<typeof setTimeout> | null = null;
   let sending = false;
   let draft = '';
+  let draftInput: HTMLTextAreaElement | null = null;
+  /** One row until the text needs more; capped by max-h-32. */
+  function growDraftInput(el: HTMLTextAreaElement) {
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 128)}px`;
+  }
+  // A sent or cleared draft shrinks the composer back to its one-row base.
+  $: if (draftInput && !draft) draftInput.style.height = '';
   let replyTo: NostrEventLike | null = null;
   let log: HTMLElement | null = null;
   let sub: { close: () => void } | null = null;
@@ -330,12 +348,6 @@
 
   // Top-zapper chips show real names: fold them into the batched lookups.
   $: scheduleProfiles(topZappers.map((z) => z.pubkey));
-
-  function compact(n: number): string {
-    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-    if (n >= 1_000) return `${(n / 1_000).toFixed(n >= 10_000 ? 0 : 1)}K`;
-    return String(n);
-  }
 
   function setNotice(text: string, duration = 0) {
     if (noticeTimer) clearTimeout(noticeTimer);
@@ -663,16 +675,34 @@
 </script>
 
 <section
-  class="flex h-full min-h-0 flex-col rounded-xl"
+  class="flex h-full min-h-0 flex-col overflow-hidden rounded-xl"
   style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
 >
   <header
-    class="flex items-center justify-between border-b px-3 py-2"
+    class="flex items-center justify-between border-b px-3 py-1.5"
     style="border-color: var(--color-input-border); background-color: color-mix(in srgb, var(--color-bg-secondary) 70%, transparent);"
   >
-    <h2 class="text-sm font-semibold" style="color: var(--color-text-primary);">Live chat</h2>
-    <span class="flex items-center gap-2 text-xs" style="color: var(--color-caption);">
+    <h2
+      class="!text-xs font-semibold uppercase !tracking-wide"
+      style="color: var(--color-caption);"
+    >
+      Live chat
+    </h2>
+    <span class="flex items-center gap-1.5 text-xs" style="color: var(--color-caption);">
       {rows.length > 0 ? `${rows.length} messages` : ''}
+      {#if !historyComplete && rows.length < HISTORY_CAP}
+        {#if rows.length > 0}<span aria-hidden="true">·</span>{/if}
+        <button
+          type="button"
+          class="underline hover:opacity-80 disabled:opacity-50 cursor-pointer"
+          style="color: var(--color-caption);"
+          disabled={historyBusy || loading}
+          aria-label="Load older messages"
+          on:click={() => load(false)}
+        >
+          {historyBusy ? 'loading…' : 'older'}
+        </button>
+      {/if}
       {#if canModerate && hiddenList.length}
         <button
           type="button"
@@ -681,6 +711,23 @@
           on:click={() => (hiddenOpen = !hiddenOpen)}
         >
           Hidden ({hiddenList.length})
+        </button>
+      {/if}
+      {#if expandable}
+        <button
+          type="button"
+          class="rounded p-1 hover:opacity-80 cursor-pointer"
+          style="color: var(--color-caption);"
+          aria-pressed={expanded}
+          aria-label="Toggle chat panel size"
+          title={expanded ? 'Collapse chat' : 'Expand chat'}
+          on:click={() => dispatch('toggleExpand')}
+        >
+          {#if expanded}
+            <ArrowsIn size={16} />
+          {:else}
+            <ArrowsOutSimple size={16} />
+          {/if}
         </button>
       {/if}
     </span>
@@ -716,60 +763,11 @@
     </ul>
   {/if}
 
-  {#if topZappers.length}
-    <!-- Top zappers strip (Sidecar parity): ranked senders with pfp + sats. -->
-    <div
-      class="flex gap-1.5 overflow-x-auto border-b px-3 py-2"
-      style="border-color: var(--color-input-border);"
-      aria-label="Top zappers"
-    >
-      {#each topZappers as zapper, i (zapper.pubkey)}
-        {@const name = displayName(zapper.pubkey)}
-        <button
-          type="button"
-          class="flex shrink-0 items-center gap-1 rounded-full py-0.5 pl-0.5 pr-2 text-xs transition-colors hover:bg-accent-gray cursor-pointer"
-          style="background-color: var(--color-bg-secondary);"
-          title={'#' + (i + 1) + ' ' + name + ' — ' + zapper.sats.toLocaleString() + ' sats'}
-          on:click={() => openProfilePreview(zapper.pubkey)}
-        >
-          <span
-            class="chat-avatar-placeholder overflow-hidden rounded-full"
-            style="width:20px;height:20px"
-          >
-            <Avatar
-              pubkey={zapper.pubkey}
-              src={profiles.get(zapper.pubkey)?.picture || null}
-              size={20}
-              alt={name}
-              interactive={false}
-            />
-          </span>
-          <span class="max-w-24 truncate" style="color: var(--color-text-primary);">{name}</span>
-          <span class="font-semibold tabular-nums text-amber-500">
-            {compact(zapper.sats)}
-          </span>
-        </button>
-      {/each}
-    </div>
-  {/if}
-
-  <div class="px-3 pt-2">
     {#if rows.length >= HISTORY_CAP}
-      <p class="mb-2 text-center text-xs" style="color: var(--color-caption);">
+      <p class="px-3 pb-1 text-center text-xs" style="color: var(--color-caption);">
         This chat has too many messages to load further history.
       </p>
-    {:else if !historyComplete}
-      <button
-        type="button"
-        class="mb-2 w-full rounded-lg py-1 text-xs transition-colors hover:bg-accent-gray disabled:opacity-50 cursor-pointer"
-        style="border: 1px solid var(--color-input-border); color: var(--color-caption);"
-        disabled={historyBusy || loading}
-        on:click={() => load(false)}
-      >
-        {historyBusy ? 'Loading…' : 'Older messages'}
-      </button>
     {/if}
-  </div>
 
   <div bind:this={log} class="flex-1 overflow-y-auto px-3 pb-2" aria-label="Stream chat">
     {#if loading}
@@ -981,13 +979,19 @@
     {/each}
   </div>
 
-  <footer class="border-t px-3 py-2" style="border-color: var(--color-input-border);">
+  {#if notice}
+    <!-- Status sits between the last comment and the input, inside the
+         frame, so it never breaks the composer's flush bottom corners. -->
+    <p class="mx-3 mb-1 text-xs" style="color: var(--color-caption);" role="status">{notice}</p>
+  {/if}
+
+  <footer class="border-t" style="border-color: var(--color-input-border);">
     {#if closed}
-      <p class="text-xs" style="color: var(--color-caption);">
+      <p class="px-3 py-2 text-xs" style="color: var(--color-caption);">
         This live stream has ended. The chat is closed.
       </p>
     {:else if signingIn}
-      <p class="text-xs" style="color: var(--color-caption);">
+      <p class="px-3 py-2 text-xs" style="color: var(--color-caption);">
         <a
           class="underline hover:opacity-80"
           href={`/login?redirect=${encodeURIComponent($page.url.pathname)}`}>Sign in</a
@@ -996,7 +1000,7 @@
     {:else}
       {#if replyTo}
         <div
-          class="mb-1 flex items-center justify-between gap-2 rounded px-2 py-1 text-xs"
+          class="mx-3 mt-2 mb-1 flex items-center justify-between gap-2 rounded px-2 py-1 text-xs"
           style="background-color: var(--color-bg-secondary);"
         >
           <span class="truncate" style="color: var(--color-caption);">
@@ -1012,17 +1016,20 @@
         </div>
       {/if}
       <div class="flex items-end">
-        <!-- Composer per the Messages-panel pattern: attached orange send
-             button, NIP-57-style focus ring on the shared accent. -->
+        <!-- Composer unified with the panel frame: the input row is flush
+             with the panel's bottom edge, the orange send button fills the
+             right end, and focus shows the shared accent as an inset ring. -->
         <textarea
           bind:value={draft}
-          rows="2"
+          bind:this={draftInput}
+          rows="1"
           maxlength="4000"
           placeholder="Type a message..."
           aria-label="Write a message"
-          class="chat-input input min-w-0 flex-1 resize-none text-sm min-h-[42px] max-h-32 transition-colors duration-200"
-          style="background-color: var(--color-input-bg); border-radius: 0.75rem 0 0 0.75rem; border: 1px solid rgba(249, 115, 22, 0.35); border-right: none;"
+          class="chat-input input min-w-0 flex-1 resize-none border-0 !rounded-none text-sm min-h-[42px] max-h-32 overflow-y-auto transition-colors duration-200"
+          style="background-color: var(--color-input-bg);"
           disabled={sending}
+          on:input={(e) => growDraftInput(e.currentTarget)}
           on:keydown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
@@ -1032,7 +1039,7 @@
         ></textarea>
         <button
           type="button"
-          class="self-stretch rounded-l-none rounded-r-xl p-2.5 transition-colors cursor-pointer disabled:opacity-40"
+          class="self-stretch p-2.5 transition-colors cursor-pointer disabled:opacity-40"
           style="background-color: var(--color-primary); color: #ffffff;"
           disabled={sending || !draft.trim()}
           aria-label="Send message"
@@ -1047,9 +1054,6 @@
           {/if}
         </button>
       </div>
-    {/if}
-    {#if notice}
-      <p class="mt-1 text-xs" style="color: var(--color-caption);" role="status">{notice}</p>
     {/if}
   </footer>
 </section>
