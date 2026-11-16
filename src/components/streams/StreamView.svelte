@@ -64,15 +64,30 @@
   // The floating create and scroll-to-top buttons would sit on the player's
   // controls and the Zap button; the stream page keeps that corner clear.
   const DOCK_OWNER = 'stream-page';
-  const WIDE_QUERY = '(min-width: 1200px)';
-  let wide = browser && window.matchMedia(WIDE_QUERY).matches;
+  // Side-by-side chat earns its keep only when the video keeps real
+  // width: a landscape 16:9 stream needs ~1440px of viewport (past the
+  // sidebar and the 22rem rail) to stay watchable beside the chat, while
+  // a portrait picture pairs with the rail from 1200px — stacked, it
+  // would tower over the page.
+  const LANDSCAPE_WIDE_QUERY = '(min-width: 1440px)';
+  const PORTRAIT_WIDE_QUERY = '(min-width: 1200px)';
+  let wideLandscape = browser && window.matchMedia(LANDSCAPE_WIDE_QUERY).matches;
+  let widePortrait = browser && window.matchMedia(PORTRAIT_WIDE_QUERY).matches;
   onMount(() => {
     setBottomDockClaim(DOCK_OWNER, true);
-    const mq = window.matchMedia(WIDE_QUERY);
-    const onChange = () => (wide = mq.matches);
-    mq.addEventListener('change', onChange);
+    const landscapeMq = window.matchMedia(LANDSCAPE_WIDE_QUERY);
+    const portraitMq = window.matchMedia(PORTRAIT_WIDE_QUERY);
+    const onChange = () => {
+      wideLandscape = landscapeMq.matches;
+      widePortrait = portraitMq.matches;
+    };
+    landscapeMq.addEventListener('change', onChange);
+    portraitMq.addEventListener('change', onChange);
     onChange();
-    return () => mq.removeEventListener('change', onChange);
+    return () => {
+      landscapeMq.removeEventListener('change', onChange);
+      portraitMq.removeEventListener('change', onChange);
+    };
   });
   onDestroy(() => setBottomDockClaim(DOCK_OWNER, false));
 
@@ -82,7 +97,7 @@
   $: chatShown = !goLive || !!item.noteId || !!item.notePending;
   /** A vertical picture: the wide layout keeps the chat beside it at full height. */
   $: portraitVideo = $streamPlayer.orientation === 'portrait';
-  $: twoCol = wide && chatShown;
+  $: twoCol = chatShown && wideEnough;
   /**
    * The video minimized itself (docked to the corner): the leftover strips
    * would strand the chat in a skinny rail beside a hole in every layout,
@@ -116,14 +131,16 @@
     }
     chatExpanded = !chatExpanded;
   }
+  /** Width gate for the wide layout, per the picture's orientation. */
+  $: wideEnough = portraitVideo ? widePortrait : wideLandscape;
   /** Narrow Go live with both: the Chat | Recipe tabs. */
-  $: tabbed = !wide && goLive && hasRecipe && chatShown;
+  $: tabbed = !wideEnough && goLive && hasRecipe && chatShown;
   // The chat stays mounted on the Recipe tab (hidden, not removed): it
   // feeds the on-video comments and zap animations, which must keep
   // working while the viewer reads the recipe (or goes full screen from it).
   $: chatHidden = tabbed && tab !== 'chat';
-  $: recipeInMain = hasRecipe && wide;
-  $: recipeInSide = hasRecipe && !wide && (!chatShown || tab === 'recipe');
+  $: recipeInMain = hasRecipe && wideEnough;
+  $: recipeInSide = hasRecipe && !wideEnough && (!chatShown || tab === 'recipe');
   // The marker that docks the video on scroll: whatever sits under it.
   $: marker = twoCol ? (recipeInMain ? recipeEl : null) : panelEl;
 </script>
@@ -272,6 +289,9 @@
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
+    /* The dock collapse shrinks the page; never let the browser anchor
+       the scroll to content below and fight the dock clamp. */
+    overflow-anchor: none;
   }
   .main-col,
   .side-col {
