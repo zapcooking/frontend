@@ -193,5 +193,16 @@ export async function fetchSession(
  */
 export function mergeLiveItems(goLive: StreamItem[], nostr: StreamItem[]): StreamItem[] {
   const ours = [...goLive].sort((a, b) => (b.starts ?? b.updated) - (a.starts ?? a.updated));
-  return [...ours, ...nostr];
+  // A Go live session that published its NIP-53 announcement would appear
+  // twice — once from the API, once from 30311 discovery. The
+  // announcement's streaming tag names the session's join endpoint: match
+  // on the session id and keep the API copy (it has the live chat).
+  const sessionIds = new Set(
+    goLive.map((i) => i.sessionId).filter((id): id is string => !!id)
+  );
+  const nostrOnly = nostr.filter((i) => {
+    const m = i.url?.match(/\/api\/live\/([0-9a-f-]+)\/join/i);
+    return !(m && sessionIds.has(m[1]));
+  });
+  return [...ours, ...nostrOnly];
 }

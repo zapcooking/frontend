@@ -10,7 +10,7 @@
 
 import { nip19 } from 'nostr-tools';
 import { getAnonChefName } from '$lib/anonName';
-import type { NostrEventLike, StreamItem } from './types';
+import type { NostrEventLike, StreamBookmark, StreamItem } from './types';
 
 /** Absolute https URL with no credentials, or null. */
 export function httpsUrl(value: unknown): string | null {
@@ -56,6 +56,7 @@ export function parseStreamEvent(
 
   const status = tagValue(event, 'status') || null;
   const ends = timestampTag(event, 'ends');
+  const goalTag = tagValue(event, 'goal');
   return {
     key: `30311:${event.pubkey}:${d}`,
     id: event.id,
@@ -69,6 +70,7 @@ export function parseStreamEvent(
     summary: String(tagValue(event, 'summary') || '').slice(0, 12000),
     starts: timestampTag(event, 'starts'),
     ends: ends !== null && ends <= now ? ends : null,
+    goal: goalTag && /^[a-f0-9]{64}$/.test(goalTag) ? goalTag : null,
     categories: event.tags
       .filter((t) => Array.isArray(t) && t[0] === 't' && typeof t[1] === 'string')
       .slice(0, 12)
@@ -196,5 +198,37 @@ export function runtime(
     days: Math.floor(minutes / 1440),
     hours: Math.floor(minutes / 60) % 24,
     minutes: minutes % 60
+  };
+}
+
+/** Normalized input for saving a stream: a subset of StreamItem or StreamBookmark fields. */
+export type BookmarkInput = {
+  key?: string;
+  id?: string;
+  url?: string | null;
+  title?: string;
+  image?: string | null;
+  host?: string | null;
+  relays?: unknown;
+};
+
+/** Normalize a stream into a savable bookmark, or null when neither a safe URL nor an address survives. */
+export function streamBookmark(item: BookmarkInput | null | undefined): StreamBookmark | null {
+  const url = httpsUrl(item?.url);
+  const address = /^30311:[a-f0-9]{64}:/.test(item?.key || '') ? item!.key : null;
+  if (!url && !address) return null;
+  const host = item?.host;
+  return {
+    key: address || 'url:' + url,
+    url,
+    title: String(item?.title || (url ? new URL(url).hostname : 'Untitled livestream')).slice(
+      0,
+      240
+    ),
+    image: httpsUrl(item?.image),
+    host: /^[a-f0-9]{64}$/.test(host || '') ? host! : null,
+    relays: (Array.isArray(item?.relays) ? item!.relays : [])
+      .filter((u): u is string => typeof u === 'string' && u.startsWith('wss://'))
+      .slice(0, 6)
   };
 }

@@ -116,6 +116,19 @@ describe('mergeLiveItems', () => {
       'n2'
     ]);
   });
+
+  it('drops the announcement copy of a session that also came from the API', () => {
+    const id = 'a'.repeat(32);
+    const live = sessionToStreamItem(session({ id }));
+    const announcement = {
+      key: `30311:${'b'.repeat(32)}:${id}`,
+      url: `https://zap.cooking/api/live/${id}/join`
+    } as StreamItem;
+    const unrelated = { key: 'n1' } as StreamItem;
+    expect(
+      mergeLiveItems([live], [announcement, unrelated]).map((i) => i.key)
+    ).toEqual([`zc:${id}`, 'n1']);
+  });
 });
 
 describe('reading sessions', () => {

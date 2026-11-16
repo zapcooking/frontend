@@ -54,6 +54,8 @@ export interface StreamItem {
   viewers: number | null;
   /** Relays the announcement asks readers to use. */
   relays: string[];
+  /** NIP-75: the announcement's `goal` tag — the kind 9041 goal event id. */
+  goal?: string | null;
   /** The `p` tag marked `host`, falling back to the announcement author. */
   host: string;
   /**
@@ -75,6 +77,16 @@ export interface StreamItem {
    * is starting or just went live). Zap waits instead of zapping the profile.
    */
   notePending?: boolean;
+}
+
+/** A saved stream. Addressable streams keep their `30311:…` key; pasted links use `url:<https url>`. */
+export interface StreamBookmark {
+  key: string;
+  url: string | null;
+  title: string;
+  image: string | null;
+  host: string | null;
+  relays: string[];
 }
 
 /** Where the player currently renders. One surface owns the video at a time. */
