@@ -15,7 +15,9 @@
   import { nip19 } from 'nostr-tools';
   import BellIcon from 'phosphor-svelte/lib/Bell';
   import EnvelopeSimpleIcon from 'phosphor-svelte/lib/EnvelopeSimple';
+  import { createEventDispatcher } from 'svelte';
   import { clickOutside } from '$lib/clickOutside';
+  import { viewportPanel } from '$lib/actions/viewportPanel';
   import {
     notifications,
     visibleNotifications,
@@ -55,7 +57,16 @@
   // /notifications and /messages.
   const MAX_PREVIEW = 20;
 
-  let open = false;
+  /** Which way the panel opens: 'right' in the header strip, 'left' in
+      the sidebar's user bar (drops down and extends into the viewport,
+      escaping the sidebar's overflow clipping). */
+  export let panelAlign: 'right' | 'left' = 'right';
+
+  /** Controlled by the parent cluster (which closes this panel when
+      another popover in the row opens): read this to render, dispatch
+      `open` / `close` to change it. */
+  export let open = false;
+  const dispatch = createEventDispatcher();
   let activeTab: Tab = 'all';
 
   // Neither backing store can be trusted for durable read-state: the
@@ -173,7 +184,7 @@
       close();
       return;
     }
-    open = true;
+    dispatch('open');
     activeTab = 'all';
     // The panel opens instantly from the store (cache-first); this
     // bounded re-query runs behind it so the rows catch up on anything
@@ -206,7 +217,7 @@
   // items within its persistence cap; the watermark covers the rest.
   function close() {
     if (!open) return;
-    open = false;
+    dispatch('close');
     notifications.markAllAsRead();
     markAllSeen();
     if ($activeNudge) markNudgeSeen($activeNudge.pubkey);
@@ -315,7 +326,14 @@
   </button>
 
   {#if open}
-    <div class="notif-panel" role="dialog" aria-modal="true" aria-label="Recent notifications">
+    <div
+      class="notif-panel"
+      class:notif-panel-left={panelAlign === 'left'}
+      use:viewportPanel={{ enabled: panelAlign === 'left' }}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Recent notifications"
+    >
       <div class="notif-panel-header">
         <span class="notif-panel-title">Notifications</span>
       </div>
@@ -503,6 +521,12 @@
     font-weight: 700;
     line-height: 16px;
     text-align: center;
+  }
+
+  /* Left placement (sidebar user bar): the viewportPanel action fixes
+       the position; this marker class only carries the max-width cap. */
+  .notif-panel-left {
+    max-width: calc(100vw - 24px);
   }
 
   /* Dropdown panel — mirrors the IntelligenceMenu surface. */

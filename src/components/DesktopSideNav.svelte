@@ -2,9 +2,17 @@
   import { page } from '$app/stores';
   import { theme } from '$lib/themeStore';
   import { userPublickey } from '$lib/nostr';
+  import { openUserSidePanel } from '$lib/stores/userSidePanel';
+  import CustomAvatar from './CustomAvatar.svelte';
   import { lockedVaultPubkey } from '$lib/auth/lockedVault';
   import { navBalanceVisible } from '$lib/wallet';
   import SidebarWallet from './SidebarWallet.svelte';
+  import TagsSearchAutocomplete from './TagsSearchAutocomplete.svelte';
+  import HeaderActions from './HeaderActions.svelte';
+  import IdentityControl from './IdentityControl.svelte';
+  import ContinueAsChip from './ContinueAsChip.svelte';
+  import DeviceMobileIcon from 'phosphor-svelte/lib/DeviceMobile';
+  import { openSearch, openTag } from '$lib/searchNav';
   import { slide } from 'svelte/transition';
   import CaretDownIcon from 'phosphor-svelte/lib/CaretDown';
   import CalculatorIcon from 'phosphor-svelte/lib/Calculator';
@@ -24,7 +32,6 @@
   import HandshakeIcon from 'phosphor-svelte/lib/Handshake';
   import StorefrontIcon from 'phosphor-svelte/lib/Storefront';
   import LeafIcon from 'phosphor-svelte/lib/Leaf';
-  import DeviceMobileIcon from 'phosphor-svelte/lib/DeviceMobile';
   import ClockCounterClockwiseIcon from 'phosphor-svelte/lib/ClockCounterClockwise';
   import { totalUnreadCount } from '$lib/stores/messages';
   import { loginOverlayOpen, openSignup } from '$lib/stores/loginOverlay';
@@ -71,11 +78,17 @@
       icon: BroadcastIcon,
       match: (p) => p.startsWith('/live')
     },
+  ];
+
+  // The community surfaces: social and interactive, not cooking. Grouped
+  // (collapsed by default) to keep the primary list scannable.
+  const community: NavItem[] = [
     {
-      href: '/polls',
-      label: 'Polls',
-      icon: ChartBarHorizontalIcon,
-      match: (p) => p.startsWith('/polls')
+      href: '/messages',
+      label: 'Messages',
+      icon: EnvelopeSimpleIcon,
+      match: (p) => p.startsWith('/messages'),
+      badge: 'messagesDot'
     },
     {
       href: '/market',
@@ -83,16 +96,11 @@
       icon: StorefrontIcon,
       match: (p) => p.startsWith('/market') || p.startsWith('/my-store')
     },
-    // Notifications intentionally has no side-nav entry on desktop —
-    // it lives in the header as a bell + dropdown beside the user
-    // avatar (NotificationBell.svelte). Mobile keeps the bottom-nav
-    // bell.
     {
-      href: '/messages',
-      label: 'Messages',
-      icon: EnvelopeSimpleIcon,
-      match: (p) => p.startsWith('/messages'),
-      badge: 'messagesDot'
+      href: '/polls',
+      label: 'Polls',
+      icon: ChartBarHorizontalIcon,
+      match: (p) => p.startsWith('/polls')
     },
     {
       href: '/memories',
@@ -133,12 +141,6 @@
       icon: BasketIcon,
       match: (p) => p.startsWith('/pantry')
     },
-    {
-      href: '/downloads',
-      label: 'Get the app',
-      icon: DeviceMobileIcon,
-      match: (p) => p.startsWith('/downloads')
-    }
   ];
 
   // My Kitchen collapses to save vertical space; defaults open when the
@@ -152,15 +154,41 @@
     item.match ? item.match($page.url.pathname) : $page.url.pathname === item.href
   );
 
+  let communityExpanded = community.some((item) =>
+    item.match ? item.match($page.url.pathname) : $page.url.pathname === item.href
+  );
+
   // Auto-expand only (never auto-collapse): arriving on a kitchen route
   // while the group is closed reveals the active link; browsing away
   // preserves whatever open/closed state the user last chose.
+  // Auto-expand only on ARRIVAL at a route of the group, never on the
+  // expansion state itself: the reactive re-runs when `communityExpanded`
+  // changes, and without the route-change guard a collapse click on the
+  // section's own page would be undone instantly.
+  let lastAutoExpandPath = '';
+  let wasInKitchen = false;
+  let wasInCommunity = false;
   $: {
-    const onKitchenRoute = kitchen.some((item) =>
-      item.match ? item.match($page.url.pathname) : $page.url.pathname === item.href
-    );
-    if (onKitchenRoute && !kitchenExpanded) {
-      kitchenExpanded = true;
+    const path = $page.url.pathname;
+    if (path !== lastAutoExpandPath) {
+      lastAutoExpandPath = path;
+      const inKitchen = kitchen.some((item) =>
+        item.match ? item.match(path) : path === item.href
+      );
+      const inCommunity = community.some((item) =>
+        item.match ? item.match(path) : path === item.href
+      );
+      // Expand only when ARRIVING in the group from outside it: navigating
+      // between a group's own sub-routes must not resurrect a group the
+      // user collapsed.
+      if (inKitchen && !wasInKitchen && !kitchenExpanded) {
+        kitchenExpanded = true;
+      }
+      if (inCommunity && !wasInCommunity && !communityExpanded) {
+        communityExpanded = true;
+      }
+      wasInKitchen = inKitchen;
+      wasInCommunity = inCommunity;
     }
   }
 
@@ -206,6 +234,32 @@
         alt="Zap Cooking"
       />
     </a>
+    <!-- ≥xl: the header strip is gone — search, then a user bar
+         (identity left, utilities right), then the nav. -->
+    <div class="hidden xl:flex flex-col gap-2 mt-1">
+      <TagsSearchAutocomplete
+        placeholderString={'Search recipes, tags, or users...'}
+        action={openTag}
+        onSubmitQuery={openSearch}
+      />
+      <div class="flex items-center justify-between gap-1 h-12 px-1.5 rounded-xl transition-colors hover:bg-accent-gray cursor-default">
+        {#if $userPublickey !== '' && !$lockedVaultPubkey}
+          <button
+            type="button"
+            class="flex items-center h-full px-0.5 rounded-full cursor-pointer hover:bg-accent-gray transition-colors"
+            on:click={() => openUserSidePanel('left')}
+            aria-label="Open user menu"
+          >
+            <CustomAvatar pubkey={$userPublickey} size={34} />
+          </button>
+        {:else if $lockedVaultPubkey}
+          <ContinueAsChip pubkey={$lockedVaultPubkey} />
+        {:else}
+          <IdentityControl />
+        {/if}
+        <HeaderActions panelAlign="left" />
+      </div>
+    </div>
     <nav class="flex flex-col gap-3 mt-3">
       <div>
         <!-- The Home group runs unlabeled; this spacer holds the height
@@ -281,6 +335,88 @@
           </div>
         </div>
       {/if}
+      {#if !$userPublickey}
+        <!-- Get the app lives in the user panel for signed-in viewers, but
+             signed-out visitors have no panel — keep the download reachable
+             in the sidebar's wallet slot region. -->
+        <div class="mt-1">
+          <a
+            href="/downloads"
+            class="nav-auth-download"
+            style="color: var(--color-text-primary);"
+          >
+            <span class="relative flex items-center justify-center w-9 h-9 rounded-xl">
+              <DeviceMobileIcon size={20} />
+            </span>
+            <span class="font-medium">Get the app</span>
+          </a>
+        </div>
+      {/if}
+
+      <!-- Community group: collapsed by default to keep the primary
+           list scannable; auto-expands on any of its routes. The
+           header carries the unread dot while collapsed so a closed
+           group can't hide new messages. -->
+      <div class="mt-1">
+        <button
+          type="button"
+          class="w-full flex items-center justify-between px-3 pb-2 font-semibold uppercase tracking-wider cursor-pointer transition-colors hover:opacity-80"
+          style="color: var(--color-caption); font-size: 12px;"
+          on:click={() => (communityExpanded = !communityExpanded)}
+          aria-expanded={communityExpanded}
+          aria-controls="community-nav-desktop"
+        >
+          <span class="flex items-center gap-2">
+            Community
+            {#if !communityExpanded && $totalUnreadCount > 0}
+              <span
+                class="w-2 h-2 rounded-full bg-red-500"
+                aria-label="Unread messages"
+              ></span>
+            {/if}
+          </span>
+          <CaretDownIcon
+            size={12}
+            weight="bold"
+            class="transition-transform duration-200 {communityExpanded ? 'rotate-180' : ''}"
+          />
+        </button>
+        {#if communityExpanded}
+          <ul id="community-nav-desktop" class="flex flex-col gap-1" transition:slide={{ duration: 200 }}>
+            {#each community as item (item.href)}
+              {@const active = item.match ? item.match(pathname) : pathname === item.href}
+              <li>
+                <a
+                  href={item.href}
+                  class={linkClasses(active)}
+                  style="color: var(--color-text-primary);"
+                  aria-current={active ? 'page' : undefined}
+                  target={item.external ? '_blank' : undefined}
+                  rel={item.external ? 'noopener noreferrer' : undefined}
+                >
+                  <span class="relative flex items-center justify-center w-9 h-9 rounded-xl">
+                    <svelte:component
+                      this={item.icon}
+                      size={20}
+                      weight={item.href === '/messages' && $totalUnreadCount > 0
+                        ? 'fill'
+                        : 'regular'}
+                    />
+                    {#if item.badge === 'messagesDot' && $totalUnreadCount > 0}
+                      <span
+                        class="absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full bg-red-500 border-2"
+                        style="border-color: var(--color-bg-primary);"
+                        aria-hidden="true"
+                      ></span>
+                    {/if}
+                  </span>
+                  <span class="font-medium">{item.label}</span>
+                </a>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      </div>
 
       <div class="mt-1">
         <!-- Expandable group header (defaults closed — see kitchenExpanded) -->
@@ -395,6 +531,22 @@
   }
   .nav-auth-signin:focus-visible,
   .nav-auth-join:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: -2px;
+  }
+  .nav-auth-download {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.375rem 0.75rem;
+    border-radius: 0.75rem;
+    transition: background-color 140ms ease;
+    cursor: pointer;
+  }
+  .nav-auth-download:hover {
+    background-color: var(--color-input-bg);
+  }
+  .nav-auth-download:focus-visible {
     outline: 2px solid var(--color-primary);
     outline-offset: -2px;
   }

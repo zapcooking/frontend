@@ -19,7 +19,6 @@
   import LeafIcon from 'phosphor-svelte/lib/Leaf';
   import CrownSimpleIcon from 'phosphor-svelte/lib/CrownSimple';
   import HandshakeIcon from 'phosphor-svelte/lib/Handshake';
-  import DeviceMobileIcon from 'phosphor-svelte/lib/DeviceMobile';
   import { totalUnreadCount } from '$lib/stores/messages';
   import { navBalanceVisible } from '$lib/wallet';
   import { userPublickey } from '$lib/nostr';
@@ -29,6 +28,7 @@
   import BasketIcon from 'phosphor-svelte/lib/Basket';
   import EggTimerIcon from './icons/EggTimerIcon.svelte';
   import { cookingToolsStore } from '$lib/stores/cookingToolsWidget';
+  import DeviceMobileIcon from 'phosphor-svelte/lib/DeviceMobile';
 
   $: pathname = $page.url.pathname;
 
@@ -40,14 +40,19 @@
     badge?: 'messages';
   };
 
+  // Mirrors the desktop sidebar's structure: primary surfaces, then the
+  // collapsible Community group, then My Kitchen.
   const homeItems: NavItem[] = [
     { href: '/feed', label: 'Feed', icon: FlameIcon, match: (p) => p === '/' || p.startsWith('/feed') },
     { href: '/recipes', label: 'Recipes', icon: ForkKnifeIcon, match: (p) => p.startsWith('/recipes') || p.startsWith('/recent') },
     { href: '/reads', label: 'Reads', icon: NewspaperIcon, match: (p) => p.startsWith('/reads') || p.startsWith('/r/') },
     { href: '/live', label: 'Live', icon: BroadcastIcon, match: (p) => p.startsWith('/live') },
-    { href: '/polls', label: 'Polls', icon: ChartBarHorizontalIcon, match: (p) => p.startsWith('/polls') },
-    { href: '/market', label: 'Market', icon: StorefrontIcon, match: (p) => p.startsWith('/market') || p.startsWith('/my-store') },
+  ];
+
+  const communityItems: NavItem[] = [
     { href: '/messages', label: 'Messages', icon: EnvelopeSimpleIcon, match: (p) => p.startsWith('/messages'), badge: 'messages' },
+    { href: '/market', label: 'Market', icon: StorefrontIcon, match: (p) => p.startsWith('/market') || p.startsWith('/my-store') },
+    { href: '/polls', label: 'Polls', icon: ChartBarHorizontalIcon, match: (p) => p.startsWith('/polls') },
     { href: '/memories', label: 'Memories', icon: ClockCounterClockwiseIcon, match: (p) => p.startsWith('/memories') },
   ];
 
@@ -57,7 +62,6 @@
     { href: '/membership', label: 'Membership', icon: CrownSimpleIcon, match: (p) => p.startsWith('/membership') },
     { href: '/sponsors', label: 'Sponsors', icon: HandshakeIcon, match: (p) => p.startsWith('/sponsors') },
     { href: '/pantry', label: 'The Pantry Relay', icon: BasketIcon, match: (p) => p.startsWith('/pantry') },
-    { href: '/downloads', label: 'Get the app', icon: DeviceMobileIcon, match: (p) => p.startsWith('/downloads') },
   ];
 
   // My Kitchen collapses to save vertical space; defaults open when the
@@ -67,11 +71,31 @@
   // out, the user's open/closed choice survives browsing). ($page
   // directly: the `pathname` reactive hasn't run at init time.)
   let kitchenExpanded = kitchenItems.some((item) => item.match($page.url.pathname));
+  let communityExpanded = communityItems.some((item) => item.match($page.url.pathname));
 
+  // Auto-expand only on arrival at a group route — a collapse click on
+  // the section's own page would otherwise be undone instantly (see the
+  // desktop sidebar for the same note).
+  let lastAutoExpandPath = '';
+  let wasInKitchen = false;
+  let wasInCommunity = false;
   $: {
-    const onKitchenRoute = kitchenItems.some((item) => item.match($page.url.pathname));
-    if (onKitchenRoute && !kitchenExpanded) {
-      kitchenExpanded = true;
+    const path = $page.url.pathname;
+    if (path !== lastAutoExpandPath) {
+      lastAutoExpandPath = path;
+      const inKitchen = kitchenItems.some((item) => item.match(path));
+      const inCommunity = communityItems.some((item) => item.match(path));
+      // Expand only when ARRIVING in the group from outside it (see the
+      // desktop sidebar): sub-route hops inside a group must not
+      // resurrect a collapsed group.
+      if (inKitchen && !wasInKitchen && !kitchenExpanded) {
+        kitchenExpanded = true;
+      }
+      if (inCommunity && !wasInCommunity && !communityExpanded) {
+        communityExpanded = true;
+      }
+      wasInKitchen = inKitchen;
+      wasInCommunity = inCommunity;
     }
   }
 
@@ -168,14 +192,7 @@
                 aria-current={active ? 'page' : undefined}
               >
                 <span class="relative flex items-center justify-center w-9 h-9 rounded-xl flex-shrink-0">
-                  <svelte:component this={item.icon} size={20} weight={item.badge === 'messages' && $totalUnreadCount > 0 ? 'fill' : 'regular'} />
-                  {#if item.badge === 'messages' && $totalUnreadCount > 0}
-                    <span
-                      class="absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full bg-red-500 border-2"
-                      style="border-color: var(--color-bg-secondary);"
-                      aria-hidden="true"
-                    ></span>
-                  {/if}
+                  <svelte:component this={item.icon} size={20} />
                 </span>
                 <span class="font-medium">{item.label}</span>
               </a>
@@ -196,6 +213,63 @@
           <SidebarWallet onBeforeOpen={close} />
         </div>
       {/if}
+
+      <!-- COMMUNITY -->
+      <div class="mt-1">
+        <!-- Expandable group header (defaults closed unless on one of
+             its routes; carries the unread dot while collapsed). -->
+        <button
+          type="button"
+          class="w-full flex items-center justify-between px-3 pb-2 font-semibold uppercase tracking-wider cursor-pointer transition-colors hover:opacity-80"
+          style="color: var(--color-caption); font-size: 12px;"
+          on:click={() => (communityExpanded = !communityExpanded)}
+          aria-expanded={communityExpanded}
+          aria-controls="community-nav-mobile"
+        >
+          <span class="flex items-center gap-2">
+            Community
+            {#if !communityExpanded && $totalUnreadCount > 0}
+              <span
+                class="w-2 h-2 rounded-full bg-red-500"
+                aria-label="Unread messages"
+              ></span>
+            {/if}
+          </span>
+          <CaretDownIcon
+            size={12}
+            weight="bold"
+            class="transition-transform duration-200 {communityExpanded ? 'rotate-180' : ''}"
+          />
+        </button>
+        {#if communityExpanded}
+        <ul id="community-nav-mobile" class="flex flex-col gap-1" transition:slide={{ duration: 200 }}>
+          {#each communityItems as item}
+            {@const active = item.match(pathname)}
+            <li>
+              <a
+                href={item.href}
+                on:click={close}
+                class={linkClasses(active)}
+                style="color: var(--color-text-primary);"
+                aria-current={active ? 'page' : undefined}
+              >
+                <span class="relative flex items-center justify-center w-9 h-9 rounded-xl flex-shrink-0">
+                  <svelte:component this={item.icon} size={20} weight={item.badge === 'messages' && $totalUnreadCount > 0 ? 'fill' : 'regular'} />
+                  {#if item.badge === 'messages' && $totalUnreadCount > 0}
+                    <span
+                      class="absolute top-1.5 right-1.5 w-2.5 h-2.5 rounded-full bg-red-500 border-2"
+                      style="border-color: var(--color-bg-secondary);"
+                      aria-hidden="true"
+                    ></span>
+                  {/if}
+                </span>
+                <span class="font-medium">{item.label}</span>
+              </a>
+            </li>
+          {/each}
+        </ul>
+        {/if}
+      </div>
 
       <!-- MY KITCHEN -->
       <div class="mt-1">
@@ -258,6 +332,22 @@
         </ul>
         {/if}
       </div>
+
+      {#if !$userPublickey}
+        <!-- Get the app: the user panel needs a signed-in avatar, so
+             signed-out visitors reach /downloads from here. -->
+        <a
+          href="/downloads"
+          on:click={close}
+          class={linkClasses(false)}
+          style="color: var(--color-text-primary);"
+        >
+          <span class="relative flex items-center justify-center w-9 h-9 rounded-xl flex-shrink-0">
+            <DeviceMobileIcon size={20} />
+          </span>
+          <span class="font-medium">Get the app</span>
+        </a>
+      {/if}
 
     </nav>
   </aside>

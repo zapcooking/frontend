@@ -916,6 +916,14 @@
     padding: 12px;
     transition: box-shadow 0.2s;
   }
+  /* At xl the trigger lives in the sidebar (left edge), not the header. */
+  @media (min-width: 1280px) {
+    .tools-widget {
+      left: 16px;
+      right: auto;
+    }
+  }
+
 
   .tools-widget.dragging {
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);

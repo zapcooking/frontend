@@ -1,138 +1,13 @@
 <script lang="ts">
-  import { goto } from '$app/navigation';
   import { browser } from '$app/environment';
-  import { page } from '$app/stores';
-  import { userPublickey, userProfilePictureOverride } from '$lib/nostr';
-  import SearchIcon from 'phosphor-svelte/lib/MagnifyingGlass';
-  import EggTimerIcon from './icons/EggTimerIcon.svelte';
   import ListIcon from 'phosphor-svelte/lib/List';
   import TagsSearchAutocomplete from './TagsSearchAutocomplete.svelte';
-  import CustomAvatar from './CustomAvatar.svelte';
-  import IntelligenceIcon from './icons/IntelligenceIcon.svelte';
-  import IntelligenceMenu from './IntelligenceMenu.svelte';
-  import NotificationBell from './NotificationBell.svelte';
-  import { theme } from '$lib/themeStore';
-  import { userSidePanelOpen } from '$lib/stores/userSidePanel';
+  import HeaderActions from './HeaderActions.svelte';
+  import IdentityControl from './IdentityControl.svelte';
   import { mobileNavOpen } from '$lib/stores/mobileNav';
-  import { loginOverlayOpen, openSignup } from '$lib/stores/loginOverlay';
-  import { lockedVaultPubkey } from '$lib/auth/lockedVault';
-  import ContinueAsChip from './ContinueAsChip.svelte';
-  import { mobileSearchOpen } from '$lib/stores/mobileSearch';
-  import { parseNip19Input, isSecretKeyInput } from '$lib/nip19Input';
-  import { timerStore } from '$lib/timerStore';
-  import { cookingToolsStore, cookingToolsOpen } from '$lib/stores/cookingToolsWidget';
+  import { totalUnreadCount } from '$lib/stores/messages';
+  import { openSearch, openTag } from '$lib/searchNav';
   import { scrollActiveSurfaceToTop } from '$lib/activeScrollSurface';
-  import {
-    membershipStatusMap,
-    queueMembershipLookup,
-    type MembershipStatus,
-    type MembershipTier
-  } from '$lib/stores/membershipStatus';
-
-  let intelligenceMenuOpen = false;
-
-  // Count active timers (running or paused + done)
-  $: activeTimers = $timerStore.timers.filter(
-    (t) => t.status === 'running' || t.status === 'paused' || t.status === 'done'
-  );
-  $: hasActiveTimers = activeTimers.length > 0;
-
-  function openSearch(query: string) {
-    mobileSearchOpen.set(false);
-    // A pasted identifier is a destination, not a search term — and a
-    // secret key is neither, so it never reaches the results page (which
-    // would hand it to the search relays verbatim).
-    if (isSecretKeyInput(query)) return;
-    const target = parseNip19Input(query);
-    if (target) {
-      goto(target.path);
-      return;
-    }
-    goto(`/search?q=${encodeURIComponent(query)}`);
-  }
-
-  function openTag(query: string) {
-    mobileSearchOpen.set(false);
-    // Same invariant as openSearch: a secret key is never written into a
-    // URL, so it cannot become `/tag/nsec1…` either.
-    if (isSecretKeyInput(query)) return;
-    // Identifiers route to the thing they name, whether or not they arrived
-    // wearing NIP-21's `nostr:` scheme; anything else is a tag.
-    const target = parseNip19Input(query);
-    if (target) {
-      goto(target.path);
-      return;
-    }
-    goto(`/tag/${query}`);
-  }
-
-  $: resolvedTheme = $theme === 'system' ? theme.getResolvedTheme() : $theme;
-  $: isDarkMode = resolvedTheme === 'dark';
-
-  // Active state highlights the Intelligence icon when the user is
-  // currently on one of the AI surfaces.
-  $: onIntelligenceSurface =
-    $page.url.pathname.startsWith('/souschef') ||
-    $page.url.pathname.startsWith('/cheffy') ||
-    $page.url.pathname.startsWith('/zappy') ||
-    $page.url.pathname.startsWith('/nourish');
-
-  // Membership
-  let membershipMap: Record<string, MembershipStatus> = {};
-  const unsubMembership = membershipStatusMap.subscribe((value) => {
-    membershipMap = value;
-  });
-
-  $: if ($userPublickey) {
-    queueMembershipLookup($userPublickey);
-  }
-
-  // A locked vault session keeps $userPublickey (seeded from localStorage)
-  // but isn't signed in yet: no member icons until it's unlocked. Also leaves
-  // the phone header room for the "Continue as" chip.
-  $: showMemberChrome = !!$userPublickey && !$lockedVaultPubkey;
-
-  $: userMembershipStatus = $userPublickey
-    ? membershipMap[$userPublickey.trim().toLowerCase()]
-    : undefined;
-  $: isActiveMember = Boolean(userMembershipStatus?.active);
-  $: membershipTier = userMembershipStatus?.tier;
-
-  function getTierLabel(tier: MembershipTier | undefined): string {
-    switch (tier) {
-      case 'cook_plus':
-        return 'COOK+';
-      case 'pro_kitchen':
-        return 'PRO';
-      case 'founders':
-        return 'FOUNDER';
-      default:
-        return '';
-    }
-  }
-
-  function getTierClasses(tier: MembershipTier | undefined): string {
-    switch (tier) {
-      case 'founders':
-        return 'bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-700';
-      case 'pro_kitchen':
-        return 'bg-violet-100 text-violet-700 border-violet-300 dark:bg-violet-900/30 dark:text-violet-300 dark:border-violet-700';
-      case 'cook_plus':
-        return 'bg-orange-100 text-orange-700 border-orange-300 dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-700';
-      default:
-        return '';
-    }
-  }
-
-  import { onDestroy } from 'svelte';
-  onDestroy(() => {
-    unsubMembership();
-  });
-
-  function toggleCookingTools() {
-    cookingToolsStore.toggle();
-  }
-
 
   /**
    * Engaging search jumps the page back to the top, so results/typing aren't
@@ -145,10 +20,11 @@
     if (!browser) return;
     scrollActiveSurfaceToTop(document.getElementById('app-scroll'));
   }
-
 </script>
 
-<!-- Mobile-first sleek header -->
+<!-- Mobile-first sleek header. The search hugs the account cluster on
+     the right (ml-auto) at sm and up; the narrowest view keeps its
+     original spacing and the mobile search icon instead. -->
 <div class="zh-root relative flex items-center gap-3 sm:gap-6 lg:gap-10 justify-between overflow-visible">
   <!-- Burger + logo group (mobile only, tightly paired) -->
   <div class="flex items-center gap-1 flex-none lg:hidden">
@@ -158,7 +34,15 @@
       style="color: var(--color-text-primary);"
       aria-label="Open navigation menu"
     >
-      <ListIcon size={22} weight="bold" />
+      <span class="relative">
+        <ListIcon size={22} weight="bold" />
+        {#if $totalUnreadCount > 0}
+          <span
+            class="absolute top-0 right-0 w-2.5 h-2.5 rounded-full bg-red-500"
+            aria-hidden="true"
+          ></span>
+        {/if}
+      </span>
     </button>
 
     <a
@@ -179,17 +63,11 @@
     </a>
   </div>
 
-  <!-- Center: search bar (desktop). Left padding at xl sets the gap from
-       the pipe's vertical line to 12px (10px here + the input's 2px margin),
-       matching the header's 12px top/bottom padding so the search box has
-       equal visual padding on all three framed sides. The xl max-width adds
-       the same 10px back on top of the feed column's 42rem (672px) so the
-       visible input box — after this container's 10px padding and the
-       autocomplete's 2px side margins — lands at exactly 672px, flush with
-       the feed column below it. -->
+  <!-- Search bar: ml-auto groups it with the account cluster on the
+       right edge of the strip. -->
   <!-- focusin (not click) so keyboard tabbing into search also jumps to top. -->
   <div
-    class="hidden sm:flex flex-1 self-center print:hidden min-w-[280px] lg:max-w-xs xl:max-w-[calc(42rem+14px)] xl:min-w-[500px] lg:pl-2.5"
+    class="hidden sm:flex ml-auto w-full max-w-xs self-center print:hidden lg:pl-2.5"
     on:focusin={scrollToTopOnSearch}
   >
     <TagsSearchAutocomplete
@@ -198,125 +76,11 @@
       onSubmitQuery={openSearch}
     />
   </div>
-  <span class="hidden sm:max-lg:flex sm:max-lg:grow"></span>
-
-  <!-- Right: action cluster -->
+  <!-- Right: account cluster — extracted so the same controls can nest
+       in the sidebar at xl, where the strip is gone. -->
   <div class="flex items-center gap-1.5 sm:gap-2.5 self-center flex-none print:hidden">
-    <!-- Search icon (mobile only) -->
-    <div class="block sm:hidden">
-      <button
-        on:click={() => {
-          scrollToTopOnSearch();
-          mobileSearchOpen.set(true);
-        }}
-        class="zh-iconbtn"
-        aria-label="Search"
-      >
-        <SearchIcon size={18} weight="bold" />
-      </button>
-    </div>
-
-    <!-- Unified Intelligence icon (logged in) -->
-    {#if showMemberChrome}
-      <div class="relative">
-        <button
-          type="button"
-          on:click|stopPropagation={() => (intelligenceMenuOpen = !intelligenceMenuOpen)}
-          class="zh-iconbtn zh-intelligence-btn {onIntelligenceSurface || intelligenceMenuOpen
-            ? 'is-active'
-            : ''}"
-          aria-label="Kitchen help"
-          aria-haspopup="menu"
-          aria-expanded={intelligenceMenuOpen}
-        >
-          <IntelligenceIcon size={20} active={onIntelligenceSurface || intelligenceMenuOpen} />
-        </button>
-        <IntelligenceMenu
-          open={intelligenceMenuOpen}
-          on:close={() => (intelligenceMenuOpen = false)}
-        />
-      </div>
-    {/if}
-
-    <!-- Cooking Tools toggle (timer + converter) — kept but lighter -->
-    <button
-      on:click={toggleCookingTools}
-      data-cooking-tools-button
-      class="zh-iconbtn relative {$cookingToolsOpen
-        ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400'
-        : ''}"
-      aria-label={$cookingToolsOpen ? 'Hide cooking tools' : 'Show cooking tools'}
-    >
-      <EggTimerIcon size={20} weight={$cookingToolsOpen || hasActiveTimers ? 'fill' : 'bold'} />
-      {#if hasActiveTimers}
-        <span
-          class="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-amber-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center"
-        >
-          {activeTimers.length}
-        </span>
-      {/if}
-    </button>
-
-    <!-- Notifications bell + dropdown (desktop only — mobile keeps the
-         bottom-nav bell) -->
-    {#if showMemberChrome}
-      <div class="hidden sm:inline-flex sm:items-center">
-        <NotificationBell />
-      </div>
-    {/if}
-
-    <!-- Tier badge for active members -->
-    {#if showMemberChrome && isActiveMember && getTierLabel(membershipTier)}
-      <a
-        href="/membership"
-        class="hidden sm:inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide border transition-colors hover:opacity-80 {getTierClasses(
-          membershipTier
-        )}"
-      >
-        {getTierLabel(membershipTier)}
-      </a>
-    {/if}
-
-    <!-- Sign in / User menu -->
-    <div class="print:hidden flex-shrink-0 inline-flex items-center">
-      {#if $lockedVaultPubkey}
-        <!-- Returning member with a passkey vault on this device: one tap
-             unlocks. Nothing opens by itself on load. Checked before the
-             avatar: a locked session keeps $userPublickey (seeded from
-             localStorage) with no signer behind it. -->
-        <ContinueAsChip pubkey={$lockedVaultPubkey} />
-      {:else if $userPublickey !== ''}
-        <button
-          class="zh-avatar-btn"
-          on:click={() => userSidePanelOpen.set(true)}
-          aria-label="Open user menu"
-        >
-          <span class="zh-avatar-ring">
-            <CustomAvatar
-              pubkey={$userPublickey}
-              size={32}
-              imageUrl={$userProfilePictureOverride}
-            />
-          </span>
-        </button>
-      {:else}
-        <div class="inline-flex items-center gap-1 sm:gap-2">
-          <button
-            type="button"
-            on:click={() => loginOverlayOpen.set(true)}
-            class="px-2.5 py-1.5 sm:px-4 sm:py-2 rounded-full border font-medium transition duration-300 text-xs sm:text-sm whitespace-nowrap signin-button"
-            style="color: var(--color-text-primary); border-color: var(--color-input-border); background: none; cursor: pointer;"
-            >Sign in</button
-          >
-          <button
-            type="button"
-            on:click={openSignup}
-            class="px-2.5 py-1.5 sm:px-4 sm:py-2 rounded-full font-semibold transition duration-300 text-xs sm:text-sm whitespace-nowrap join-button"
-            >Join free</button
-          >
-        </div>
-      {/if}
-    </div>
+    <HeaderActions />
+    <IdentityControl />
   </div>
 </div>
 
@@ -327,108 +91,5 @@
      breakpoint, so children center within it and never clip. */
   .zh-root {
     height: var(--header-row-h);
-  }
-
-  /* Shared icon button — minimal, balanced tap target, subtle hover.
-     Wrapped in :where() so Tailwind responsive utilities (sm:hidden,
-     etc.) can override individual properties without specificity
-     fights. */
-  :where(.zh-iconbtn) {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 36px;
-    height: 36px;
-    border-radius: 999px;
-    color: var(--color-text-primary);
-    background: transparent;
-    border: 0;
-    cursor: pointer;
-    transition:
-      background-color 140ms ease,
-      color 140ms ease,
-      box-shadow 140ms ease;
-  }
-  .zh-iconbtn:hover {
-    background-color: var(--color-input-bg);
-  }
-  .zh-iconbtn:active {
-    transform: scale(0.96);
-  }
-
-  /* Intelligence button — selected accent ring + glow */
-  .zh-intelligence-btn.is-active {
-    background-color: color-mix(in srgb, var(--color-primary) 10%, transparent);
-    box-shadow:
-      inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 35%, transparent),
-      0 0 12px color-mix(in srgb, var(--color-primary) 18%, transparent);
-    color: var(--color-primary);
-  }
-  :global(.dark) .zh-intelligence-btn.is-active {
-    color: var(--color-primary);
-  }
-
-  /* Avatar — Original's purple halo; other styles use their selected accent. */
-  .zh-avatar-btn {
-    display: inline-flex;
-    padding: 0;
-    background: transparent;
-    border: 0;
-    border-radius: 999px;
-    cursor: pointer;
-    transition: transform 200ms ease;
-  }
-  .zh-avatar-btn:hover {
-    transform: scale(1.04);
-  }
-  .zh-avatar-btn:active {
-    transform: scale(0.96);
-  }
-  .zh-avatar-ring {
-    display: inline-flex;
-    padding: 2px;
-    border-radius: 999px;
-    background:
-      radial-gradient(
-        circle at 30% 30%,
-        color-mix(in srgb, var(--color-profile-glow) 55%, transparent),
-        color-mix(in srgb, var(--color-profile-glow) 18%, transparent) 60%,
-        transparent 80%
-      );
-    box-shadow:
-      0 0 0 1px color-mix(in srgb, var(--color-profile-glow) 35%, transparent),
-      0 0 10px color-mix(in srgb, var(--color-profile-glow) 25%, transparent);
-  }
-  :global(.dark) .zh-avatar-ring {
-    background:
-      radial-gradient(
-        circle at 30% 30%,
-        color-mix(in srgb, var(--color-profile-highlight) 60%, transparent),
-        color-mix(in srgb, var(--color-profile-glow) 20%, transparent) 60%,
-        transparent 80%
-      );
-    box-shadow:
-      0 0 0 1px color-mix(in srgb, var(--color-profile-highlight) 40%, transparent),
-      0 0 12px color-mix(in srgb, var(--color-profile-glow) 30%, transparent);
-  }
-
-  /* Filled actions use a separate contrast-safe role from link accents. */
-  .join-button {
-    color: var(--color-auth-on-action);
-    background: linear-gradient(135deg, var(--color-auth-action) 0%, var(--color-auth-action-hover) 100%);
-    border: 1px solid transparent;
-    cursor: pointer;
-  }
-  .join-button:hover {
-    filter: brightness(1.06);
-  }
-  .join-button:focus-visible {
-    outline: 2px solid var(--color-primary);
-    outline-offset: 2px;
-  }
-
-  .signin-button:hover {
-    border-color: var(--color-accent-gray);
-    background-color: var(--color-input-bg);
   }
 </style>

@@ -650,8 +650,11 @@
         <!-- Header. Fixed to the viewport (not sticky inside the scroll
            container) so it stays put while the page content scrolls and
            rubber-band-bounces behind it. -->
+        <!-- ≥xl the strip is gone: search and the account controls nest
+             in the sidebar (DesktopSideNav), and --header-h collapses to
+             zero in app.css so no space is reserved. -->
         <div
-          class="header-blur fixed top-0 left-0 right-0 lg:left-[calc(14rem_+_5px)] xl:left-[calc(20rem_+_5px)] z-30 py-3 px-4"
+          class="header-blur fixed top-0 left-0 right-0 lg:left-[calc(14rem_+_5px)] xl:left-[calc(20rem_+_5px)] z-30 py-3 px-4 xl:hidden"
           on:click|self={scrollToTop}
         >
           <Header />

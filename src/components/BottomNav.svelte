@@ -4,12 +4,11 @@
   import ForkKnifeIcon from 'phosphor-svelte/lib/ForkKnife';
   import FlameIcon from 'phosphor-svelte/lib/Flame';
   import BellIcon from 'phosphor-svelte/lib/Bell';
-  import EnvelopeSimpleIcon from 'phosphor-svelte/lib/EnvelopeSimple';
+  import BroadcastIcon from 'phosphor-svelte/lib/Broadcast';
   import WalletIcon from 'phosphor-svelte/lib/Wallet';
   import { page } from '$app/stores';
   import { unreadCount } from '$lib/notificationStore';
   import { nudgeUnread } from '$lib/accountNudge';
-  import { totalUnreadCount } from '$lib/stores/messages';
   import { triggerNotificationsNav } from '$lib/notificationsNav';
   import { openWallet, closeWallet, walletModalOpen } from '$lib/wallet';
 
@@ -77,15 +76,10 @@
       <span class="sr-only">Wallet</span>
     </button>
 
-    <!-- Messages -->
-    <a href="/messages" class="nav-tab" class:active={pathname.startsWith('/messages')}>
-      <span class="relative">
-        <EnvelopeSimpleIcon size={28} weight={pathname.startsWith('/messages') ? 'fill' : 'bold'} />
-        {#if $totalUnreadCount > 0}
-          <span class="badge-dot" aria-hidden="true"></span>
-        {/if}
-      </span>
-      <span class="sr-only">Messages</span>
+    <!-- Live -->
+    <a href="/live" class="nav-tab" class:active={pathname.startsWith('/live')}>
+      <BroadcastIcon size={28} weight={pathname.startsWith('/live') ? 'fill' : 'bold'} />
+      <span class="sr-only">Live</span>
     </a>
 
     <!-- Notifications -->
