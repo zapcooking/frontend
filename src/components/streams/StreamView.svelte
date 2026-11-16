@@ -75,7 +75,10 @@
   $: twoCol = wide && chatShown;
   /** Narrow Go live with both: the Chat | Recipe tabs. */
   $: tabbed = !wide && goLive && hasRecipe && chatShown;
-  $: showChat = chatShown && (!tabbed || tab === 'chat');
+  // The chat stays mounted on the Recipe tab (hidden, not removed): it
+  // feeds the on-video comments and zap animations, which must keep
+  // working while the viewer reads the recipe (or goes full screen from it).
+  $: chatHidden = tabbed && tab !== 'chat';
   $: recipeInMain = hasRecipe && wide;
   $: recipeInSide = hasRecipe && !wide && (!chatShown || tab === 'recipe');
   // The marker that docks the video on scroll: whatever sits under it.
@@ -124,8 +127,8 @@
       </div>
     {/if}
 
-    {#if showChat}
-      <section class="chat-box" aria-label="Live chat">
+    {#if chatShown}
+      <section class="chat-box" aria-label="Live chat" hidden={chatHidden}>
         {#if !goLive}
           <StreamChat {item} {pool} {topZappers} />
         {:else if item.noteId}
@@ -213,6 +216,9 @@
   .chat-box {
     height: 60vh;
     min-height: 20rem;
+  }
+  .chat-box[hidden] {
+    display: none;
   }
   /* Wide: video left, chat right at full height, sticky under the header. */
   .stream-layout.two-col {

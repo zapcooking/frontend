@@ -311,3 +311,28 @@ export function liveReportRateScope(inputPrefix: string | undefined): string {
   const env = liveEnvSegment(inputPrefix);
   return env ? `live-${env}-report` : 'live-report';
 }
+
+// ── On-video overlays (comments + zap animation) ─────────────────────
+
+/** How long a comment floats over the video before it fades. */
+export const LIVE_OVERLAY_COMMENT_MS = 8000;
+/** Comments on screen at once (the newest). */
+export const LIVE_OVERLAY_COMMENT_MAX = 3;
+/** Longer comments are cut with an ellipsis. */
+export const LIVE_OVERLAY_COMMENT_CHARS = 140;
+
+/**
+ * Zap animation sizes, by sats: below `medium` a short burst, from
+ * `medium` a shower, from `large` a longer shower.
+ */
+export const LIVE_ZAP_TIERS = { medium: 1000, large: 10000 } as const;
+/** Zaps arriving within this long of the previous one join its animation. */
+export const LIVE_ZAP_GROUP_MS = 3000;
+/** Per size: how long the lightning falls and how many bolts. */
+export const LIVE_ZAP_ANIMATION = {
+  small: { ms: 2200, bolts: 10 },
+  medium: { ms: 4000, bolts: 22 },
+  large: { ms: 7000, bolts: 36 }
+} as const;
+/** Reduced motion: how long the static banner stays. */
+export const LIVE_ZAP_BANNER_MS = 4000;

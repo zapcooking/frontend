@@ -102,6 +102,16 @@
   import LiveShareButton from '../../../components/streams/LiveShareButton.svelte';
   import { getSiteOrigin } from '$lib/utils/share';
   import XIcon from 'phosphor-svelte/lib/X';
+  import ChatCircleTextIcon from 'phosphor-svelte/lib/ChatCircleText';
+  import ChatCircleSlashIcon from 'phosphor-svelte/lib/ChatCircleSlash';
+  import LightningIcon from 'phosphor-svelte/lib/Lightning';
+  import LightningSlashIcon from 'phosphor-svelte/lib/LightningSlash';
+  import LiveOverlay from '../../../components/streams/LiveOverlay.svelte';
+  import {
+    OVERLAY_PREF_KEYS,
+    readOverlayPref,
+    writeOverlayPref
+  } from '$lib/live/overlay/overlay';
   import RecipePickerModal from '../../../components/RecipePickerModal.svelte';
   import Modal from '../../../components/Modal.svelte';
 
@@ -388,6 +398,31 @@
     hostName: ownName
   });
 
+  // On-video comments and zap animations: on unless this device turned
+  // them off. They only change the host's own screen, never the broadcast.
+  let overlayComments = true;
+  let overlayZaps = true;
+  function overlayStorage(): Storage | null {
+    try {
+      return window.localStorage;
+    } catch {
+      return null;
+    }
+  }
+  function readOverlayPrefs() {
+    const ls = overlayStorage();
+    overlayComments = readOverlayPref(ls, OVERLAY_PREF_KEYS.hostComments);
+    overlayZaps = readOverlayPref(ls, OVERLAY_PREF_KEYS.hostZaps);
+  }
+  function toggleOverlayComments() {
+    overlayComments = !overlayComments;
+    writeOverlayPref(overlayStorage(), OVERLAY_PREF_KEYS.hostComments, overlayComments);
+  }
+  function toggleOverlayZaps() {
+    overlayZaps = !overlayZaps;
+    writeOverlayPref(overlayStorage(), OVERLAY_PREF_KEYS.hostZaps, overlayZaps);
+  }
+
   let lockHintDismissed = true;
   function readLockHint() {
     try {
@@ -479,6 +514,7 @@
     const pk = $userPublickey.toLowerCase();
     const startHosting = () => {
       readLockHint();
+      readOverlayPrefs();
       void loadOwnName($userPublickey);
       document.addEventListener('visibilitychange', onVisibility);
       window.addEventListener('pagehide', onPageHide);
@@ -1338,6 +1374,17 @@
         class:mirrored={facing === 'user' && !sharing}
       ></video>
 
+      {#if isLive && noteId}
+        <!-- Newest comments and zap lightning, on the host's screen only
+             (drawn over the preview, not into the broadcast). -->
+        <LiveOverlay
+          target={noteId}
+          showComments={overlayComments}
+          showZaps={overlayZaps}
+          bottom="4.75rem"
+        />
+      {/if}
+
       {#if sharing}
         <div class="share-banner" role="status">
           <MonitorArrowUpIcon size={18} weight="bold" />
@@ -1413,6 +1460,38 @@
             >
               <MonitorArrowUpIcon size={18} weight="bold" />
               {sharing ? 'Stop sharing' : 'Share screen'}
+            </button>
+          {/if}
+          {#if isLive && noteId}
+            <button
+              class="icon-btn"
+              class:off={!overlayComments}
+              on:click={toggleOverlayComments}
+              aria-pressed={overlayComments}
+              aria-label={overlayComments ? 'Hide comments on the video' : 'Show comments on the video'}
+              title={overlayComments ? 'Hide comments on the video' : 'Show comments on the video'}
+            >
+              {#if overlayComments}
+                <ChatCircleTextIcon size={20} weight="bold" />
+              {:else}
+                <ChatCircleSlashIcon size={20} weight="bold" />
+              {/if}
+            </button>
+            <button
+              class="icon-btn"
+              class:off={!overlayZaps}
+              on:click={toggleOverlayZaps}
+              aria-pressed={overlayZaps}
+              aria-label={overlayZaps ? 'Turn off zap animations' : 'Turn on zap animations'}
+              title={overlayZaps
+                ? 'Turn off zap animations (your screen only)'
+                : 'Turn on zap animations (your screen only)'}
+            >
+              {#if overlayZaps}
+                <LightningIcon size={20} weight="bold" />
+              {:else}
+                <LightningSlashIcon size={20} weight="bold" />
+              {/if}
             </button>
           {/if}
           {#if isLive || phase === 'starting'}
@@ -1785,6 +1864,11 @@
   }
   .icon-btn:disabled {
     opacity: 0.5;
+  }
+  /* An overlay switched off: dimmer, with the slashed icon. */
+  .icon-btn.off {
+    color: rgba(255, 255, 255, 0.7);
+    background: rgba(0, 0, 0, 0.35);
   }
   /* Muted: hard to miss. */
   .icon-btn.muted-mic {
