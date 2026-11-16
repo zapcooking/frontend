@@ -63,6 +63,15 @@
   import { DISCOVERY_RELAYS, chatReceiptRelays } from '$lib/streams/relays';
   import { resolveAuthorPubkey, zapReceiptRelayUrls } from '$lib/nip65Routing';
   import type { NostrEventLike, StreamItem } from '$lib/streams/types';
+  import {
+    closeOverlayFeed,
+    COMMENTS_KEPT,
+    openOverlayFeed,
+    pushOverlayZap,
+    setOverlayComments,
+    setOverlayProfiles,
+    type OverlayProfile
+  } from '$lib/live/overlay/overlayFeed';
 
   export let item: StreamItem;
   export let pool: SimplePool;
@@ -370,16 +379,93 @@
       const found = await fetchChatProfiles({ pool, sources, keys });
       for (const [key, profile] of found) profiles.set(key, profile);
       rows = rows; // repaint names/avatars
+      publishOverlay();
     } catch {
       // Profile misses keep pseudonyms.
     }
     if (profileKeysPending.size && !profileTimer) profileTimer = setTimeout(flushProfiles, 250);
   }
 
+  // ── On-video overlays (Go live only) ──────────────────────────────
+  // The live comments this chat shows, and the zaps it verified, are
+  // handed to the overlays through `overlayFeed`. Same filter as the log:
+  // muted and hidden commenters never reach the overlay.
+  /** The chat opened (unix s): only comments from then on go on screen. */
+  let openedAt = Math.floor(Date.now() / 1000);
+  /** When this device first saw each live comment (ms). */
+  let commentSeenAt = new Map<string, number>();
+  let overlayTarget: string | null = null;
+
+  function overlayText(text: string): string {
+    return segmentsOf(text)
+      .map((seg) => (seg.type === 'mention' ? `@${displayName(seg.pubkey)}` : seg.text))
+      .join('');
+  }
+
+  function overlayProfile(pubkey: string): OverlayProfile {
+    return { name: displayName(pubkey), picture: profiles.get(pubkey)?.picture ?? null };
+  }
+
+  function publishOverlay() {
+    if (!overlayTarget) return;
+    const now = Date.now();
+    const live = rows
+      .filter((row) => row.event.kind !== 9735 && row.event.created_at >= openedAt - 10)
+      .slice(-COMMENTS_KEPT);
+    const comments = live.map((row) => {
+      let at = commentSeenAt.get(row.event.id);
+      if (at == null) {
+        at = now;
+        commentSeenAt.set(row.event.id, at);
+      }
+      return {
+        id: row.event.id,
+        pubkey: row.event.pubkey,
+        text: overlayText(row.event.content),
+        at
+      };
+    });
+    if (commentSeenAt.size > 500) {
+      const keep = new Set(comments.map((c) => c.id));
+      for (const id of commentSeenAt.keys()) if (!keep.has(id)) commentSeenAt.delete(id);
+    }
+    setOverlayComments(overlayTarget, comments);
+    publishOverlayProfiles(comments.map((c) => c.pubkey));
+  }
+
+  let overlayZapSenders = new Set<string>();
+  function publishOverlayProfiles(extra: string[] = []) {
+    if (!overlayTarget) return;
+    const out: Record<string, OverlayProfile> = {};
+    for (const pk of new Set([...extra, ...overlayZapSenders])) out[pk] = overlayProfile(pk);
+    setOverlayProfiles(overlayTarget, out);
+  }
+
+  /** A verified zap that arrived live: animate it (sender named only if shown in the chat). */
+  function publishOverlayZap(event: NostrEventLike) {
+    if (!overlayTarget || event.created_at < openedAt - 10) return;
+    const row = receiptRow(event);
+    if (!row?.sats) return;
+    const hiddenAuthors = new Set(hiddenList.map((h) => h.pubkey));
+    const sender =
+      row.sender && !get(mutedPubkeys).has(row.sender) && !hiddenAuthors.has(row.sender)
+        ? row.sender
+        : null;
+    if (sender) {
+      overlayZapSenders.add(sender);
+      if (overlayZapSenders.size > 100)
+        overlayZapSenders = new Set([...overlayZapSenders].slice(-50));
+      scheduleProfiles([sender]);
+    }
+    pushOverlayZap(overlayTarget, { id: event.id, sats: row.sats, sender, at: Date.now() });
+    publishOverlayProfiles(rows.slice(-COMMENTS_KEPT).map((r) => r.event.pubkey));
+  }
+
   function repaint(forceScroll = false) {
     const logEl = log;
     const wasAtBottom = !logEl || logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 80;
     rows = timelineFromModel();
+    publishOverlay();
     scheduleProfiles([
       ...new Set([
         ...rows.map((row) => row.sender || row.event.pubkey),
@@ -428,6 +514,7 @@
               reportZaps();
               receipts.set(e.id, e);
               repaint();
+              publishOverlayZap(e);
             }
           });
         }
@@ -480,6 +567,12 @@
     receiptSub = null;
     address = target || item.key;
     model = new ChatMessages(address);
+    openedAt = Math.floor(Date.now() / 1000);
+    commentSeenAt = new Map();
+    overlayZapSenders = new Set();
+    if (overlayTarget) closeOverlayFeed(overlayTarget);
+    overlayTarget = isEventTarget(address) ? address : null;
+    if (overlayTarget) openOverlayFeed(overlayTarget);
     hiddenList = [];
     rows = [];
     receipts = new Map();
@@ -565,6 +658,7 @@
     if (noticeTimer) clearTimeout(noticeTimer);
     if (profileTimer) clearTimeout(profileTimer);
     clearInterval(hiddenTimer);
+    if (overlayTarget) closeOverlayFeed(overlayTarget);
   });
 </script>
 
@@ -722,7 +816,22 @@
             {/if}
           </p>
           {#if row.comment}
-            <p class="mt-0.5 text-sm leading-snug break-words" dir="auto">{#each segmentsOf(row.comment) as segment}{#if segment.type === 'mention'}<button type="button" class="chat-mention" title={displayName(segment.pubkey)} on:click={() => openProfilePreview(segment.pubkey)}>@{displayName(segment.pubkey)}</button>{:else if segment.type === 'link'}<a class="chat-link" href={segment.href} target="_blank" rel="noopener noreferrer nofollow ugc">{segment.text}</a>{:else if segment.type === 'ref'}<a class="chat-link" href={segment.href}>{segment.text}</a>{:else}{segment.text}{/if}{/each}</p>
+            <p class="mt-0.5 text-sm leading-snug break-words" dir="auto">
+              {#each segmentsOf(row.comment) as segment}{#if segment.type === 'mention'}<button
+                    type="button"
+                    class="chat-mention"
+                    title={displayName(segment.pubkey)}
+                    on:click={() => openProfilePreview(segment.pubkey)}
+                    >@{displayName(segment.pubkey)}</button
+                  >{:else if segment.type === 'link'}<a
+                    class="chat-link"
+                    href={segment.href}
+                    target="_blank"
+                    rel="noopener noreferrer nofollow ugc">{segment.text}</a
+                  >{:else if segment.type === 'ref'}<a class="chat-link" href={segment.href}
+                    >{segment.text}</a
+                  >{:else}{segment.text}{/if}{/each}
+            </p>
           {/if}
         </article>
       {:else}
@@ -776,7 +885,22 @@
                   {formatChatTime(event.created_at)}
                 </span>
               </p>
-              <p class="text-sm leading-snug break-words" dir="auto">{#each segmentsOf(event.content) as segment}{#if segment.type === 'mention'}<button type="button" class="chat-mention" title={displayName(segment.pubkey)} on:click={() => openProfilePreview(segment.pubkey)}>@{displayName(segment.pubkey)}</button>{:else if segment.type === 'link'}<a class="chat-link" href={segment.href} target="_blank" rel="noopener noreferrer nofollow ugc">{segment.text}</a>{:else if segment.type === 'ref'}<a class="chat-link" href={segment.href}>{segment.text}</a>{:else}{segment.text}{/if}{/each}</p>
+              <p class="text-sm leading-snug break-words" dir="auto">
+                {#each segmentsOf(event.content) as segment}{#if segment.type === 'mention'}<button
+                      type="button"
+                      class="chat-mention"
+                      title={displayName(segment.pubkey)}
+                      on:click={() => openProfilePreview(segment.pubkey)}
+                      >@{displayName(segment.pubkey)}</button
+                    >{:else if segment.type === 'link'}<a
+                      class="chat-link"
+                      href={segment.href}
+                      target="_blank"
+                      rel="noopener noreferrer nofollow ugc">{segment.text}</a
+                    >{:else if segment.type === 'ref'}<a class="chat-link" href={segment.href}
+                      >{segment.text}</a
+                    >{:else}{segment.text}{/if}{/each}
+              </p>
             </div>
             <button
               type="button"
@@ -802,7 +926,11 @@
               </svg>
             </button>
             {#if menuFor === event.id}
-              <div class="chat-menu" role="menu" aria-label="Options for {displayName(event.pubkey)}">
+              <div
+                class="chat-menu"
+                role="menu"
+                aria-label="Options for {displayName(event.pubkey)}"
+              >
                 <button
                   type="button"
                   role="menuitem"

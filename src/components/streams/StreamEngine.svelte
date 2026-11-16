@@ -37,6 +37,10 @@
   import SpeakerXIcon from 'phosphor-svelte/lib/SpeakerX';
   import PictureInPictureIcon from 'phosphor-svelte/lib/PictureInPicture';
   import ArrowsOutIcon from 'phosphor-svelte/lib/ArrowsOut';
+  import ChatCircleTextIcon from 'phosphor-svelte/lib/ChatCircleText';
+  import ChatCircleSlashIcon from 'phosphor-svelte/lib/ChatCircleSlash';
+  import LiveOverlay from './LiveOverlay.svelte';
+  import { streamSlot } from '$lib/stores/streamSlot';
   import { showToast } from '$lib/toast';
 
   export let surface: 'page' | 'dock' | 'popout' = 'page';
@@ -439,6 +443,39 @@
     if (video) video.muted = !video.muted;
   }
 
+  // ── Go live overlays (comments + zap lightning) ────────────────────
+  // Comments on the video: on by default in full screen, off otherwise;
+  // the player's button flips the current one for this visit. Zap
+  // animations always run (reduced motion gets a static banner). The
+  // corner dock never shows comments: it is too small.
+  let fullscreen = false;
+  let commentsFullscreen = true;
+  let commentsInline = false;
+  function onFullscreenChange() {
+    const doc = document as Document & { webkitFullscreenElement?: Element | null };
+    const el = document.fullscreenElement ?? doc.webkitFullscreenElement ?? null;
+    fullscreen = !!el && !!container && el === container;
+  }
+  onMount(() => {
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', onFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', onFullscreenChange);
+    };
+  });
+  $: overlayTarget =
+    $streamPlayer.item && isGoLiveItem($streamPlayer.item) && $streamPlayer.item.status !== 'ended'
+      ? ($streamPlayer.item.noteId ?? null)
+      : null;
+  $: inPageSlot = !!$streamSlot && $streamSlot.isConnected;
+  $: overlayCommentsOn = fullscreen ? commentsFullscreen : inPageSlot && commentsInline;
+  $: commentsToggleShown = !!overlayTarget && (fullscreen || inPageSlot);
+  function toggleOverlayComments() {
+    if (fullscreen) commentsFullscreen = !commentsFullscreen;
+    else commentsInline = !commentsInline;
+  }
+
   async function toggleFullscreen() {
     if (!container) return;
     try {
@@ -620,6 +657,14 @@
       else video?.pause();
     }}
   ></video>
+  {#if overlayTarget}
+    <LiveOverlay
+      target={overlayTarget}
+      showComments={overlayCommentsOn}
+      compact={!fullscreen && !inPageSlot}
+      bottom="4.75rem"
+    />
+  {/if}
   {#if $streamPlayer.item}
     <div class="pointer-events-none absolute left-3 top-3 flex items-center gap-2">
       <span
@@ -728,6 +773,26 @@
               <SpeakerHighIcon class="h-4 w-4" />
             {/if}
           </button>
+          {#if commentsToggleShown}
+            <button
+              type="button"
+              on:click={toggleOverlayComments}
+              class="{ctrlBtn} {overlayCommentsOn ? 'ring-1 ring-white/70' : ''}"
+              aria-pressed={overlayCommentsOn}
+              aria-label={overlayCommentsOn
+                ? 'Hide comments on the video'
+                : 'Show comments on the video'}
+              title={overlayCommentsOn
+                ? 'Hide comments on the video'
+                : 'Show comments on the video'}
+            >
+              {#if overlayCommentsOn}
+                <ChatCircleTextIcon class="h-4 w-4" />
+              {:else}
+                <ChatCircleSlashIcon class="h-4 w-4" />
+              {/if}
+            </button>
+          {/if}
           {#if pipSupported(video)}
             <button
               type="button"
