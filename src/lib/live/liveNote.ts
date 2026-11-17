@@ -7,7 +7,9 @@
  * from Zap Cooking"), links the watch page, and carries the recipe photo.
  * After the stream ends the same link shows "This live stream has ended".
  *
- * The stream's comments are replies to this note, and its zaps target it.
+ * The stream's zaps target this note. Its chat does not depend on it (the
+ * chat is kind 1311 on the session's address), but replies to the note
+ * from other apps are shown in the chat too.
  */
 
 export interface LiveNoteInput {

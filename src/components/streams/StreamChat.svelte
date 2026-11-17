@@ -1,9 +1,11 @@
 <script lang="ts">
   /**
-   * Live chat for one stream. For a NIP-53 stream it is NIP-53 live chat
-   * (kind 1311 on the announcement address); for a Go live session it is
-   * the replies to the host's "Live now" note (`target` = the note id; see
-   * $lib/streams/chat). Go live adds: comments from commenters the host
+   * Live chat for one stream: NIP-53 live chat (kind 1311 on the stream's
+   * address). A Go live session's address is built from its host and
+   * session id, so every session has a chat, with or without a "Live now"
+   * note. Its messages are written as kind 1311 only; kind 1 replies to
+   * the note (from apps that only reply to it) are read and shown too
+   * (see $lib/streams/chat). Go live adds: comments from commenters the host
    * (or the admin, everywhere) has hidden are left out for everyone, read
    * from our server ($lib/live/hiddenClient); the host gets Hide on each
    * comment and the admin also "Hide everywhere", both with an Unhide list;
@@ -41,11 +43,14 @@
     chatTemplate,
     fetchChatPage,
     fetchChatProfiles,
+    goLiveChatScope,
     subscribeChat,
-    type ChatProfile
+    type ChatProfile,
+    type ChatScope,
+    type ChatTarget
   } from '$lib/streams/chat';
   import { pseudonym } from '$lib/streams/parse';
-  import { targetFilter, isEventTarget } from '$lib/streams/target';
+  import { targetFilter } from '$lib/streams/target';
   import { userPublickey } from '$lib/nostr';
   import {
     fetchHiddenAuthors,
@@ -84,11 +89,6 @@
    * profile lookups that zap rows in the chat reuse for names.
    */
   export let topZappers: { pubkey: string; sats: number }[] = [];
-  /**
-   * What the chat hangs off: the stream's address (default) or, for a Go
-   * live session, its "Live now" note id.
-   */
-  export let target: string | null = null;
   /** The stream has ended: the chat is shown read-only. */
   export let closed = false;
   /** The chat is taking the full content width (docked video or user choice). */
@@ -110,7 +110,24 @@
 
   // Plain declarations: openChat() runs during component init, before any
   // `$:` reactive statement would have fired.
-  let address = target || item.key;
+  const goLive = isGoLiveItem(item);
+  /** Go live: the session's address, its host, and its note (once there is one). */
+  function scopeOf(): ChatScope | null {
+    return goLive ? goLiveChatScope(item.host, item.sessionId, item.noteId) : null;
+  }
+  let scope = scopeOf();
+  /** What the chat reads and writes: the Go live scope, or the stream's address. */
+  let chatTarget: ChatTarget = scope ?? item.key;
+  /**
+   * What zap receipts must point at. A Go live session's zaps target its
+   * "Live now" note, so a session without one has no receipts to read.
+   */
+  function zapTargetOf(): string | null {
+    return goLive ? (item.noteId ?? null) : item.key;
+  }
+  let zapTarget = zapTargetOf();
+  /** The note id the open chat was built for. */
+  let openedNote: string | null = goLive ? (item.noteId ?? null) : null;
   // A Go live session names no relays of its own: its chat uses the shared
   // list its zap receipts are read from. A NIP-53 stream keeps its own.
   let sources = isGoLiveItem(item)
@@ -121,6 +138,8 @@
   let loading = true;
   let historyBusy = false;
   let historyComplete = false;
+  /** Where the next older page starts (from the last page read); null: no older history. */
+  let historyNext: number | null | undefined = undefined;
   let notice = '';
   let noticeTimer: ReturnType<typeof setTimeout> | null = null;
   let sending = false;
@@ -173,8 +192,10 @@
    * row and stays out of the timeline.
    */
   async function acceptReceipt(event: NostrEventLike): Promise<boolean> {
+    const address = zapTarget;
+    if (!address) return false;
     const provider = await resolveChatProvider();
-    if (!provider) return false;
+    if (!provider || address !== zapTarget) return false;
     const accepted = await totals.accept(event, {
       address,
       recipient: item.host,
@@ -253,14 +274,13 @@
 
   /** Go live: commenters hidden by the host or the admin (our server). */
   let hiddenList: HiddenAuthor[] = [];
-  $: noteChat = isEventTarget(address);
-  $: isHost = noteChat && !!$userPublickey && $userPublickey === item.host;
-  $: isAdminViewer = noteChat && isAdmin($userPublickey);
+  $: isHost = goLive && !!$userPublickey && $userPublickey === item.host;
+  $: isAdminViewer = goLive && isAdmin($userPublickey);
   $: canModerate = isHost || isAdminViewer;
   let hiddenOpen = false;
 
   async function loadHidden() {
-    if (!isEventTarget(address) || !item.sessionId) return;
+    if (!goLive || !item.sessionId) return;
     const found = await fetchHiddenAuthors(item.sessionId);
     if (!found) return; // could not tell: keep what is applied
     hiddenList = found;
@@ -498,6 +518,8 @@
 
   /** Recent receipts so the log opens with the zap history, like Sidecar. */
   async function loadReceipts() {
+    const address = zapTarget;
+    if (!address) return;
     try {
       const events = (await pool.querySync(
         receiptSources,
@@ -516,6 +538,9 @@
 
   function subscribeReceipts() {
     receiptSub?.close();
+    receiptSub = null;
+    const address = zapTarget;
+    if (!address) return;
     const closer = pool.subscribeMany(
       receiptSources,
       {
@@ -552,28 +577,40 @@
     // Preserve the reader's position across a prepended history page.
     const logEl = log;
     const anchor = logEl ? logEl.scrollHeight - logEl.scrollTop : null;
-    const oldest = model.rows()[0];
+    const reading = model;
     try {
       const pageResult = await fetchChatPage({
         pool,
         sources,
-        address,
+        address: chatTarget,
         signal: new AbortController().signal,
-        until: latest || !oldest ? undefined : oldest.created_at - 1,
+        // Older history starts where the last page says it stopped, not at
+        // the oldest message held: a few old note replies would otherwise
+        // skip the chat between them and the newest page.
+        until: latest || historyNext == null ? undefined : historyNext,
         pageSize: PAGE_SIZE
       });
+      // The chat moved on (a note arrived) while this page was loading.
+      if (reading !== model) return;
       for (const event of pageResult.events) model.accept(event, verifyEvent);
-      historyComplete = pageResult.complete && !pageResult.events.length;
+      historyNext = pageResult.next;
+      historyComplete = pageResult.complete && pageResult.next === null;
       await tick();
       // Keep the reader's place when a page prepends above the viewport.
       if (logEl && anchor != null && !latest) logEl.scrollTop = logEl.scrollHeight - anchor;
-      if (!pageResult.complete) setNotice('Some chat relays are unavailable — retrying…', 7000);
+      // Go live reads a longer shared relay list: one slow relay among
+      // them is not worth a notice while the others answered.
+      if (!pageResult.complete && (!goLive || pageResult.answered === 0)) {
+        setNotice('Some chat relays are unavailable — retrying…', 7000);
+      }
       repaint();
     } catch {
       setNotice('Could not load chat. Try again.', 7000);
     } finally {
       loading = false;
       historyBusy = false;
+      // A note arrived mid-read: that page was for the old chat. Read again.
+      if (reading !== model) void load(true);
     }
   }
 
@@ -582,13 +619,17 @@
     sub = null;
     receiptSub?.close();
     receiptSub = null;
-    address = target || item.key;
-    model = new ChatMessages(address);
+    scope = scopeOf();
+    openedNote = goLive ? (item.noteId ?? null) : null;
+    chatTarget = scope ?? item.key;
+    zapTarget = zapTargetOf();
+    model = new ChatMessages(chatTarget);
+    historyNext = undefined;
     openedAt = Math.floor(Date.now() / 1000);
     commentSeenAt = new Map();
     overlayZapSenders = new Set();
     if (overlayTarget) closeOverlayFeed(overlayTarget);
-    overlayTarget = isEventTarget(address) ? address : null;
+    overlayTarget = scope ? scope.address : null;
     if (overlayTarget) openOverlayFeed(overlayTarget);
     hiddenList = [];
     rows = [];
@@ -600,10 +641,16 @@
     loadReceipts();
     void loadHidden();
     widenReceiptSources();
+    subscribeMessages();
+    subscribeReceipts();
+  }
+
+  function subscribeMessages() {
+    sub?.close();
     sub = subscribeChat({
       pool,
       sources,
-      address,
+      address: chatTarget,
       onEvent: (event) => {
         const atBottom = !log || log.scrollHeight - log.scrollTop - log.clientHeight < 80;
         if (model.accept(event, verifyEvent)) {
@@ -612,10 +659,41 @@
         }
       }
     });
-    subscribeReceipts();
+  }
+
+  /**
+   * Go live: the "Live now" note's id became known (or changed) while the
+   * chat was open. The chat itself stays as it is: the messages on screen
+   * are kept, the note's replies are read as well from here on, and zap
+   * receipts (which target the note) start being read.
+   */
+  function noteChanged() {
+    openedNote = goLive ? (item.noteId ?? null) : null;
+    const next = scopeOf();
+    if (!next) return;
+    scope = next;
+    chatTarget = next;
+    const held = model.rows();
+    model = new ChatMessages(next);
+    for (const event of held) model.accept(event, verifyEvent);
+    historyNext = undefined;
+    subscribeMessages();
+    void load(true);
+    if (zapTargetOf() !== zapTarget) {
+      zapTarget = zapTargetOf();
+      totals = new ZapTotals();
+      receipts = new Map();
+      void loadReceipts();
+      subscribeReceipts();
+    }
+    repaint();
   }
 
   openChat();
+
+  // The page refreshes `item` every few seconds; only a new note id matters.
+  $: currentNote = goLive ? (item.noteId ?? null) : null;
+  $: if (currentNote !== openedNote) noteChanged();
 
   async function send() {
     const text = draft.trim();
@@ -632,11 +710,9 @@
       // Reply to the message the user selected — not that message's own
       // parent (chatReplyParent would climb the thread).
       const template = chatTemplate(
-        address,
+        chatTarget,
         text,
-        replyTo ? { id: replyTo.id, pubkey: replyTo.pubkey } : null,
-        undefined,
-        item.host
+        replyTo ? { id: replyTo.id, pubkey: replyTo.pubkey } : null
       );
       const event = new NDKEvent(ndkInstance, template as never);
       await event.sign();
@@ -663,7 +739,8 @@
   }
 
   function replyKey(event: NostrEventLike): string {
-    const parent = chatReplyParent(event, address);
+    // The note's own id is every note reply's root, never a parent.
+    const parent = chatReplyParent(event, scope?.noteId ?? null);
     return parent?.id || '';
   }
 
@@ -942,7 +1019,7 @@
                     openProfilePreview(event.pubkey);
                   }}>View profile</button
                 >
-                {#if noteChat && event.pubkey !== $userPublickey}
+                {#if goLive && event.pubkey !== $userPublickey}
                   <button
                     type="button"
                     role="menuitem"
@@ -1070,7 +1147,7 @@
   }}
 />
 
-{#if noteChat && item.sessionId}
+{#if goLive && item.sessionId}
   <LiveReport
     sessionId={item.sessionId}
     comment={reportComment}

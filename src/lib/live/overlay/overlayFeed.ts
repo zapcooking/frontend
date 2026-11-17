@@ -6,7 +6,7 @@
  * already left out — and which zaps passed the ZapTotals check. It writes
  * the live ones here; the overlay on the host page's stage and the one in
  * the persistent player (which lives in the root layout, so it cannot take
- * props from the watch page) read them by the note id they show.
+ * props from the watch page) read them by the session's chat address.
  *
  * Only arrivals after the chat opened are written: the overlay never
  * replays history.
@@ -21,7 +21,7 @@ export interface OverlayProfile {
 }
 
 export interface OverlayFeedState {
-  /** The "Live now" note id the chat hangs off. */
+  /** The session's chat address (`30311:<host>:<session id>`). */
   target: string | null;
   /** Live comments now shown in the chat, oldest first (capped). */
   comments: OverlayComment[];
