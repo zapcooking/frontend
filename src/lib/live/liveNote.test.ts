@@ -100,4 +100,36 @@ describe('liveAnnouncementTemplate', () => {
     expect(t.tags.find((tag) => tag[0] === 'imeta')).toBeUndefined();
     expect(t.tags.find((tag) => tag[0] === 'p')).toBeUndefined();
   });
+
+  it('names the chat and zap relays in a relays tag, when given', () => {
+    const t = liveAnnouncementTemplate({
+      ...base,
+      status: 'live',
+      relays: [
+        'wss://nos.lol',
+        'wss://relay.primal.net',
+        'wss://nos.lol',
+        'https://not-a-relay',
+        ''
+      ]
+    });
+    expect(t.tags.filter((tag) => tag[0] === 'relays')).toEqual([
+      ['relays', 'wss://nos.lol', 'wss://relay.primal.net']
+    ]);
+    // None given (or none usable): no tag.
+    expect(
+      liveAnnouncementTemplate({ ...base, status: 'live' }).tags.some((tag) => tag[0] === 'relays')
+    ).toBe(false);
+    expect(
+      liveAnnouncementTemplate({ ...base, status: 'live', relays: ['ws://plain'] }).tags.some(
+        (tag) => tag[0] === 'relays'
+      )
+    ).toBe(false);
+  });
+
+  it('keeps the relays tag on the ended replacement', () => {
+    const t = liveAnnouncementTemplate({ ...base, status: 'ended', relays: ['wss://nos.lol'] });
+    expect(t.tags).toContainEqual(['relays', 'wss://nos.lol']);
+    expect(t.tags).toContainEqual(['status', 'ended']);
+  });
 });
