@@ -22,8 +22,9 @@
    *  - It keeps the screen awake while live.
    *  - With the "Live now" note switch on (the default), it posts a kind 1
    *    note from the host when the broadcast first connects, records the
-   *    note's id on the session, and shows the comments (replies to the
-   *    note). Off: no note, no comments, no zap total.
+   *    note's id on the session, and announces the stream (NIP-53). Off:
+   *    no note, no announcement, no zap total. Either way the stream has
+   *    a chat, on the session's own address (kind 1311).
    */
   import { onDestroy, onMount, tick } from 'svelte';
   import { browser } from '$app/environment';
@@ -78,6 +79,7 @@
   import { fetchRecipeEvent, recipeCardOf } from '$lib/streams/recipeCard';
   import { createStreamPool } from '$lib/streams/relayPage';
   import { DISCOVERY_RELAYS } from '$lib/streams/relays';
+  import { goLiveAddress } from '$lib/streams/target';
   import { liveAnnouncementTemplate, liveNoteTemplate } from '$lib/live/liveNote';
   import { addClientTagToEvent } from '$lib/nip89';
   import { NDKEvent, NDKRelaySet } from '@nostr-dev-kit/ndk';
@@ -242,8 +244,12 @@
   $: isLive = phase === 'live' || phase === 'reconnecting';
   $: canStart = phase === 'preview' && !!stream && title.trim().length > 0;
 
-  // ── "Live now" note and comments ───────────────────────────────────
-  /** The switch on the preview screen. Off: no note, so no comments. */
+  // ── "Live now" note and chat ───────────────────────────────────────
+  /**
+   * The "Announce on Nostr" switch on the preview screen. Off: no "Live
+   * now" note and no NIP-53 announcement. The chat does not depend on it:
+   * it hangs off the session's own address.
+   */
   let postNote = true;
   /** The posted note's id, once it exists (also read back on resume). */
   let noteId: string | null = null;
@@ -256,7 +262,7 @@
   let hostTab: 'chat' | 'recipe' = 'chat';
   let recipeImageFor: string | null = null;
   let chatPool: SimplePool | null = null;
-  /** Verified zaps on the note, as the chat counts them. */
+  /** Verified zaps on the note, as the chat counts them (none without a note). */
   let zapSats = 0;
   let zapCount = 0;
   let chatItem: StreamItem | null = null;
@@ -273,8 +279,10 @@
     }
   }
 
+  // The chat's stream: this session, live. Built without waiting for the
+  // note; its id is filled in when the note is posted.
   $: chatItem =
-    session && noteId
+    session && isLive
       ? sessionToStreamItem(
           {
             id: session.id,
@@ -293,9 +301,11 @@
       : null;
   $: if (chatItem && !chatPool) chatPool = createStreamPool();
 
-  // The side panel: the comments (when the note exists) and, for a stream
+  // The side panel: the chat (every live stream has one) and, for a stream
   // with a recipe attached, the recipe. A title-only stream keeps chat alone.
-  $: sideChat = !!(chatItem && chatPool && noteId);
+  $: sideChat = !!(chatItem && chatPool);
+  /** Where the chat and the on-video comments hang: the session's address. */
+  $: chatAddress = session ? goLiveAddress($userPublickey, session.id) : null;
   $: sideRecipe = !!recipeA && isLive;
   $: sideTabs = sideChat && sideRecipe;
   $: withSide = phase !== 'ended' && (sideChat || sideRecipe);
@@ -389,7 +399,8 @@
             if (isLive) void postLiveNote();
           }, NOTE_RETRY_MS);
         } else {
-          notice = "The Live now note wasn't posted, so this stream has no comments.";
+          notice =
+            "The Live now note wasn't posted, so this stream isn't announced on Nostr. Chat still works.";
         }
       }
     } finally {
@@ -1094,7 +1105,7 @@
       return;
     }
     startedAt = Date.now();
-    // The note (if any) was posted before the reload: show its comments,
+    // The note (if any) was posted before the reload: read its id back,
     // never post a second one. The announcement also waits for the
     // session read: it only republishes when the host kept the note (a
     // host who turned it off must not get a public 30311), and it needs
@@ -1472,11 +1483,11 @@
         class:mirrored={facing === 'user' && !sharing}
       ></video>
 
-      {#if isLive && noteId}
+      {#if isLive && chatAddress}
         <!-- Newest comments and zap lightning, on the host's screen only
              (drawn over the preview, not into the broadcast). -->
         <LiveOverlay
-          target={noteId}
+          target={chatAddress}
           showComments={overlayComments}
           showZaps={overlayZaps}
           bottom="4.75rem"
@@ -1571,7 +1582,7 @@
               {sharing ? 'Stop sharing' : 'Share screen'}
             </button>
           {/if}
-          {#if isLive && noteId}
+          {#if isLive && chatAddress}
             <button
               class="icon-btn"
               class:off={!overlayComments}
@@ -1686,13 +1697,15 @@
         <label class="switch-row">
           <input type="checkbox" role="switch" bind:checked={postNote} />
           <span class="switch-text">
-            <strong>Post a “Live now” note</strong>
+            <strong>Announce on Nostr</strong>
             <span class="muted small">
               {#if postNote}
-                Posts “{streamName}” from your account with the watch link. Viewers comment by
-                replying to it.
+                Posts “{streamName}” from your account with the watch link, so it shows in your
+                followers' feeds and in live apps.
               {:else}
-                No note: this stream will have no comments and no zap total.
+                Not announced: no note in your followers' feeds and no listing in other live
+                apps. The stream still shows on Zap Cooking's Live page and chat works. Zaps go
+                to your profile, with no total.
               {/if}
             </span>
           </span>
@@ -1765,8 +1778,8 @@
               />
             </section>
           {/if}
-          {#if sideChat && chatItem && chatPool && noteId}
-            <!-- The stream's comments: replies to the Live now note. -->
+          {#if sideChat && chatItem && chatPool}
+            <!-- The stream's chat, on the session's address (note or no note). -->
             <section
               class="host-chat"
               id="host-panel-chat"
@@ -1775,11 +1788,10 @@
               aria-label={sideTabs ? undefined : 'Live chat'}
               hidden={sideTabs && hostTab !== 'chat'}
             >
-              {#key noteId}
+              {#key session?.id}
                 <StreamChat
                   item={chatItem}
                   pool={chatPool}
-                  target={noteId}
                   on:zaps={(e) => {
                     zapSats = Math.max(zapSats, e.detail.sats);
                     zapCount = Math.max(zapCount, e.detail.count);

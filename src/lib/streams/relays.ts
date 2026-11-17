@@ -27,6 +27,15 @@ export const STREAM_RECEIPT_RELAYS: readonly string[] = Object.freeze([
   ...new Set([...DISCOVERY_RELAYS, ...RECEIPT_RELAYS, 'wss://offchain.pub'])
 ]);
 
+/**
+ * Where Go live chat is written and read: the same shared list, so a
+ * stream's chat, its zap receipts and (later) its announcement's `relays`
+ * tag all name the same relays. A session lists no relays of its own.
+ */
+export function goLiveChatRelays(): string[] {
+  return [...STREAM_RECEIPT_RELAYS];
+}
+
 /** The chat's starting receipt set: the stream's own relays, then the shared list. */
 export function chatReceiptRelays(itemRelays: readonly string[] = []): string[] {
   return [...new Set([...itemRelays, ...STREAM_RECEIPT_RELAYS])];

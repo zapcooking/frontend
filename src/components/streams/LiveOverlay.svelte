@@ -31,7 +31,7 @@
   } from '$lib/live/config';
   import Avatar from '../Avatar.svelte';
 
-  /** The "Live now" note id this overlay belongs to. */
+  /** The session's chat address this overlay belongs to. */
   export let target: string | null;
   export let showComments = true;
   export let showZaps = true;
