@@ -62,7 +62,8 @@
   import LiveReport from './LiveReport.svelte';
   import { mentionedPubkeys, tokenizeChatText, type ChatSegment } from '$lib/streams/chatText';
   import { dayDividerLabel, formatChatTime, isBeforeToday } from '$lib/streams/chatTime';
-  import { DISCOVERY_RELAYS, chatReceiptRelays } from '$lib/streams/relays';
+  import { DISCOVERY_RELAYS, chatReceiptRelays, goLiveChatRelays } from '$lib/streams/relays';
+  import { isGoLiveItem } from '$lib/streams/goLive';
   import { resolveAuthorPubkey, zapReceiptRelayUrls } from '$lib/nip65Routing';
   import type { NostrEventLike, StreamItem } from '$lib/streams/types';
   import {
@@ -110,7 +111,11 @@
   // Plain declarations: openChat() runs during component init, before any
   // `$:` reactive statement would have fired.
   let address = target || item.key;
-  let sources = [...new Set([...(item.relays || []), ...DISCOVERY_RELAYS])];
+  // A Go live session names no relays of its own: its chat uses the shared
+  // list its zap receipts are read from. A NIP-53 stream keeps its own.
+  let sources = isGoLiveItem(item)
+    ? goLiveChatRelays()
+    : [...new Set([...(item.relays || []), ...DISCOVERY_RELAYS])];
   let model = new ChatMessages(item.key);
   let rows: TimelineRow[] = [];
   let loading = true;
