@@ -7,6 +7,11 @@
  * camera, Go live) and a viewer. With the note on:
  *   - the host's kind 30311 carries a `relays` tag: the shared chat and
  *     receipt relays, without purplepag.es;
+ *   - it keeps its `streaming` tag and also links the watch page
+ *     (`summary`, `r`, `alt`), and pins (`pinned`) one host kind 1311 on
+ *     the session address that reads "Watch live on Zap Cooking: <link>";
+ *   - Zap Cooking's own chat (host page and watch page) leaves that
+ *     message out, while a viewer's comment shows;
  *   - opening the stream by its naddr (/live/<naddr>) lands on the session
  *     page (/live/s/<id>);
  *   - the Live directory shows the stream once (the session's card, not a
@@ -17,7 +22,7 @@
  *     taken for ours: it keeps its own card and its naddr does not
  *     redirect.
  * With the note off (no announcement at all):
- *   - no kind 30311 is published;
+ *   - no kind 30311 and no host chat message is published;
  *   - the naddr built from host + session id still lands on the session
  *     page; the directory shows the stream once.
  * And an naddr whose `d` looks like a session id the server does not know
@@ -269,7 +274,40 @@ async function scenario(label, { withNote }) {
       JSON.stringify(relays)
     );
     check(`${label}: it still carries a streaming tag (unchanged here)`, !!announcement?.tags.some((t) => t[0] === 'streaming'));
+
+    // The watch link: in words, as a link, and as a pinned chat message.
+    const watchUrl = `${ORIGIN}${sessionPath}`;
+    const tag = (name) => announcement?.tags.find((t) => t[0] === name)?.[1];
+    check(`${label}: its summary says where to watch`, tag('summary') === `Live on Zap Cooking. Watch here: ${watchUrl}`, tag('summary'));
+    check(`${label}: its r tag is the watch page`, tag('r') === watchUrl, tag('r'));
+    check(`${label}: its alt says where to watch`, tag('alt') === `Live cook-along on Zap Cooking. Watch: ${watchUrl}`, tag('alt'));
+    const address = `30311:${hostPk}:${sessionId}`;
+    const hostChat = sentBy(hostPk, 1311);
+    const pinned = hostChat[0];
+    check(`${label}: the host posted one chat message at the start`, hostChat.length === 1, `${hostChat.length}`);
+    check(`${label}: it reads "Watch live on Zap Cooking: <watch page>"`, pinned?.content === `Watch live on Zap Cooking: ${watchUrl}`, pinned?.content);
+    check(
+      `${label}: it is on the session address and tags the host`,
+      !!pinned?.tags.some((t) => t[0] === 'a' && t[1] === address) && !!pinned?.tags.some((t) => t[0] === 'p' && t[1] === hostPk)
+    );
+    check(`${label}: the announcement pins it`, !!pinned && tag('pinned') === pinned.id, tag('pinned'));
+    check(`${label}: it was signed before the announcement`, !!pinned && pinned.created_at <= announcement.created_at);
     await sleep(1500);
+
+    // Zap Cooking's own chat leaves the link message out.
+    const comment = finalizeEvent(
+      { kind: 1311, created_at: now(), content: 'QA viewer says hello', tags: [['a', address], ['p', hostPk]] },
+      viewerSk
+    );
+    await net.seedEverywhere(comment);
+    await viewerPage.goto(`${ORIGIN}${sessionPath}`, { waitUntil: 'domcontentloaded' });
+    for (const [who, page] of [['watch page', viewerPage], ['host page', hostPage]]) {
+      const shown = await until(async () => (await page.locator('body').innerText()).includes('QA viewer says hello'), 20000);
+      check(`${label}: the ${who} chat shows a viewer's comment`, !!shown);
+      await sleep(1000);
+      const text = await page.locator('body').innerText();
+      check(`${label}: the ${who} chat leaves the watch-link message out`, !text.includes('Watch live on Zap Cooking:'));
+    }
 
     await opensSession('its naddr opens the session page', hostPk, sessionId, true);
     await directory('the Live directory shows it once');
@@ -317,6 +355,7 @@ async function scenario(label, { withNote }) {
     await sleep(3000);
     check(`${label}: no Live now note was posted`, sentBy(hostPk, 1).length === 0);
     check(`${label}: no announcement (kind 30311) was published`, sentBy(hostPk, 30311).length === 0);
+    check(`${label}: no host chat message (kind 1311) was published`, sentBy(hostPk, 1311).length === 0);
     await opensSession('the naddr built from host + session id opens the session page, with no announcement', hostPk, sessionId, true);
     await directory('the Live directory shows it once');
   }

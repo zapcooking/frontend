@@ -301,6 +301,20 @@ describe('Go live chat scope (kind 1311 on the session address)', () => {
     expect(model.rows().map((e) => e.id)).toEqual([id(2), id(1), id(3)]);
   });
 
+  it("leaves out the host's pinned watch-link message, and only that", () => {
+    const text = `Watch live on Zap Cooking: https://zap.cooking/live/s/${SESSION}`;
+    const model = new ChatMessages(scope);
+    expect(model.accept(live({ id: id(1), pubkey: HOST, content: text }), verify)).toBe(false);
+    // The same words from a viewer are a comment like any other.
+    expect(model.accept(live({ id: id(2), pubkey: STREAMER, content: text }), verify)).toBe(true);
+    // The host's other messages show.
+    expect(model.accept(live({ id: id(3), pubkey: HOST, content: 'hello' }), verify)).toBe(true);
+    expect(model.size).toBe(2);
+    // A plain NIP-53 stream (no scope) hides nothing.
+    const plain = new ChatMessages(LIVE);
+    expect(plain.accept(live({ id: id(1), pubkey: HOST, content: text }), verify)).toBe(true);
+  });
+
   it('holds one event id once, however it arrives', () => {
     const model = new ChatMessages(scope);
     const message = live({ id: id(1) });
