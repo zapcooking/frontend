@@ -23,7 +23,7 @@
    *  - With the "Live now" note switch on (the default), it posts a kind 1
    *    note from the host when the broadcast first connects, records the
    *    note's id on the session, and announces the stream (NIP-53). Off:
-   *    no note, no announcement, no zap total. Either way the stream has
+   *    no note, no announcement. Either way the stream has a zap total and
    *    a chat, on the session's own address (kind 1311).
    */
   import { onDestroy, onMount, tick } from 'svelte';
@@ -262,7 +262,7 @@
   let hostTab: 'chat' | 'recipe' = 'chat';
   let recipeImageFor: string | null = null;
   let chatPool: SimplePool | null = null;
-  /** Verified zaps on the note, as the chat counts them (none without a note). */
+  /** Verified zaps to the stream (its note and its address), as the chat counts them. */
   let zapSats = 0;
   let zapCount = 0;
   let chatItem: StreamItem | null = null;
@@ -1320,8 +1320,8 @@
     endedMessage = message;
     const closing = session;
     // Captured before teardown clears them: the ended screen's sats are
-    // the note's zap total as the chat counted it.
-    const sats = noteId ? zapSats : 0;
+    // the stream's zap total as the chat counted it (note and address).
+    const sats = zapSats;
     const wasLive = everLive;
     statsLine = null;
     // This page's own clock first; the server's start time (which also
@@ -1704,8 +1704,7 @@
                 followers' feeds and in live apps.
               {:else}
                 Not announced: no note in your followers' feeds and no listing in other live
-                apps. The stream still shows on Zap Cooking's Live page and chat works. Zaps go
-                to your profile, with no total.
+                apps. The stream still shows on Zap Cooking's Live page, and chat and zaps work.
               {/if}
             </span>
           </span>

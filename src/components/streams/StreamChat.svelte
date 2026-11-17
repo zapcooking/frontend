@@ -50,7 +50,7 @@
     type ChatTarget
   } from '$lib/streams/chat';
   import { pseudonym } from '$lib/streams/parse';
-  import { targetFilter } from '$lib/streams/target';
+  import { goLiveZapTargets, targetFilters } from '$lib/streams/target';
   import { userPublickey } from '$lib/nostr';
   import {
     fetchHiddenAuthors,
@@ -119,13 +119,15 @@
   /** What the chat reads and writes: the Go live scope, or the stream's address. */
   let chatTarget: ChatTarget = scope ?? item.key;
   /**
-   * What zap receipts must point at. A Go live session's zaps target its
-   * "Live now" note, so a session without one has no receipts to read.
+   * What zap receipts may point at. A Go live session: its "Live now"
+   * note (when there is one) and its address; both count, each payment
+   * once. A NIP-53 stream: its address.
    */
-  function zapTargetOf(): string | null {
-    return goLive ? (item.noteId ?? null) : item.key;
+  function zapTargetsOf(): string[] {
+    return goLive ? goLiveZapTargets(item.host, item.sessionId, item.noteId) : [item.key];
   }
-  let zapTarget = zapTargetOf();
+  let zapTargets = zapTargetsOf();
+  const sameTargets = (a: string[], b: string[]) => a.join('|') === b.join('|');
   /** The note id the open chat was built for. */
   let openedNote: string | null = goLive ? (item.noteId ?? null) : null;
   // A Go live session names no relays of its own: its chat uses the shared
@@ -192,12 +194,12 @@
    * row and stays out of the timeline.
    */
   async function acceptReceipt(event: NostrEventLike): Promise<boolean> {
-    const address = zapTarget;
-    if (!address) return false;
+    if (!zapTargets.length) return false;
     const provider = await resolveChatProvider();
-    if (!provider || address !== zapTarget) return false;
+    if (!provider) return false;
     const accepted = await totals.accept(event, {
-      address,
+      // Read after the wait: a note that arrived meanwhile only adds a target.
+      address: zapTargets,
       recipient: item.host,
       provider,
       verify: verifyEvent as never,
@@ -518,14 +520,20 @@
 
   /** Recent receipts so the log opens with the zap history, like Sidecar. */
   async function loadReceipts() {
-    const address = zapTarget;
-    if (!address) return;
+    const address = zapTargets;
+    if (!address.length) return;
     try {
-      const events = (await pool.querySync(
-        receiptSources,
-        { kinds: [9735], ...targetFilter(address), limit: 200 } as Filter,
-        { maxWait: 5000 }
-      )) as unknown as NostrEventLike[];
+      // One query per target (the note, the address); a receipt both
+      // return is taken once (by id here, by payment in the total).
+      const pages = await Promise.all(
+        targetFilters(address).map(
+          (fragment) =>
+            pool.querySync(receiptSources, { kinds: [9735], ...fragment, limit: 200 } as Filter, {
+              maxWait: 5000
+            }) as unknown as Promise<NostrEventLike[]>
+        )
+      );
+      const events = [...new Map(pages.flat().map((e) => [e.id, e])).values()];
       for (const event of events) {
         if (await acceptReceipt(event)) receipts.set(event.id, event);
         reportZaps();
@@ -539,16 +547,11 @@
   function subscribeReceipts() {
     receiptSub?.close();
     receiptSub = null;
-    const address = zapTarget;
-    if (!address) return;
-    const closer = pool.subscribeMany(
-      receiptSources,
-      {
-        kinds: [9735],
-        ...targetFilter(address),
-        since: Math.floor(Date.now() / 1000) - 10
-      } as Filter,
-      {
+    const address = zapTargets;
+    if (!address.length) return;
+    const since = Math.floor(Date.now() / 1000) - 10;
+    const closers = targetFilters(address).map((fragment) =>
+      pool.subscribeMany(receiptSources, { kinds: [9735], ...fragment, since } as Filter, {
         onevent: (event: unknown) => {
           const e = event as NostrEventLike;
           acceptReceipt(e).then((ok) => {
@@ -560,9 +563,9 @@
             }
           });
         }
-      } as never
+      } as never)
     );
-    receiptSub = { close: () => closer.close() };
+    receiptSub = { close: () => closers.forEach((closer) => closer.close()) };
   }
 
   async function scrollToBottom() {
@@ -622,7 +625,7 @@
     scope = scopeOf();
     openedNote = goLive ? (item.noteId ?? null) : null;
     chatTarget = scope ?? item.key;
-    zapTarget = zapTargetOf();
+    zapTargets = zapTargetsOf();
     model = new ChatMessages(chatTarget);
     historyNext = undefined;
     openedAt = Math.floor(Date.now() / 1000);
@@ -665,7 +668,7 @@
    * Go live: the "Live now" note's id became known (or changed) while the
    * chat was open. The chat itself stays as it is: the messages on screen
    * are kept, the note's replies are read as well from here on, and zap
-   * receipts (which target the note) start being read.
+   * receipts on the note are read as well as those on the address.
    */
   function noteChanged() {
     openedNote = goLive ? (item.noteId ?? null) : null;
@@ -679,10 +682,11 @@
     historyNext = undefined;
     subscribeMessages();
     void load(true);
-    if (zapTargetOf() !== zapTarget) {
-      zapTarget = zapTargetOf();
-      totals = new ZapTotals();
-      receipts = new Map();
+    // The note is one more thing zaps may point at. The total and the
+    // rows already shown (zaps to the address) are kept; the note's
+    // receipts are added to the same total.
+    if (!sameTargets(zapTargetsOf(), zapTargets)) {
+      zapTargets = zapTargetsOf();
       void loadReceipts();
       subscribeReceipts();
     }

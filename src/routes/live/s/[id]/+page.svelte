@@ -22,6 +22,7 @@
   import { fetchProfile } from '$lib/streams/fetch';
   import { DISCOVERY_RELAYS } from '$lib/streams/relays';
   import { scanStreamZapHistory, type StreamZapTally } from '$lib/streams/streamZaps';
+  import { goLiveZapTargets } from '$lib/streams/target';
   import { keepHigherTally } from '$lib/streams/tallyDisplay';
   import { zapReceiptRelayUrls } from '$lib/nip65Routing';
   import { userPublickey } from '$lib/nostr';
@@ -41,12 +42,13 @@
   let pool: SimplePool | null = null;
   let timer: ReturnType<typeof setInterval> | null = null;
   let currentId: string | null = null;
-  // Zap total from the "Live now" note's receipts (same rules as a NIP-53
-  // stream's: provider-signed receipts only; the total never moves down).
+  // Zap total from the receipts on the session's address and on its "Live
+  // now" note, each payment once (same rules as a NIP-53 stream's:
+  // provider-signed receipts only; the total never moves down).
   let tally: StreamZapTally | null = null;
   let tallyLoading = false;
   let tallyKey: string | null = null;
-  /** The note a scan is running (or ran) for, claimed before any await. */
+  /** The targets a scan is running (or ran) for, claimed before any await. */
   let tallyFor: string | null = null;
   let scanAbort: AbortController | null = null;
   let tallyTimer: ReturnType<typeof setInterval> | null = null;
@@ -57,25 +59,36 @@
         .slice(0, 10)
     : [];
 
-  async function tallyLoad(noteId: string, host: string) {
+  /** What this session's zaps may point at, as one comparable string. */
+  const zapKey = (s: GoLiveSession) =>
+    goLiveZapTargets(s.host_pubkey, s.id, s.note_id).join('|');
+
+  async function tallyLoad(s: GoLiveSession) {
+    const targets = goLiveZapTargets(s.host_pubkey, s.id, s.note_id);
+    if (!targets.length) return;
+    const key = targets.join('|');
+    const sessionId = s.id;
+    const host = s.host_pubkey;
     scanAbort?.abort();
     scanAbort = new AbortController();
     const signal = scanAbort.signal;
     tallyLoading = true;
     // Claimed before any await: the 5 s session poll checks it, so it does
     // not restart the scan on every poll.
-    tallyFor = noteId;
+    tallyFor = key;
     // Fresh receipts for our own zaps land on the zap request's relays.
     const extraRelays = await zapReceiptRelayUrls(get(userPublickey) || undefined, host).catch(
       () => []
     );
     // Superseded (another session, or a newer scan): touch nothing shared.
     if (signal.aborted) return;
-    if (tallyKey !== noteId) tally = null;
-    tallyKey = noteId;
+    // A note that arrives mid-stream adds a target to the same stream: the
+    // total on screen is kept. Only another session starts from nothing.
+    if (tallyKey !== sessionId) tally = null;
+    tallyKey = sessionId;
     // Verified scan only (provider-signed receipts): an unverified quick
     // pass could inflate the total, and the display never moves down.
-    const scan = await scanStreamZapHistory(noteId, host, {
+    const scan = await scanStreamZapHistory(targets, host, {
       extraRelays,
       signal,
       onPartial: (t) => {
@@ -179,7 +192,7 @@
     loading = false;
     rebuild();
     void loadHostName(next.host_pubkey);
-    if (next.note_id && tallyFor !== next.note_id) void tallyLoad(next.note_id, next.host_pubkey);
+    if (tallyFor !== zapKey(next)) void tallyLoad(next);
     if (recipeChanged) void loadRecipe(next.recipe_a);
     if (next.status === 'ended') stopPolling();
   }
@@ -229,9 +242,7 @@
   // Other viewers' zaps reach the total and the top-zappers strip.
   if (browser) {
     tallyTimer = setInterval(() => {
-      if (session?.note_id && !tallyLoading && !document.hidden) {
-        void tallyLoad(session.note_id, session.host_pubkey);
-      }
+      if (session && !tallyLoading && !document.hidden) void tallyLoad(session);
     }, TALLY_RESCAN_MS);
   }
 
@@ -277,7 +288,7 @@
       {tally}
       {tallyLoading}
       {topZappers}
-      on:zapComplete={() => session?.note_id && tallyLoad(session.note_id, session.host_pubkey)}
+      on:zapComplete={() => session && tallyLoad(session)}
       on:zaps={(e) => {
         // Zaps the chat verified live (incl. ones arriving now) raise the
         // total at once; the minute-by-minute scan stays the base.

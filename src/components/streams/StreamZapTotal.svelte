@@ -8,10 +8,10 @@
    * an event id, so receipts land with the `#a` tag every NIP-53 client
    * (zap.stream included) scans.
    *
-   * A Go live session has no announcement. With its "Live now" note
-   * (`noteId`) the zap targets the note, an `e` tag, so receipts can be
-   * counted for the total; without a note it is a plain zap to the host's
-   * profile, with no running total.
+   * A Go live session: with its "Live now" note (`noteId`) the zap targets
+   * the note, an `e` tag, so it also shows on the note in other apps.
+   * Without a note it targets the session's address (`address`, an `a`
+   * tag), like any NIP-53 stream. The total counts both.
    */
   import { createEventDispatcher } from 'svelte';
   import { get } from 'svelte/store';
@@ -21,15 +21,12 @@
   import ZapModal from '../ZapModal.svelte';
 
   export let address: string | null;
-  /** Go live: the "Live now" note's id, zapped instead of the profile. */
-  export let noteId: string | null = null;
   /**
-   * Go live: the note is expected but its id is not known yet. The button
-   * waits ("Loading…") rather than silently zapping the profile.
+   * Go live: the "Live now" note's id, zapped instead of the address once
+   * it exists. Before it does (or with the note off) a zap goes to the
+   * address; the total counts it either way, so the button never waits.
    */
-  export let notePending = false;
-  /** Go live: a session with no note at all (switch off). Says so on the button. */
-  export let goLive = false;
+  export let noteId: string | null = null;
   export let hostPubkey: string;
   export let sats = 0;
   export let count = 0;
@@ -89,28 +86,13 @@
 
     <button
       type="button"
-      class="flex items-center gap-1 rounded-full bg-amber-500/15 px-3 py-1.5 text-sm font-semibold text-amber-500 hover:bg-amber-500/25 disabled:cursor-wait disabled:opacity-60"
+      class="flex items-center gap-1 rounded-full bg-amber-500/15 px-3 py-1.5 text-sm font-semibold text-amber-500 hover:bg-amber-500/25"
       on:click={() => (zapOpen = true)}
-      disabled={notePending && !noteId}
-      aria-label={notePending && !noteId
-        ? 'Zap: loading'
-        : goLive && !noteId
-          ? 'Zap the host (this stream has no Live now note)'
-          : 'Zap this stream'}
-      title={notePending && !noteId
-        ? 'Waiting for the Live now note'
-        : goLive && !noteId
-          ? 'Zap the host (no Live now note, so no total)'
-          : 'Zap this stream'}
+      aria-label="Zap this stream"
+      title="Zap this stream"
     >
       <LightningIcon class="h-4 w-4" weight="fill" />
-      {#if notePending && !noteId}
-        Loading…
-      {:else if goLive && !noteId}
-        Zap host
-      {:else}
-        Zap
-      {/if}
+      Zap
     </button>
   {/if}
 </div>

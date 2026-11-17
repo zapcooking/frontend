@@ -12,14 +12,20 @@
  * state (the NDK path returned empty when the pool was still warming up).
  */
 
-import { targetFilter } from './target';
+import { targetFilter, targetFilters } from './target';
 import { extractZapAmountSats } from '$lib/zapAmount';
 import { ZAP_AGGREGATOR_RELAYS } from '$lib/recipeZaps';
 import { verifyEvent } from 'nostr-tools/pure';
 import type { Filter } from 'nostr-tools/filter';
 import { createStreamPool, relayPage } from './relayPage';
 import { resolveZapProvider } from './zapProvider';
-import { embeddedRequestOf, extraZapRelays, relayHints, zapHistory, ZapTotals } from './zapTotals';
+import {
+  embeddedRequestOf,
+  extraZapRelays,
+  relayHints,
+  zapHistories,
+  ZapTotals
+} from './zapTotals';
 import { DISCOVERY_RELAYS, RECEIPT_RELAYS } from './relays';
 import type { NostrEventLike } from './types';
 
@@ -118,8 +124,14 @@ const sha256Hex = async (text: string): Promise<string> => {
   return [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, '0')).join('');
 };
 
+/**
+ * `address` is what the receipts must point at: a stream address, a note
+ * id, or a list (a Go live session's note and address, see
+ * `goLiveZapTargets`). A list is scanned one filter per target into one
+ * verified total, so a payment is counted once.
+ */
 export async function scanStreamZapHistory(
-  address: string,
+  address: string | readonly string[],
   host: string | null,
   opts: {
     hostRelays?: string[];
@@ -205,7 +217,10 @@ export async function scanStreamZapHistory(
 
   try {
     const relays = [...new Set([...streamReceiptRelayUrls(), ...extraRelays])];
-    const baseFilter = { kinds: [9735], ...targetFilter(address) };
+    const targets = typeof address === 'string' ? [address] : address;
+    const until = () => Math.floor(Date.now() / 1000);
+    const filters = () =>
+      targetFilters(targets).map((fragment) => ({ kinds: [9735], ...fragment, until: until() }));
     const query = (relay: string, filter: Record<string, unknown>) =>
       relayPage<NostrEventLike>(pool, relay, filter as Filter, signal, SCAN_PAGE_TIMEOUT_MS);
 
@@ -237,16 +252,18 @@ export async function scanStreamZapHistory(
     }
     verified = !!provider;
 
-    const history = await zapHistory({
-      sources: relays,
-      query,
-      accept: accept(provider),
-      filter: { ...baseFilter, until: Math.floor(Date.now() / 1000) },
-      signal,
-      pageSize: SCAN_PAGE_SIZE,
-      maxPages: SCAN_MAX_PAGES
-    });
-    complete = history.complete;
+    const history = await zapHistories(
+      {
+        sources: relays,
+        query,
+        accept: accept(provider),
+        signal,
+        pageSize: SCAN_PAGE_SIZE,
+        maxPages: SCAN_MAX_PAGES
+      },
+      filters()
+    );
+    complete = history.length > 0 && history.every((h) => h.complete);
     emit(true);
 
     // Archive second pass: relays that hold many receipts, on Sidecar's
@@ -254,16 +271,18 @@ export async function scanStreamZapHistory(
     if (!signal.aborted) {
       const more = extraZapRelays({ known: relays, hints, limit: 8 });
       if (more.length) {
-        const archive = await zapHistory({
-          sources: more,
-          query,
-          accept: accept(provider),
-          filter: { ...baseFilter, until: Math.floor(Date.now() / 1000) },
-          signal,
-          pageSize: SCAN_PAGE_SIZE,
-          maxPages: 15
-        });
-        complete = complete && archive.complete;
+        const archive = await zapHistories(
+          {
+            sources: more,
+            query,
+            accept: accept(provider),
+            signal,
+            pageSize: SCAN_PAGE_SIZE,
+            maxPages: 15
+          },
+          filters()
+        );
+        complete = complete && archive.every((h) => h.complete);
         emit(true);
       }
     }

@@ -36,7 +36,7 @@ import { LIVE_COST_USD_PER_1000_MINUTES } from '$lib/live/config';
 import {
   closeOutEndedSessions,
   countWaiting,
-  fetchNoteZapSats,
+  fetchStreamZapSats,
   listMetricsStreams,
   listMonthly,
   monthKey
@@ -123,7 +123,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     {
       readTotals: (id) => readPresenceTotals(platform, id),
       finish: (id) => finishPresence(platform, id),
-      zapSats: (noteId, host) => fetchNoteZapSats(noteId, host, { providers })
+      zapSats: (targets, host) => fetchStreamZapSats(targets, host, { providers })
     },
     nowSeconds(),
     () => Date.now() > deadline

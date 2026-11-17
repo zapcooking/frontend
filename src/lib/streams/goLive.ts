@@ -60,14 +60,10 @@ export function isGoLiveItem(item: Pick<StreamItem, 'source'> | null | undefined
  * known. Its title is the stream's name (see $lib/live/streamName): pass the
  * host's real name, when known, for "<host> is cooking <recipe>".
  */
-/** How long after going live a missing note is still "expected" (the host posts it on connect). */
-export const NOTE_GRACE_SECONDS = 90;
-
 export function sessionToStreamItem(
   session: GoLiveSession,
   recipe?: RecipeCard | null,
-  hostName?: string | null,
-  now: number = Date.now()
+  hostName?: string | null
 ): StreamItem {
   const noteId = session.note_id && /^[0-9a-f]{64}$/.test(session.note_id) ? session.note_id : null;
   // A session the host has created but not yet published to reads as live:
@@ -101,11 +97,7 @@ export function sessionToStreamItem(
     source: 'zapcooking',
     sessionId: session.id,
     recipeA: session.recipe_a,
-    noteId,
-    notePending:
-      !noteId &&
-      session.status !== 'ended' &&
-      (session.started_at == null || now / 1000 - session.started_at < NOTE_GRACE_SECONDS)
+    noteId
   };
 }
 
@@ -197,9 +189,7 @@ export function mergeLiveItems(goLive: StreamItem[], nostr: StreamItem[]): Strea
   // twice — once from the API, once from 30311 discovery. The
   // announcement's streaming tag names the session's join endpoint: match
   // on the session id and keep the API copy (it has the live chat).
-  const sessionIds = new Set(
-    goLive.map((i) => i.sessionId).filter((id): id is string => !!id)
-  );
+  const sessionIds = new Set(goLive.map((i) => i.sessionId).filter((id): id is string => !!id));
   const nostrOnly = nostr.filter((i) => {
     const m = i.url?.match(/\/api\/live\/([0-9a-f-]+)\/join/i);
     return !(m && sessionIds.has(m[1]));

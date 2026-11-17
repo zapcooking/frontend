@@ -15,7 +15,7 @@
 
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { readLiveEnv } from '$lib/live/env.server';
-import { fetchNoteZapSats } from '$lib/live/metrics.server';
+import { fetchStreamZapSats } from '$lib/live/metrics.server';
 import { finishPresence, readPresenceTotals } from '$lib/live/presence.server';
 import { runLiveSweep } from '$lib/live/sweep.server';
 import type { LiveDb } from '$lib/live/sessions.server';
@@ -60,7 +60,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       metrics: {
         readTotals: (id) => readPresenceTotals(platform, id),
         finish: (id) => finishPresence(platform, id),
-        zapSats: (noteId, host) => fetchNoteZapSats(noteId, host, { providers })
+        zapSats: (targets, host) => fetchStreamZapSats(targets, host, { providers })
       }
     });
     return json(summary, { headers: NO_STORE });
