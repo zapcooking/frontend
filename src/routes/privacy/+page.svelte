@@ -25,7 +25,7 @@
   <h1 class="text-3xl font-bold mb-8" style="color: var(--color-text-primary)">Privacy Policy</h1>
 
   <div class="flex flex-col gap-6 leading-relaxed" style="color: var(--color-text-primary)">
-    <p class="text-sm opacity-75">Last updated: November 15, 2026</p>
+    <p class="text-sm opacity-75">Last updated: November 16, 2026</p>
 
     <p>Zap Cooking LLC ("Zap Cooking," "we," "our," or "us") respects your privacy and is committed to transparency about how information is handled when you use our website, mobile applications, and related services (collectively, the "Service").</p>
 
@@ -235,7 +235,7 @@
 
     <p><strong>No recording.</strong> We set up every stream on Cloudflare Stream with recording turned off, and we do not create or keep recordings of broadcasts. Cloudflare processes the audio and video as needed to deliver them to viewers in real time; any temporary processing or storage that involves is handled by Cloudflare under its own infrastructure practices and its terms with us. Anyone watching can still record or capture the stream with their own tools.</p>
 
-    <p><strong>What we keep about a stream.</strong> For each stream we keep the host's public key, its title, any attached recipe, when it started and ended, why it ended, how many viewers joined, the most viewers watching at once, the total time viewers spent watching, the number of guest viewers admitted and turned away, the sats zapped to the host's "Live now" note, and the ID of that note. These records are deleted 30 days after the stream ends, unless a report about it is under review (see "Reports and reviews" below) or the law requires us to keep them longer.</p>
+    <p><strong>What we keep about a stream.</strong> For each stream we keep the host's public key, its title, any attached recipe, when it started and ended, why it ended, how many viewers joined, the most viewers watching at once, the total time viewers spent watching, the number of guest viewers admitted and turned away, the sats zapped to the stream, and the ID of the host's "Live now" note if there is one. These records are deleted 30 days after the stream ends, unless a report about it is under review (see "Reports and reviews" below) or the law requires us to keep them longer.</p>
 
     <p><strong>Viewers.</strong> We do not keep a viewing history or a record of who watched a stream, and we do not store viewers' IP addresses or public keys with a stream. Watching does involve some limited, short-lived processing:</p>
 
@@ -250,7 +250,7 @@
 
     <p><strong>Join pass.</strong> A guest viewer's browser receives a short-lived pass, valid for up to two hours, that lets it rejoin the same stream without taking another viewer place. The pass is a signed expiry time for that stream. It contains nothing about you, and we do not store it.</p>
 
-    <p><strong>Comments and zaps.</strong> Comments on a stream are public Nostr replies to the host's "Live now" note, and zaps are public zap receipts. Both are published to relays like any other Nostr content (see "Decentralized Data and Public Content").</p>
+    <p><strong>Comments and zaps.</strong> Comments on a stream are public Nostr live chat messages addressed to the stream. They are not posted as replies in your followers' feeds, but anyone can read them, including in other Nostr apps. If the host announced the stream with a "Live now" note, public replies to that note are shown in the chat too. Zaps are public zap receipts. All of these are published to relays like any other Nostr content (see "Decentralized Data and Public Content").</p>
 
     <p><strong>Hidden commenters.</strong> A host can hide a commenter from their streams' comments, and we can hide a commenter from all Go live comments. We keep the hidden account's public key, the scope of the hide, and when it was made, until it is undone. Hiding does not delete anything from Nostr.</p>
 
