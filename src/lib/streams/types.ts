@@ -70,7 +70,11 @@ export interface StreamItem {
   sessionId?: string;
   /** Attached recipe address `<kind>:<pubkey>:<d>` (source `'zapcooking'` only). */
   recipeA?: string | null;
-  /** Go live only: the "Live now" note's event id (comments and zaps hang off it). */
+  /**
+   * Go live only: the "Live now" note's event id. Zaps target it, and its
+   * replies are read into the chat (which itself hangs off the session's
+   * address, not the note).
+   */
   noteId?: string | null;
   /**
    * Go live only: no note yet, but one is expected any moment (the session
