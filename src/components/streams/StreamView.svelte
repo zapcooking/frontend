@@ -35,6 +35,7 @@
   import RecipePanel from './RecipePanel.svelte';
   import LiveReport from './LiveReport.svelte';
   import { isGoLiveItem } from '$lib/streams/goLive';
+  import { goLiveAddress } from '$lib/streams/target';
   import type { StreamZapTally } from '$lib/streams/streamZaps';
   import type { StreamItem } from '$lib/streams/types';
 
@@ -145,10 +146,8 @@
       {/if}
       <div class="zap-bar">
         <StreamZapTotal
-          address={goLive ? null : item.key}
+          address={goLive ? goLiveAddress(item.host, item.sessionId) : item.key}
           noteId={item.noteId ?? null}
-          notePending={!!item.notePending}
-          {goLive}
           hostPubkey={item.host}
           sats={tally?.totalSats ?? 0}
           count={tally?.zapCount ?? 0}

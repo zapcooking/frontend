@@ -195,7 +195,7 @@ is asked again on their next stream, and the create route refuses with
 
 **For the next policy PR (Live metrics, migration 0010; opened as #994, with counsel):** Privacy §9 currently says stream records are deleted 30 days after the stream and that audience totals are seen only by the host. With 0010 both change:
 
-- "What we keep about a stream" should add "the total time viewers spent watching and the sats zapped to the host's "Live now" note".
+- "What we keep about a stream" should add "the total time viewers spent watching and the sats zapped to the stream" (zaps to the host's "Live now" note and zaps to the stream's address, `30311:<host pubkey>:<session id>`, each payment counted once).
 - "Totals" should say that Zap Cooking's admins also see them, to run the service and estimate its costs.
 - A new line for the monthly summary. Proposed: "For each host we also keep a monthly summary for running the service: how many streams they hosted, for how long, the total time viewers spent watching, the most viewers at once and the sats zapped. It holds nothing about any viewer. We keep it for 24 months and delete it when the host asks us to delete their account."
 - /delete-account: the monthly summary is deleted with the account.

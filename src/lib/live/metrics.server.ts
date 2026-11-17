@@ -6,7 +6,8 @@
  *
  *   1. reads the viewer time and peak the session's presence Durable
  *      Object summed from the anonymous heartbeats,
- *   2. sums the zap receipts on the session's "Live now" note,
+ *   2. sums the zap receipts on the session's "Live now" note and on its
+ *      address (30311:<host>:<session id>), each payment once,
  *   3. in ONE D1 batch, folds the session into its host's month in
  *      live_host_monthly and records viewer_seconds, zap_sats and
  *      metrics_at on the row. Both statements are conditional on
@@ -34,7 +35,8 @@ import {
 import { verifyEvent } from 'nostr-tools/pure';
 import { collect, type NostrEvent } from '$lib/relayCollect';
 import { STREAM_RECEIPT_RELAYS } from '$lib/streams/relays';
-import { ZapTotals, zapHistory, type PageResult } from '$lib/streams/zapTotals';
+import { goLiveZapTargets, targetFilters } from '$lib/streams/target';
+import { ZapTotals, zapHistories, type PageResult } from '$lib/streams/zapTotals';
 import type { EventVerifier, NostrEventLike } from '$lib/streams/types';
 import type { PresenceTotals } from './presence.server';
 import type { LiveDb } from './sessions.server';
@@ -46,11 +48,11 @@ export interface MetricsDeps {
   /** Wipe the presence object. Best effort. */
   finish(sessionId: string): Promise<void>;
   /**
-   * Verified sats zapped to the host's note, or null when it cannot be
-   * read right now (no relay answered, or the host's provider is
-   * unreachable).
+   * Verified sats zapped to the stream (`targets`: its "Live now" note
+   * when it has one, and its address), or null when it cannot be read
+   * right now (no relay answered, or the host's provider is unreachable).
    */
-  zapSats(noteId: string, hostPubkey: string): Promise<number | null>;
+  zapSats(targets: string[], hostPubkey: string): Promise<number | null>;
 }
 
 export interface PendingMetricsRow {
@@ -237,7 +239,8 @@ export async function closeOutEndedSessions(
 
         const [totals, sats] = await Promise.all([
           deps.readTotals(row.id),
-          row.note_id ? deps.zapSats(row.note_id, row.host_pubkey) : Promise.resolve(0)
+          // Every session has an address to be zapped at, note or no note.
+          deps.zapSats(goLiveZapTargets(row.host_pubkey, row.id, row.note_id), row.host_pubkey)
         ]);
         if ((totals === null || sats === null) && !giveUp) {
           summary.retry++;
@@ -368,23 +371,26 @@ const sha256Hex = async (text: string) =>
     .join('');
 
 /**
- * Verified sats zapped to the host's "Live now" note. Only receipts signed
- * by the host's own zap provider count, with a signed zap request for this
- * note and host and an invoice that matches it, each payment once: the
- * same rule as the stream chat's zap total (ZapTotals.accept). Receipt
- * history is walked backward page by page on every relay (zapHistory).
+ * Verified sats zapped to a stream: to any of `targets` (a Go live
+ * session's "Live now" note and its address, see goLiveZapTargets). Only
+ * receipts signed by the host's own zap provider count, with a signed zap
+ * request for the same target and host and an invoice that matches it,
+ * each payment once across all targets: the same rule as the stream
+ * chat's zap total (ZapTotals.accept). Receipt history is walked backward
+ * page by page on every relay, once per target (zapHistory).
  *
- * Null (try again later) when the provider is unreachable or no relay
- * finished a clean pass; a relay that answers CLOSED (auth-required,
- * rate-limited) is not a clean pass. 0 when the host has no zappable
- * address. A history longer than the scan walks is logged and the
- * verified sum so far is returned.
+ * Null (try again later) when the provider is unreachable or, for any
+ * target, no relay finished a clean pass; a relay that answers CLOSED
+ * (auth-required, rate-limited) is not a clean pass. 0 when the host has
+ * no zappable address, or there is no target. A history longer than the
+ * scan walks is logged and the verified sum so far is returned.
  */
-export async function fetchNoteZapSats(
-  noteId: string,
+export async function fetchStreamZapSats(
+  targets: readonly string[],
   host: string,
   deps: ZapReadDeps = {}
 ): Promise<number | null> {
+  if (targets.length === 0) return 0;
   const signal = AbortSignal.timeout(ZAP_BUDGET_MS);
   let lookup = deps.providers?.get(host);
   if (!lookup) {
@@ -397,33 +403,39 @@ export async function fetchNoteZapSats(
   const read = deps.collect ?? collect;
   const verify = deps.verify ?? (verifyEvent as unknown as EventVerifier);
   const totals = new ZapTotals();
-  const result = await zapHistory({
-    sources: ZAP_RELAYS,
-    query: async (relay, filter): Promise<PageResult> => {
-      const r = await read(relay, { z: filter }, { timeoutMs: ZAP_PAGE_TIMEOUT_MS, signal });
-      return {
-        events: r.events.z as NostrEventLike[],
-        complete: r.done.z && !r.closed.z
-      };
+  // One ZapTotals for every target: a payment is counted once by its
+  // payment hash, whichever target's scan (or relay) brought the receipt.
+  const results = await zapHistories(
+    {
+      sources: ZAP_RELAYS,
+      query: async (relay, filter): Promise<PageResult> => {
+        const r = await read(relay, { z: filter }, { timeoutMs: ZAP_PAGE_TIMEOUT_MS, signal });
+        return {
+          events: r.events.z as NostrEventLike[],
+          complete: r.done.z && !r.closed.z
+        };
+      },
+      accept: async (event) => {
+        await totals.accept(event, {
+          address: targets,
+          recipient: host,
+          provider: provider.pubkey,
+          verify,
+          digest: sha256Hex
+        });
+      },
+      signal,
+      pageSize: ZAP_PAGE_SIZE,
+      maxPages: ZAP_MAX_PAGES
     },
-    accept: async (event) => {
-      await totals.accept(event, {
-        address: noteId,
-        recipient: host,
-        provider: provider.pubkey,
-        verify,
-        digest: sha256Hex
-      });
-    },
-    filter: { kinds: [9735], '#e': [noteId] },
-    signal,
-    pageSize: ZAP_PAGE_SIZE,
-    maxPages: ZAP_MAX_PAGES
-  });
-  if (result.answered === 0 && !result.truncated) return null;
-  if (result.truncated) {
+    targetFilters(targets).map((fragment) => ({ kinds: [9735], ...fragment }))
+  );
+  // A target no relay answered for could be hiding zaps: wait, do not
+  // record a total that silently leaves it out.
+  if (results.some((r) => r.answered === 0 && !r.truncated)) return null;
+  if (results.some((r) => r.truncated)) {
     console.warn(
-      `[LiveSweep] note=${noteId} zaps=truncated sats_so_far=${Math.floor(totals.msats / 1000)}`
+      `[LiveSweep] targets=${targets.length} host=${host.slice(0, 8)} zaps=truncated sats_so_far=${Math.floor(totals.msats / 1000)}`
     );
   }
   return Math.floor(totals.msats / 1000);

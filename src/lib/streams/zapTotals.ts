@@ -81,8 +81,13 @@ export interface ZapTotalsAccept {
   /**
    * What the receipt must target: a stream address (`30311:<host>:<d>`,
    * matched on the `a` tag) or a note id (64 hex, matched on `e`).
+   *
+   * A list means "any one of these" (a Go live session: its note and its
+   * address). The receipt and its zap request must point at the SAME one.
+   * Feed every target's receipts to one ZapTotals: a payment is counted
+   * once by its payment hash, whichever target (or query) it arrived by.
    */
-  address: string;
+  address: string | readonly string[];
   /** Recipient pubkey the receipt must target. */
   recipient: string;
   /** The provider pubkey from the host's LNURL document. */
@@ -105,21 +110,22 @@ export class ZapTotals {
       if (receipt.kind !== 9735 || receipt.pubkey !== opts.provider || !opts.verify(receipt)) {
         return false;
       }
-      if (
-        firstValue(receipt, targetTag(opts.address)) !== opts.address ||
-        firstValue(receipt, 'p') !== opts.recipient
-      ) {
-        return false;
-      }
+      if (firstValue(receipt, 'p') !== opts.recipient) return false;
       const description = firstValue(receipt, 'description');
       const request = JSON.parse(description || 'null') as NostrEventLike | null;
       if (
         !request ||
         request.kind !== 9734 ||
         !opts.verify(request) ||
-        firstValue(request, targetTag(opts.address)) !== opts.address ||
         firstValue(request, 'p') !== opts.recipient
       ) {
+        return false;
+      }
+      // The receipt and the request it embeds must name the same target.
+      const targets = typeof opts.address === 'string' ? [opts.address] : opts.address;
+      const pointsAt = (event: NostrEventLike, target: string) =>
+        firstValue(event, targetTag(target)) === target;
+      if (!targets.some((target) => pointsAt(receipt, target) && pointsAt(request, target))) {
         return false;
       }
       const bolt11 = firstValue(receipt, 'bolt11');
@@ -251,6 +257,18 @@ export async function zapHistory(opts: ZapHistoryOptions): Promise<ZapHistoryRes
     answered: results.filter((r) => r === 'done').length,
     truncated: results.some((r) => r === 'capped')
   };
+}
+
+/**
+ * `zapHistory` once per filter (a Go live session: receipts on the note
+ * and receipts on the address), side by side. Give every run the same
+ * `accept` over one ZapTotals so a payment seen by both counts once.
+ */
+export function zapHistories(
+  opts: Omit<ZapHistoryOptions, 'filter'>,
+  filters: Record<string, unknown>[]
+): Promise<ZapHistoryResult[]> {
+  return Promise.all(filters.map((filter) => zapHistory({ ...opts, filter })));
 }
 
 // ── Second-pass relays ─────────────────────────────────────────────────

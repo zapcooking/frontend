@@ -115,7 +115,7 @@ function acceptOpts(
   overrides: Partial<{
     provider: string;
     verify: EventVerifier;
-    address: string;
+    address: string | readonly string[];
     recipient: string;
   }> = {}
 ) {
@@ -503,5 +503,133 @@ describe('ZapTotals.accept with a note target', () => {
     const r = await noteReceipt();
     expect(await new ZapTotals().accept(r, acceptOpts({ address: ADDRESS }))).toBe(false);
     expect(await new ZapTotals().accept(r, acceptOpts({ address: '8'.repeat(64) }))).toBe(false);
+  });
+});
+
+// ── Two targets (a Go live session: its note and its address) ──────────
+
+describe('ZapTotals.accept with a list of targets', () => {
+  const NOTE = '9'.repeat(64);
+  const BOTH = [NOTE, ADDRESS];
+  const hashOf = async (text: string) =>
+    Uint8Array.from((await sha256Hex(text)).match(/../g)!.map((h) => parseInt(h, 16)));
+  const retag = (tags: string[][], target: 'note' | 'address' | 'both' | 'none') =>
+    tags.flatMap((t) =>
+      t[0] !== 'a'
+        ? [t]
+        : target === 'note'
+          ? [['e', NOTE]]
+          : target === 'both'
+            ? [['e', NOTE], t]
+            : target === 'none'
+              ? []
+              : [t]
+    );
+
+  /**
+   * A receipt for a payment (`pay` fills the payment hash) whose request
+   * points at `req` and whose own tags point at `rec` (the same unless said).
+   */
+  async function zap(
+    pay: number,
+    req: 'note' | 'address' | 'both' | 'none',
+    opts: { rec?: 'note' | 'address' | 'both' | 'none'; id?: string; msats?: number } = {}
+  ) {
+    const msats = opts.msats ?? 1000;
+    const request = zapRequest();
+    request.tags = retag(request.tags, req).map((t) =>
+      t[0] === 'amount' ? ['amount', String(msats)] : t
+    );
+    const description = JSON.stringify(request);
+    const invoice = encodeInvoice(msats, new Uint8Array(32).fill(pay), await hashOf(description));
+    const r = receipt(request, invoice, { id: opts.id ?? pay.toString(16).padStart(64, '0') });
+    r.tags = retag(r.tags, opts.rec ?? req);
+    return r;
+  }
+  const opts = () => acceptOpts({ address: BOTH });
+
+  it('counts a zap to the note and a zap to the address into one total', async () => {
+    const totals = new ZapTotals();
+    expect(await totals.accept(await zap(1, 'note'), opts())).toBe(true);
+    expect(await totals.accept(await zap(2, 'address', { msats: 2000 }), opts())).toBe(true);
+    expect(totals.count).toBe(2);
+    expect(totals.msats).toBe(3000);
+    expect(totals.authors.get(VIEWER)).toBe(3000);
+  });
+
+  it('counts one payment once when both scans (or several relays) bring its receipt', async () => {
+    const totals = new ZapTotals();
+    const r = await zap(1, 'note');
+    expect(await totals.accept(r, opts())).toBe(true);
+    // The same receipt again (another relay, or the other target's query).
+    expect(await totals.accept({ ...r }, opts())).toBe(false);
+    // The same payment republished under another receipt id.
+    expect(await totals.accept(await zap(1, 'note', { id: 'c'.repeat(64) }), opts())).toBe(false);
+    expect(totals.count).toBe(1);
+    expect(totals.msats).toBe(1000);
+  });
+
+  it('counts a receipt that carries both tags once, though both queries return it', async () => {
+    const totals = new ZapTotals();
+    const r = await zap(1, 'both');
+    expect(await totals.accept(r, opts())).toBe(true); // from the #e query
+    expect(await totals.accept(r, opts())).toBe(false); // from the #a query
+    expect(totals.count).toBe(1);
+  });
+
+  it('does not count one payment twice across the two targets', async () => {
+    // One invoice (one payment hash) claimed once for the note and once
+    // for the address: the second claim is the same money.
+    const totals = new ZapTotals();
+    expect(await totals.accept(await zap(1, 'note'), opts())).toBe(true);
+    expect(await totals.accept(await zap(1, 'address', { id: 'd'.repeat(64) }), opts())).toBe(
+      false
+    );
+    expect(totals.msats).toBe(1000);
+  });
+
+  it('is safe when both scans run at once', async () => {
+    const totals = new ZapTotals();
+    const r = await zap(1, 'both');
+    const results = await Promise.all([totals.accept(r, opts()), totals.accept(r, opts())]);
+    expect(results.filter(Boolean)).toHaveLength(1);
+    expect(totals.count).toBe(1);
+  });
+
+  it('needs the receipt and its request to point at the same target', async () => {
+    const totals = new ZapTotals();
+    // The request names the address, the receipt was retagged to the note.
+    expect(await totals.accept(await zap(1, 'address', { rec: 'note' }), opts())).toBe(false);
+    expect(await totals.accept(await zap(2, 'note', { rec: 'address' }), opts())).toBe(false);
+    // Neither target.
+    expect(await totals.accept(await zap(3, 'none'), opts())).toBe(false);
+    expect(totals.count).toBe(0);
+  });
+
+  it('leaves out other streams, other notes and other recipients', async () => {
+    const totals = new ZapTotals();
+    const elsewhere = [`30311:${HOST}:another`, '8'.repeat(64)];
+    expect(await totals.accept(await zap(1, 'note'), acceptOpts({ address: elsewhere }))).toBe(
+      false
+    );
+    expect(await totals.accept(await zap(2, 'address'), acceptOpts({ address: elsewhere }))).toBe(
+      false
+    );
+    // A zap to a commenter in this chat names the stream but not the host.
+    expect(
+      await totals.accept(await zap(3, 'address'), acceptOpts({ address: BOTH, recipient: OTHER }))
+    ).toBe(false);
+    expect(await totals.accept(await zap(4, 'note'), acceptOpts({ address: [] }))).toBe(false);
+    expect(totals.count).toBe(0);
+  });
+
+  it('with the address alone (note off), a note receipt does not count', async () => {
+    const totals = new ZapTotals();
+    expect(await totals.accept(await zap(1, 'address'), acceptOpts({ address: [ADDRESS] }))).toBe(
+      true
+    );
+    expect(await totals.accept(await zap(2, 'note'), acceptOpts({ address: [ADDRESS] }))).toBe(
+      false
+    );
   });
 });

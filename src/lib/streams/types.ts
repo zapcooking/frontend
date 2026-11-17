@@ -71,16 +71,11 @@ export interface StreamItem {
   /** Attached recipe address `<kind>:<pubkey>:<d>` (source `'zapcooking'` only). */
   recipeA?: string | null;
   /**
-   * Go live only: the "Live now" note's event id. Zaps target it, and its
-   * replies are read into the chat (which itself hangs off the session's
-   * address, not the note).
+   * Go live only: the "Live now" note's event id. A zap sent from here
+   * targets it (else the session's address; totals count both), and its
+   * replies are read into the chat (which itself hangs off the address).
    */
   noteId?: string | null;
-  /**
-   * Go live only: no note yet, but one is expected any moment (the session
-   * is starting or just went live). Zap waits instead of zapping the profile.
-   */
-  notePending?: boolean;
 }
 
 /** A saved stream. Addressable streams keep their `30311:…` key; pasted links use `url:<https url>`. */

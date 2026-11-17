@@ -8,7 +8,7 @@ import { purgeLiveSessions } from './admin.server';
 import {
   closeOutEndedSessions,
   deleteOldMonthly,
-  fetchNoteZapSats,
+  fetchStreamZapSats,
   monthKey,
   recordSessionMetrics,
   viewerSecondsFor,
@@ -226,11 +226,30 @@ describe('closeOutEndedSessions', () => {
     expect(monthly()[0]).toMatchObject({ streams: 1, viewer_seconds: 0, zap_sats: 0 });
   });
 
-  it('does not read zaps for a session without a note', async () => {
+  it('reads zaps for every session: on its address, and on its note when it has one', async () => {
+    const withNote = ended({ note: NOTE });
+    const noNote = ended({ note: null });
+    const asked: Record<string, string[]> = {};
+    const d = deps({}, 0);
+    d.zapSats = async (targets, host) => {
+      const session = targets.at(-1)!.split(':')[2];
+      asked[session] = targets;
+      expect(host).toBe(HOST);
+      return session === noNote ? 700 : 300;
+    };
+    expect((await closeOutEndedSessions(db, d, NOW, never)).recorded).toBe(2);
+    expect(asked[withNote]).toEqual([NOTE, `30311:${HOST}:${withNote}`]);
+    expect(asked[noNote]).toEqual([`30311:${HOST}:${noNote}`]);
+    // A stream with the note off has a zap total too.
+    expect(sessionRow(noNote).zap_sats).toBe(700);
+    expect(sessionRow(withNote).zap_sats).toBe(300);
+  });
+
+  it('waits when the zaps of a session without a note cannot be read', async () => {
     const id = ended({ note: null });
-    const d = deps({}, null); // would wait if it were asked
-    expect((await closeOutEndedSessions(db, d, NOW, never)).recorded).toBe(1);
-    expect(sessionRow(id).zap_sats).toBe(0);
+    const summary = await closeOutEndedSessions(db, deps({}, null), NOW, never);
+    expect(summary).toMatchObject({ recorded: 0, retry: 1 });
+    expect(sessionRow(id).metrics_at).toBeNull();
   });
 
   it('stops when the time budget runs out, and reports how many are still waiting', async () => {
@@ -425,7 +444,7 @@ describe('accounts that asked to be deleted', () => {
   });
 });
 
-describe('fetchNoteZapSats (verified)', () => {
+describe('fetchStreamZapSats (verified)', () => {
   const PROVIDER = 'd'.repeat(64);
   const VIEWER = 'b'.repeat(64);
   // Real invoice (zapAmount fixtures): 2000 sats, plaintext description.
@@ -440,17 +459,18 @@ describe('fetchNoteZapSats (verified)', () => {
     content: JSON.stringify({ lud16: 'chef@example.com' }),
     sig: 's'
   };
-  const receipt = (over: { id?: string; pubkey?: string; e?: string; amount?: string } = {}) => {
+  const ADDRESS = `30311:${HOST}:${'ab'.repeat(16)}`;
+  const receipt = (
+    over: { id?: string; pubkey?: string; e?: string; a?: string; amount?: string } = {}
+  ) => {
+    // `a`: a zap to the stream's address instead of the note.
+    const target = over.a ? ['a', over.a] : ['e', over.e ?? NOTE];
     const request = {
       id: 'r'.repeat(64),
       pubkey: VIEWER,
       created_at: 50,
       kind: 9734,
-      tags: [
-        ['e', over.e ?? NOTE],
-        ['p', HOST],
-        ['amount', over.amount ?? '2000000']
-      ],
+      tags: [target, ['p', HOST], ['amount', over.amount ?? '2000000']],
       content: '',
       sig: 's'
     };
@@ -460,7 +480,7 @@ describe('fetchNoteZapSats (verified)', () => {
       created_at: 60,
       kind: 9735,
       tags: [
-        ['e', over.e ?? NOTE],
+        target,
         ['p', HOST],
         ['bolt11', INVOICE],
         ['description', JSON.stringify(request)]
@@ -476,11 +496,16 @@ describe('fetchNoteZapSats (verified)', () => {
       const key = Object.keys(subs)[0];
       const page: Page = key === 'p' ? { events: [profile] } : receipts(url);
       const f = subs[key];
-      // Honour the time window, as a relay does.
-      const events = (page.events as { created_at: number }[]).filter(
+      // Honour the time window and the tag filters, as a relay does.
+      const tagged = (e: { tags?: string[][] }, name: string) =>
+        !f[`#${name}`] ||
+        !!e.tags?.some((t) => t[0] === name && (f[`#${name}`] as string[]).includes(t[1]));
+      const events = (page.events as { created_at: number; tags?: string[][] }[]).filter(
         (e) =>
           (f.until === undefined || e.created_at <= (f.until as number)) &&
-          (f.since === undefined || e.created_at >= (f.since as number))
+          (f.since === undefined || e.created_at >= (f.since as number)) &&
+          tagged(e, 'e') &&
+          tagged(e, 'a')
       );
       return {
         events: { [key]: events },
@@ -496,7 +521,7 @@ describe('fetchNoteZapSats (verified)', () => {
   it('counts a provider-signed receipt once, however many relays carry it', async () => {
     const collect = relays(() => ({ events: [receipt()] }));
     const fetch = lnurl();
-    expect(await fetchNoteZapSats(NOTE, HOST, { collect: collect as never, fetch, verify })).toBe(
+    expect(await fetchStreamZapSats([NOTE], HOST, { collect: collect as never, fetch, verify })).toBe(
       2000
     );
     expect((fetch.mock.calls[0] as unknown[])[0]).toBe(
@@ -513,13 +538,13 @@ describe('fetchNoteZapSats (verified)', () => {
       ]
     }));
     expect(
-      await fetchNoteZapSats(NOTE, HOST, { collect: collect as never, fetch: lnurl(), verify })
+      await fetchStreamZapSats([NOTE], HOST, { collect: collect as never, fetch: lnurl(), verify })
     ).toBe(0);
     // A receipt whose signature does not verify is not counted.
     const one = relays(() => ({ events: [receipt()] }));
     const receiptsFail = (e: { kind: number }) => e.kind !== 9735;
     expect(
-      await fetchNoteZapSats(NOTE, HOST, {
+      await fetchStreamZapSats([NOTE], HOST, {
         collect: one as never,
         fetch: lnurl(),
         verify: receiptsFail as never
@@ -527,7 +552,7 @@ describe('fetchNoteZapSats (verified)', () => {
     ).toBe(0);
     // A profile that does not verify gives no provider: nothing can be verified.
     expect(
-      await fetchNoteZapSats(NOTE, HOST, {
+      await fetchStreamZapSats([NOTE], HOST, {
         collect: one as never,
         fetch: lnurl(),
         verify: () => false
@@ -538,29 +563,29 @@ describe('fetchNoteZapSats (verified)', () => {
   it('is null when every relay answers CLOSED or times out (retried), 0 after a clean empty pass', async () => {
     const closed = relays(() => ({ events: [], done: true, closed: 'auth-required: sign in' }));
     expect(
-      await fetchNoteZapSats(NOTE, HOST, { collect: closed as never, fetch: lnurl(), verify })
+      await fetchStreamZapSats([NOTE], HOST, { collect: closed as never, fetch: lnurl(), verify })
     ).toBeNull();
     const timedOut = relays(() => ({ events: [], done: false }));
     expect(
-      await fetchNoteZapSats(NOTE, HOST, { collect: timedOut as never, fetch: lnurl(), verify })
+      await fetchStreamZapSats([NOTE], HOST, { collect: timedOut as never, fetch: lnurl(), verify })
     ).toBeNull();
     const empty = relays(() => ({ events: [] }));
     expect(
-      await fetchNoteZapSats(NOTE, HOST, { collect: empty as never, fetch: lnurl(), verify })
+      await fetchStreamZapSats([NOTE], HOST, { collect: empty as never, fetch: lnurl(), verify })
     ).toBe(0);
   });
 
   it('is null when the provider is unreachable, 0 when the host has no zappable address', async () => {
     const collect = relays(() => ({ events: [receipt()] }));
     expect(
-      await fetchNoteZapSats(NOTE, HOST, {
+      await fetchStreamZapSats([NOTE], HOST, {
         collect: collect as never,
         fetch: lnurl({}, false),
         verify
       })
     ).toBeNull();
     expect(
-      await fetchNoteZapSats(NOTE, HOST, {
+      await fetchStreamZapSats([NOTE], HOST, {
         collect: collect as never,
         fetch: lnurl({ allowsNostr: false }),
         verify
@@ -574,7 +599,7 @@ describe('fetchNoteZapSats (verified)', () => {
       asked.add(url);
       return { events: [] };
     });
-    await fetchNoteZapSats(NOTE, HOST, { collect: collect as never, fetch: lnurl(), verify });
+    await fetchStreamZapSats([NOTE], HOST, { collect: collect as never, fetch: lnurl(), verify });
     expect([...asked].sort()).toEqual([...STREAM_RECEIPT_RELAYS].sort());
     expect(asked.has('wss://relay.damus.io')).toBe(true);
   });
@@ -584,9 +609,57 @@ describe('fetchNoteZapSats (verified)', () => {
     const fetch = lnurl();
     const providers = new Map();
     for (let i = 0; i < 3; i++) {
-      await fetchNoteZapSats(NOTE, HOST, { collect: collect as never, fetch, verify, providers });
+      await fetchStreamZapSats([NOTE], HOST, { collect: collect as never, fetch, verify, providers });
     }
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('counts zaps to the address: a stream with the note off has a total', async () => {
+    const collect = relays(() => ({ events: [receipt({ a: ADDRESS })] }));
+    const deps = { collect: collect as never, fetch: lnurl(), verify };
+    expect(await fetchStreamZapSats([ADDRESS], HOST, deps)).toBe(2000);
+    // Another stream's address is not this stream's.
+    expect(await fetchStreamZapSats([`30311:${HOST}:${'cd'.repeat(16)}`], HOST, deps)).toBe(0);
+    // No target at all: nothing to read, and no relay is asked.
+    collect.mockClear();
+    expect(await fetchStreamZapSats([], HOST, deps)).toBe(0);
+    expect(collect).not.toHaveBeenCalled();
+  });
+
+  it('reads the note and the address with a filter each, and counts one payment once', async () => {
+    const filters: Record<string, unknown>[] = [];
+    // The same payment (one invoice) is on relays as a zap to the note and,
+    // under another receipt id, as a zap to the address.
+    const stored = [receipt(), receipt({ id: '5'.repeat(64), a: ADDRESS })];
+    const inner = relays(() => ({ events: stored }));
+    const collect = vi.fn(async (url: string, subs: Record<string, Record<string, unknown>>) => {
+      if (subs.z) filters.push(subs.z);
+      return inner(url, subs);
+    });
+    const deps = { collect: collect as never, fetch: lnurl(), verify };
+    expect(await fetchStreamZapSats([NOTE, ADDRESS], HOST, deps)).toBe(2000);
+    expect(filters.some((f) => JSON.stringify(f['#e']) === JSON.stringify([NOTE]))).toBe(true);
+    expect(filters.some((f) => JSON.stringify(f['#a']) === JSON.stringify([ADDRESS]))).toBe(true);
+    // Never one filter with both tags (a relay would AND them).
+    expect(filters.some((f) => '#e' in f && '#a' in f)).toBe(false);
+    // Either target alone finds its own receipt.
+    expect(await fetchStreamZapSats([NOTE], HOST, deps)).toBe(2000);
+    expect(await fetchStreamZapSats([ADDRESS], HOST, deps)).toBe(2000);
+  });
+
+  it('is null (retried) when no relay answers for one of the targets', async () => {
+    const inner = relays(() => ({ events: [receipt()] }));
+    // Every relay answers the note query and times out on the address query.
+    const collect = vi.fn(async (url: string, subs: Record<string, Record<string, unknown>>) =>
+      subs.z?.['#a'] ? { events: { z: [] }, done: { z: false }, closed: {} } : inner(url, subs)
+    );
+    expect(
+      await fetchStreamZapSats([NOTE, ADDRESS], HOST, {
+        collect: collect as never,
+        fetch: lnurl(),
+        verify
+      })
+    ).toBeNull();
   });
 
   it('walks history backward past the first page', async () => {
@@ -601,7 +674,7 @@ describe('fetchNoteZapSats (verified)', () => {
       return { events: { z: f.since === 60 ? [] : events }, done: { z: true }, closed: {} };
     });
     expect(
-      await fetchNoteZapSats(NOTE, HOST, { collect: collect as never, fetch: lnurl(), verify })
+      await fetchStreamZapSats([NOTE], HOST, { collect: collect as never, fetch: lnurl(), verify })
     ).toBe(2000);
     // Each relay asked again below the oldest receipt seen.
     expect(calls.some((f) => f.until === 59)).toBe(true);

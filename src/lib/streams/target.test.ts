@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { goLiveAddress, isEventTarget, targetFilter, targetTag } from './target';
+import {
+  goLiveAddress,
+  goLiveZapTargets,
+  isEventTarget,
+  targetFilter,
+  targetFilters,
+  targetTag
+} from './target';
 
 describe('stream targets', () => {
   const NOTE = 'a'.repeat(64);
@@ -30,5 +37,22 @@ describe('stream targets', () => {
     expect(goLiveAddress(HOST, '')).toBeNull();
     expect(goLiveAddress(HOST, 'x'.repeat(201))).toBeNull();
     expect(goLiveAddress(null, null)).toBeNull();
+  });
+
+  it("lists a Go live session's zap targets: the note when there is one, and the address", () => {
+    const HOST = 'b'.repeat(64);
+    const SESSION = '0123456789abcdef0123456789abcdef';
+    const LIVE = `30311:${HOST}:${SESSION}`;
+    expect(goLiveZapTargets(HOST, SESSION, NOTE)).toEqual([NOTE, LIVE]);
+    expect(goLiveZapTargets(HOST, SESSION, null)).toEqual([LIVE]);
+    expect(goLiveZapTargets(HOST, SESSION)).toEqual([LIVE]);
+    expect(goLiveZapTargets(HOST, SESSION, 'not-an-id')).toEqual([LIVE]);
+    expect(goLiveZapTargets('nope', SESSION, NOTE)).toEqual([]);
+  });
+
+  it('builds one filter per target, never one filter with both tags', () => {
+    expect(targetFilters([NOTE, ADDRESS])).toEqual([{ '#e': [NOTE] }, { '#a': [ADDRESS] }]);
+    expect(targetFilters([ADDRESS, ADDRESS])).toEqual([{ '#a': [ADDRESS] }]);
+    expect(targetFilters([])).toEqual([]);
   });
 });
