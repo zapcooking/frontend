@@ -16,7 +16,12 @@
  * wires it to relays, the mute list and the hidden list.
  */
 
+import { goLiveAddress } from './target';
 import type { StreamItem } from './types';
+
+// The address helper lives with the other targets; kept exported here for
+// the reaction code that already imports it from this file.
+export { goLiveAddress };
 
 /** Relay-ephemeral kind: broadcast live, never stored (NIP-16 range). */
 export const LIKE_KIND = 21111;
@@ -67,18 +72,6 @@ export interface ReactionTargets {
 
 export const NO_TARGETS: ReactionTargets = Object.freeze({ e: null, a: null });
 
-/** A Go live session's NIP-53 address: its announcement is the host's, with `d` = session id. */
-export function goLiveAddress(
-  hostPubkey: string | null | undefined,
-  sessionId: string | null | undefined
-): string | null {
-  const host = (hostPubkey ?? '').toLowerCase();
-  if (!HEX64.test(host)) return null;
-  const d = (sessionId ?? '').trim();
-  if (!d || d.length > 200) return null;
-  return `30311:${host}:${d}`;
-}
-
 /**
  * The targets for a stream as the player knows it.
  *
@@ -113,8 +106,7 @@ export function reactionTags(targets: ReactionTargets): string[][] {
 }
 
 export type ReactionFilter =
-  | { kinds: number[]; '#e': string[] }
-  | { kinds: number[]; '#a': string[] };
+  { kinds: number[]; '#e': string[] } | { kinds: number[]; '#a': string[] };
 
 /**
  * One filter per target. Relays OR the filters of a subscription, so a
