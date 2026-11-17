@@ -105,8 +105,14 @@ Streams are **not recorded** (inputs are created with recording off).
 Reports never end a stream automatically, however many there are (the
 sweep's 90-minute and disconnect rules are unrelated to reports).
 Evidence means the session record, the
-snapshot, the reports, the "Live now" note and its public comments on
-Nostr, and the action log.
+snapshot, the reports, the stream's public chat on Nostr, and the action
+log. The chat is NIP-53 live chat: kind 1311 events tagged
+`["a", "30311:<host pubkey>:<session id>"]`, an address rebuilt from the
+snapshot's `host_pubkey` and `id` (every session has one, with or without
+a "Live now" note). When the session has a note (`note_id` in the
+snapshot), the note and the kind 1 replies to it are part of the chat too.
+A comment report stores the reported event's id, which may be of either
+kind.
 
 ## 3. Reviewing a report
 
@@ -124,7 +130,9 @@ Nostr, and the action log.
    date (after a CyberTipline report, generally one year from submission)
    in the private runbook, and export anything the hold does not cover
    before it expires: Reads/Nourish reports in KV, the access request,
-   hidden-commenter rows, and the public comments from relays. The code
+   hidden-commenter rows, and the public chat from relays (kind 1311 on the
+   session's address, plus the note and its kind 1 replies when there is a
+   note). The code
    has no separate legal-hold lock yet (data-retention.md, "Review holds
    vs legal preservation").
 5. When the case is closed and nothing must be kept for legal reasons,

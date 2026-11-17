@@ -18,7 +18,7 @@ Public text for these rows: Privacy Policy §1.6, §1.7 (reports, every surface)
 | Moderation action log (actor, action, target pubkey, time) | 2 years | Longer while a related hold is open |
 | Review holds (`live_holds`) and session snapshots | Until released | Internal moderation hold, opened by the first report on a session. Released only by a logged admin action; the related records then follow their normal schedule |
 | Legal preservation (CyberTipline report, legal process, other duty) | As long as required; after a CyberTipline report generally 1 year from submission (§2258A(h)) | **Process, not code** (see "Legal preservation" below). Not ended by releasing a review hold or by account deletion |
-| Public replies and zap receipts on Nostr | Network-dependent | Zap Cooking cannot promise deletion across independent relays |
+| Public live chat messages (kind 1311), replies to the "Live now" note and zap receipts on Nostr | Network-dependent | Zap Cooking cannot promise deletion across independent relays |
 | Live video | Not recorded by us | Every input is created with `recording: { mode: 'off' }` (`src/lib/live/stream.server.ts`). Cloudflare's WebRTC page says WHIP inputs are "not currently eligible for recording" and "Recording ... not yet supported" (developers.cloudflare.com/stream/webrtc-beta, read 2026-11-15). Its Stream Live overview still says "All Stream Live videos are automatically recorded" — a vendor-doc contradiction to confirm with Cloudflare. Transient processing/buffering during delivery is Cloudflare's, under its terms; the public text claims nothing about it |
 
 No *application-level per-viewer records* are proposed. Do not claim 'no viewer data' if delivery/security providers receive IP addresses or other connection data. Confirm whether browser membership checks, signed passes, web analytics, rate limiting or server/proxy logs collect identifiable information.
@@ -61,5 +61,5 @@ Gaps between the public promise and the code (to fix or accept):
 
 1. Nothing stops an admin from releasing a hold that is under legal preservation, and nothing reminds anyone when a 1-year period ends. Proposed: a `legal` status on `live_holds` that the release action refuses, with an expiry date.
 2. Records outside `live_holds` are not covered automatically: Reads reports and Nourish flags (KV, 90-day TTL), access requests (90 days after decision), hidden-commenter rows, and the account-deletion purge of Pantry content (manual staff work). They must be exported by hand before they expire when preservation applies.
-3. Public comments and zaps on Nostr are not stored by us; preserving them means capturing them from relays at the time.
+3. Public comments and zaps on Nostr are not stored by us; preserving them means capturing them from relays at the time. A stream's comments are kind 1311 events tagged with its address (`30311:<host pubkey>:<session id>`) and, when it has a "Live now" note, the kind 1 replies to that note.
 4. Stream video is not recorded, so it cannot be preserved.
