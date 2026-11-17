@@ -67,6 +67,11 @@ export interface LiveAnnouncementInput {
   image?: string | null;
   /** The attached recipe's address, `<kind>:<pubkey>:<d>`. */
   recipeA?: string | null;
+  /**
+   * Where the stream's chat and zaps are read and written (wss URLs): the
+   * announcement's `relays` tag, so other live apps use the same relays.
+   */
+  relays?: readonly string[];
 }
 
 export interface LiveAnnouncementTemplate {
@@ -77,6 +82,7 @@ export interface LiveAnnouncementTemplate {
 }
 
 const HEX_PUBKEY = /^[0-9a-f]{64}$/;
+const WSS_RELAY = /^wss:\/\/[^\s/]+\S*$/;
 
 /**
  * The NIP-53 user-status announcement for a Go live session (kind 30311).
@@ -114,6 +120,8 @@ export function liveAnnouncementTemplate(
     tags.push(['imeta', `url ${image}`]);
     tags.push(['image', image]);
   }
+  const relays = [...new Set((input.relays ?? []).filter((url) => WSS_RELAY.test(url)))];
+  if (relays.length) tags.push(['relays', ...relays]);
   const content = [name, '', `Watch live: ${input.watchUrl}`].join('\n');
   return { kind: 30311, created_at: Math.floor(now / 1000), content, tags };
 }

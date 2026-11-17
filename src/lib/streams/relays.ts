@@ -36,6 +36,16 @@ export function goLiveChatRelays(): string[] {
   return [...STREAM_RECEIPT_RELAYS];
 }
 
+/**
+ * The relays a Go live session's NIP-53 announcement names (its `relays`
+ * tag), so other live apps read and write the stream's chat and zaps
+ * where we do: the shared list, without purplepag.es (it keeps profiles
+ * and relay lists only, never chat or receipts).
+ */
+export function goLiveAnnouncementRelays(): string[] {
+  return STREAM_RECEIPT_RELAYS.filter((url) => url !== 'wss://purplepag.es');
+}
+
 /** The chat's starting receipt set: the stream's own relays, then the shared list. */
 export function chatReceiptRelays(itemRelays: readonly string[] = []): string[] {
   return [...new Set([...itemRelays, ...STREAM_RECEIPT_RELAYS])];

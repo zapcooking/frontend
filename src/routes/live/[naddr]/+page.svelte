@@ -17,6 +17,7 @@
   import { zapReceiptRelayUrls } from '$lib/nip65Routing';
   import { createStreamPool } from '$lib/streams/relayPage';
   import { fetchStreamByNaddr, type ResolvedStream } from '$lib/streams/fetch';
+  import { goLiveSessionFor } from '$lib/streams/goLive';
   import { parseStreamAddress } from '$lib/streams/parse';
   import { DISCOVERY_RELAYS } from '$lib/streams/relays';
   import {
@@ -94,6 +95,11 @@
       loading = false;
       return;
     }
+    // One of our own Go live sessions (the address is its host + its
+    // session id, confirmed by the server): it plays on the session page,
+    // which owns the WebRTC viewer and the moderated chat. Decided from the
+    // address alone, before (and whether or not) the announcement is found.
+    if (first && (await openGoLiveSession(parsed.naddr))) return;
     if (!pool) pool = createStreamPool();
     try {
       const resolved = await fetchStreamByNaddr(pool, DISCOVERY_RELAYS, parsed.naddr);
@@ -124,15 +130,33 @@
     }, TALLY_RESCAN_MS);
   }
 
-  /**
-   * Go live announcements point their `streaming` tag at the session's
-   * WHEP join endpoint. Local viewers play on the session page, which owns
-   * the full WebRTC viewer and live chat; WHEP-capable clients (Sidecar,
-   * zap.stream…) use the endpoint straight from the announcement instead.
-   * Only our own origins redirect — a third-party WHEP URL stays as that
-   * stream's playback source.
-   */
   let redirectedFor: string | null = null;
+  /** Go to the session page when the address is a Go live session of ours. */
+  async function openGoLiveSession(address: {
+    pubkey: string;
+    identifier: string;
+  }): Promise<boolean> {
+    const asked = $page.params.naddr;
+    const id = await goLiveSessionFor(address);
+    // Not ours, or the visitor moved on while the server was asked.
+    if (!id || asked !== $page.params.naddr) return false;
+    if (redirectedFor !== id) {
+      redirectedFor = id;
+      // replaceState: pressing Back must not land back here and redirect
+      // again — that would trap the back button.
+      goto(`/live/s/${id}`, { replaceState: true });
+    }
+    return true;
+  }
+
+  /**
+   * Fallback for announcements the check above could not place (the server
+   * was unreachable, or the session's record is gone): one whose
+   * `streaming` tag is our own join endpoint still opens the session page,
+   * which then says the stream has ended. Only our own origins redirect — a
+   * third-party WHEP URL stays as that stream's playback source. Nothing
+   * depends on this: an announcement without the tag is matched above.
+   */
   $: {
     const url = stream?.item?.url;
     if (url) {

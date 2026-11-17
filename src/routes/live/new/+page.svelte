@@ -78,7 +78,7 @@
   import { fetchSession, sessionToStreamItem } from '$lib/streams/goLive';
   import { fetchRecipeEvent, recipeCardOf } from '$lib/streams/recipeCard';
   import { createStreamPool } from '$lib/streams/relayPage';
-  import { DISCOVERY_RELAYS } from '$lib/streams/relays';
+  import { DISCOVERY_RELAYS, goLiveAnnouncementRelays } from '$lib/streams/relays';
   import { goLiveAddress } from '$lib/streams/target';
   import { liveAnnouncementTemplate, liveNoteTemplate } from '$lib/live/liveNote';
   import { addClientTagToEvent } from '$lib/nip89';
@@ -449,7 +449,8 @@
           startedAt: Math.floor((startedAt ?? Date.now()) / 1000),
           status,
           image: recipeImage,
-          recipeA
+          recipeA,
+          relays: goLiveAnnouncementRelays()
         });
         event = new NDKEvent($ndk, template as never);
         addClientTagToEvent(event);
