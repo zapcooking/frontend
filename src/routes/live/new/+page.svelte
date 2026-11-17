@@ -108,6 +108,7 @@
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import LightningSlashIcon from 'phosphor-svelte/lib/LightningSlash';
   import LiveOverlay from '../../../components/streams/LiveOverlay.svelte';
+  import HostReactions from '../../../components/streams/HostReactions.svelte';
   import {
     OVERLAY_PREF_KEYS,
     readOverlayPref,
@@ -482,6 +483,7 @@
 
   // On-video comments and zap animations: on unless this device turned
   // them off. They only change the host's own screen, never the broadcast.
+  // The zap switch also covers viewers' floating reactions.
   let overlayComments = true;
   let overlayZaps = true;
   function overlayStorage(): Storage | null {
@@ -1480,6 +1482,17 @@
           bottom="4.75rem"
         />
       {/if}
+      {#if isLive && session && $userPublickey}
+        <!-- Viewers' reactions float up here too, with or without the
+             note (they also hang off the stream's address). Host's
+             screen only; the zap animations switch turns them off. -->
+        <HostReactions
+          sessionId={session.id}
+          hostPubkey={$userPublickey}
+          {noteId}
+          show={overlayZaps}
+        />
+      {/if}
 
       {#if sharing}
         <div class="share-banner" role="status">
@@ -1573,15 +1586,21 @@
                 <ChatCircleSlashIcon size={20} weight="bold" />
               {/if}
             </button>
+          {/if}
+          {#if isLive}
+            <!-- Shown without a note too: it also switches viewers'
+                 reactions, which do not need one. -->
             <button
               class="icon-btn"
               class:off={!overlayZaps}
               on:click={toggleOverlayZaps}
               aria-pressed={overlayZaps}
-              aria-label={overlayZaps ? 'Turn off zap animations' : 'Turn on zap animations'}
+              aria-label={overlayZaps
+                ? 'Turn off zap animations and reactions'
+                : 'Turn on zap animations and reactions'}
               title={overlayZaps
-                ? 'Turn off zap animations (your screen only)'
-                : 'Turn on zap animations (your screen only)'}
+                ? 'Turn off zap animations and reactions (your screen only)'
+                : 'Turn on zap animations and reactions (your screen only)'}
             >
               {#if overlayZaps}
                 <LightningIcon size={20} weight="bold" />

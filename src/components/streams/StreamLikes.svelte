@@ -2,43 +2,45 @@
   /**
    * Rapid-fire likes: a persistent heart at the player's corner. Taps and
    * holds fill the picture with floating hearts; a palette lets the viewer
-   * pick the reaction (purple heart, fire, star, 100, grow-nostr, shaka).
+   * pick the reaction (purple heart, fire, hug, 100, grow-nostr, shaka).
    *
-   * Likes are ephemeral: each one publishes an unsigned-persistence event
-   * (kind 21111 — relays broadcast it live but never store it) whose
-   * content names the reaction, so other Zap Cooking viewers on the stream
-   * see the same icons float up live. Best-effort: without a signer,
-   * hearts stay local. Unknown reaction ids render as the default heart,
-   * so foreign content can never inject arbitrary glyphs.
+   * Likes are ephemeral: each one publishes a signed kind 21111 event
+   * (relays broadcast it live but never store it) whose content names the
+   * reaction, so other Zap Cooking viewers on the stream — and the host,
+   * on their Go live page — see the same icons float up live. It is
+   * tagged with both the "Live now" note and the stream's address (see
+   * $lib/streams/liveReactions). Best-effort: without a signer, hearts
+   * stay local. Unknown reaction ids render as the default heart, so
+   * foreign content can never inject arbitrary glyphs.
+   *
+   * Other people's reactions come from the shared feed
+   * ($lib/streams/liveReactionFeed), which leaves out muted and hidden
+   * pubkeys.
    */
   import { onDestroy, onMount } from 'svelte';
   import { browser } from '$app/environment';
-  import { NDKEvent, NDKRelaySet, type NDKSubscription } from '@nostr-dev-kit/ndk';
+  import { NDKEvent, NDKRelaySet } from '@nostr-dev-kit/ndk';
   import { ndk } from '$lib/nostr';
   import { streamPlayer } from '$lib/stores/streamPlayer';
   import { DISCOVERY_RELAYS } from '$lib/streams/relays';
+  import { openReactionFeed } from '$lib/streams/liveReactionFeed';
+  import {
+    DEFAULT_REACTION,
+    LIKE_KIND,
+    LikePacer,
+    REACTIONS,
+    hasTargets,
+    isReactionId,
+    reactionTags,
+    reactionTargets,
+    targetsKey,
+    type ReactionId
+  } from '$lib/streams/liveReactions';
   import { clickOutside } from '$lib/clickOutside';
   import PlusIcon from 'phosphor-svelte/lib/Plus';
+  import ReactionHearts from './ReactionHearts.svelte';
 
-  interface ReactionSpec {
-    label: string;
-    emoji: string;
-  }
-  const REACTIONS: Record<ReactionId, ReactionSpec> = {
-    purple: { label: 'Purple heart', emoji: '💜' },
-    fire: { label: 'Fire', emoji: '🔥' },
-    hug: { label: 'Hug', emoji: '🫂' },
-    hundred: { label: '100', emoji: '💯' },
-    plant: { label: 'Grow Nostr', emoji: '🌱' },
-    shaka: { label: 'Shaka', emoji: '🤙' }
-  };
-  type ReactionId = 'purple' | 'fire' | 'hug' | 'hundred' | 'plant' | 'shaka';
-  const DEFAULT_REACTION: ReactionId = 'purple';
   const REACTION_KEY = 'zap-like-reaction';
-  /** Relay-ephemeral kind: broadcast live, never stored (NIP-16 range). */
-  const LIKE_KIND = 21111;
-  const MAX_LIVE_HEARTS = 36;
-  const PUBLISH_MIN_GAP_MS = 400;
   /** Ambient pacing: a welcome burst on start that decays to a trickle. */
   const AMBIENT_START_MS = 700;
   const AMBIENT_STEADY_MS = 4500;
@@ -48,35 +50,23 @@
     if (!browser) return DEFAULT_REACTION;
     try {
       const saved = localStorage.getItem(REACTION_KEY);
-      return saved && saved in REACTIONS ? (saved as ReactionId) : DEFAULT_REACTION;
+      return isReactionId(saved) ? saved : DEFAULT_REACTION;
     } catch {
       return DEFAULT_REACTION;
     }
   }
 
-  interface Heart {
-    id: number;
-    reaction: ReactionId;
-    x: number;
-    rise: number;
-    drift: number;
-    scale: number;
-    duration: number;
-    /** Ambient cue: ghosted, slower, never published. */
-    ghost?: boolean;
-  }
-
   let reaction: ReactionId = loadReaction();
   let paletteOpen = false;
-  let hearts: Heart[] = [];
-  let idCounter = 0;
+  let layer: ReactionHearts | null = null;
   let holdTimer: ReturnType<typeof setInterval> | null = null;
   /** Set on pointerdown: the click that follows is pointer-generated. */
   let pointerActivated = false;
   let outsideClosedAt = 0;
   let myPubkey = '';
-  let lastPublishAt = 0;
-  let sub: NDKSubscription | null = null;
+  const pacer = new LikePacer();
+  let stopFeed: (() => void) | null = null;
+  let feedKey = '';
   let ambientTimer: ReturnType<typeof setTimeout> | null = null;
   let ambientDelay = AMBIENT_START_MS;
   let ambientKey = '';
@@ -97,7 +87,7 @@
 
   /** Template event handlers receive plain strings; narrow before cast. */
   function pickReaction(id: string) {
-    if (id in REACTIONS) selectReaction(id as ReactionId);
+    if (isReactionId(id)) selectReaction(id);
   }
 
   /**
@@ -106,50 +96,8 @@
    * feature. Never published, skipped for reduced motion.
    */
   function spawnAmbient() {
-    // Ghosts may stack a little (that's the burst) but never crowd out a
-    // busy reaction shower.
-    if (reducedMotion || document.hidden || streamPaused || hearts.length >= 3) {
-      return;
-    }
-    const id = idCounter++;
-    const life = 2.6 + Math.random() * 1.2;
-    hearts = [
-      ...hearts.slice(-(MAX_LIVE_HEARTS - 1)),
-      {
-        id,
-        reaction,
-        x: 8 + Math.random() * 36,
-        rise: 100 + Math.random() * 60,
-        drift: (Math.random() - 0.5) * 70,
-        scale: 0.65 + Math.random() * 0.35,
-        duration: life,
-        ghost: true
-      }
-    ];
-    // Clear on the heart's own clock, so short ghosts free the guard early.
-    setTimeout(() => (hearts = hearts.filter((h) => h.id !== id)), life * 1000 + 150);
-  }
-
-  function spawn(id: ReactionId = reaction) {
-    const heartId = idCounter++;
-    hearts = [
-      ...hearts.slice(-(MAX_LIVE_HEARTS - 1)),
-      {
-        id: heartId,
-        reaction: id,
-        x: 8 + Math.random() * 40,
-        rise: 150 + Math.random() * 110,
-        drift: (Math.random() - 0.5) * 90,
-        scale: 0.65 + Math.random() * 0.7,
-        duration: 1.5 + Math.random() * 1.1
-      }
-    ];
-    setTimeout(() => (hearts = hearts.filter((h) => h.id !== heartId)), 2700);
-  }
-
-  /** A heart from another viewer: same rise, spawned at the button. */
-  function spawnRemote(id: ReactionId) {
-    spawn(id);
+    if (reducedMotion || document.hidden || streamPaused) return;
+    layer?.spawnGhost(reaction);
   }
 
   function press() {
@@ -176,21 +124,33 @@
     spawnLocal();
   }
 
-  /** Throttled ephemeral publish: at most one signed event per 400ms of
-      liking — a hold still reads as a shower without hammering relays. */
+  /**
+   * One ephemeral publish. The pacer (see LikePacer) allows one signature
+   * request at a time and spaces them by how the signer behaves, so a
+   * hold reads as a shower without hammering relays or stacking prompts
+   * on a remote signer.
+   */
   async function publishLike() {
     const item = $streamPlayer.item;
     if (!item || !browser) return;
-    // A Go live session with no note yet has nothing to hang a like on.
-    const aTag = item.key.startsWith('30311:') ? item.key : null;
-    if (!aTag && !item.noteId) return;
+    const targets = reactionTargets(item);
+    // A stream with neither an address nor a note has nothing to hang a like on.
+    if (!hasTargets(targets)) return;
+    const startedAt = Date.now();
+    if (!pacer.canStart(startedAt)) return;
+    const token = pacer.start(startedAt);
+    let signed = false;
     try {
       const ev = new NDKEvent($ndk);
       ev.kind = LIKE_KIND;
       ev.content = reaction;
-      const noteTarget = item.noteId ?? null;
-      ev.tags = aTag ? [['a', aTag]] : noteTarget ? [['e', noteTarget]] : [];
-      await ev.sign();
+      ev.tags = reactionTags(targets);
+      try {
+        await ev.sign();
+        signed = true;
+      } finally {
+        pacer.finish(token, Date.now(), signed);
+      }
       // Know our own hearts on receive, even after a late login.
       myPubkey = ev.pubkey;
       const urls = [
@@ -206,20 +166,16 @@
   }
 
   function spawnLocal() {
-    spawn();
-    const now = Date.now();
-    if (now - lastPublishAt >= PUBLISH_MIN_GAP_MS) {
-      lastPublishAt = now;
-      void publishLike();
-    }
+    layer?.spawn(reaction);
+    if (pacer.canStart(Date.now())) void publishLike();
   }
 
   // Target changes with the stream: close and resubscribe.
   $: item = $streamPlayer.item;
   $: streamKey = item?.key ?? null;
-  $: noteId = item?.noteId ?? null;
+  $: targets = reactionTargets(item);
   $: itemRelays = item?.relays ?? [];
-  $: aTag = streamKey?.startsWith('30311:') ? streamKey : null;
+  $: sessionId = item?.source === 'zapcooking' ? (item.sessionId ?? null) : null;
 
   /** Welcome burst on start (and on stream switches): ticks come quick
       and decay toward the steady trickle. */
@@ -245,36 +201,27 @@
     }
   });
 
-  async function resubscribe(
-    key: string | null,
-    a: string | null,
-    n: string | null,
-    relays: string[]
-  ) {
-    sub?.stop();
-    sub = null;
+  function resubscribe(key: string | null, targetKey: string, relays: string[], session: string | null) {
     if (key && key !== ambientKey) {
       ambientKey = key;
       startAmbient();
     }
-    if (!browser || (!a && !n) || relays.length === 0) return;
-    try {
-      const relaySet = NDKRelaySet.fromRelayUrls(relays, $ndk);
-      const filter = a ? { kinds: [LIKE_KIND], '#a': [a] } : { kinds: [LIKE_KIND], '#e': [n] };
-      if (!filter) return;
-      sub = $ndk.subscribe(filter as never, { closeOnEose: false }, relaySet);
-      sub.on('event', (e) => {
-        // Own hearts already floated when published.
-        if (myPubkey && e.pubkey === myPubkey) return;
-        const id = (e.content || '').trim();
-        spawnRemote(id in REACTIONS ? (id as ReactionId) : DEFAULT_REACTION);
-      });
-    } catch {
-      // Subscribe failure only loses other viewers' hearts.
-    }
+    const next = `${targetKey}|${session ?? ''}|${relays.join(',')}`;
+    if (!browser || next === feedKey) return;
+    feedKey = next;
+    stopFeed?.();
+    stopFeed = openReactionFeed({
+      ndk: $ndk,
+      targets,
+      relays,
+      sessionId: session,
+      // Own hearts already floated when tapped.
+      self: () => myPubkey,
+      onReaction: (id) => layer?.spawn(id)
+    });
   }
 
-  $: resubscribe(streamKey, aTag, noteId, itemRelays);
+  $: resubscribe(streamKey, targetsKey(targets), itemRelays, sessionId);
 
   function handleKeydown(event: KeyboardEvent) {
     if (event.key === 'Escape') paletteOpen = false;
@@ -283,8 +230,8 @@
   onDestroy(() => {
     release();
     if (ambientTimer) clearTimeout(ambientTimer);
-    sub?.stop();
-    sub = null;
+    stopFeed?.();
+    stopFeed = null;
   });
 </script>
 
@@ -359,21 +306,7 @@
   </div>
 </div>
 
-<div class="like-hearts" aria-hidden="true">
-  {#each hearts as heart (heart.id)}
-    <span
-      class="like-heart"
-      class:like-heart--ghost={heart.ghost}
-      style="right: {heart.x}px; --rise: -{Math.round(
-        heart.rise
-      )}px; --drift: {Math.round(heart.drift)}px; --scale: {heart.scale.toFixed(
-        2
-      )}; animation-duration: {heart.duration.toFixed(2)}s;"
-    >
-      <span class="like-emoji">{REACTIONS[heart.reaction].emoji}</span>
-    </span>
-  {/each}
-</div>
+<ReactionHearts bind:this={layer} />
 
 <style>
   /* The cluster rides above the player's control bar (scrub + buttons),
@@ -458,9 +391,6 @@
   .like-btn .like-emoji {
     font-size: 20px;
   }
-  .like-heart .like-emoji {
-    font-size: 26px;
-  }
   .like-emoji {
     line-height: 1;
   }
@@ -479,53 +409,5 @@
   }
   .palette-item[aria-pressed='true'] {
     background: rgba(255, 255, 255, 0.18);
-  }
-  .like-hearts {
-    position: absolute;
-    inset: 0;
-    z-index: 35;
-    overflow: hidden;
-    pointer-events: none;
-  }
-  .like-heart {
-    position: absolute;
-    bottom: 6.5rem;
-    /* Dark halo + light glow: readable on bright and dark video alike. */
-    filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.8)) drop-shadow(0 0 6px rgba(255, 255, 255, 0.35));
-    animation: like-rise ease-out forwards;
-  }
-  .like-heart--ghost {
-    animation-name: like-rise-ghost;
-  }
-  @keyframes like-rise-ghost {
-    0% {
-      transform: translate(0, 0) scale(calc(var(--scale) * 0.6));
-      opacity: 0;
-    }
-    18% {
-      opacity: 0.3;
-    }
-    100% {
-      transform: translate(var(--drift), var(--rise)) scale(var(--scale));
-      opacity: 0;
-    }
-  }
-  @keyframes like-rise {
-    0% {
-      transform: translate(0, 0) scale(calc(var(--scale) * 0.6));
-      opacity: 0;
-    }
-    8% {
-      transform: translate(0, calc(var(--rise) * 0.12)) scale(var(--scale));
-      opacity: 1;
-    }
-    78% {
-      transform: translate(calc(var(--drift) * 0.8), calc(var(--rise) * 0.82)) scale(var(--scale));
-      opacity: 1;
-    }
-    100% {
-      transform: translate(var(--drift), var(--rise)) scale(calc(var(--scale) * 0.9));
-      opacity: 0;
-    }
   }
 </style>

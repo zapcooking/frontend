@@ -954,7 +954,9 @@
     </div>
   {/if}
 
-  <!-- Rapid-fire likes: local and ephemeral, nothing is signed or sent. -->
+  <!-- Rapid-fire likes: each one floats up here at once; signed-in
+       viewers also publish them as signed ephemeral events (kind 21111)
+       so other viewers and the host see them. -->
   <StreamLikes />
 </div>
 
