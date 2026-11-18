@@ -14,6 +14,7 @@
  */
 
 import { json, type RequestHandler } from '@sveltejs/kit';
+import { parseRelaysOverride } from '$lib/live/endedEvent.server';
 import { readLiveEnv } from '$lib/live/env.server';
 import { fetchStreamZapSats } from '$lib/live/metrics.server';
 import { finishPresence, readPresenceTotals } from '$lib/live/presence.server';
@@ -57,6 +58,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     // Provider lookups shared by this run (one per host).
     const providers = new Map();
     const summary = await runLiveSweep(db, cfg, {
+      ended: { relaysOverride: parseRelaysOverride(readLiveEnv(platform, 'LIVE_ENDED_RELAYS')) },
       metrics: {
         readTotals: (id) => readPresenceTotals(platform, id),
         finish: (id) => finishPresence(platform, id),

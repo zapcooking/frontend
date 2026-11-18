@@ -14,7 +14,8 @@ export const LIVE_MIGRATIONS = [
   '0007_live_rollout_and_safety.sql',
   '0008_add_live_watching_counts.sql',
   '0009_live_terms_acceptance.sql',
-  '0010_live_metrics.sql'
+  '0010_live_metrics.sql',
+  '0011_live_ended_event.sql'
 ] as const;
 
 /**

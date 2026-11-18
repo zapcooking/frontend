@@ -41,7 +41,9 @@
     createLiveSession,
     endedStatsLine,
     endLiveSession,
+    dropHeldEndedEvent,
     endLiveSessionSigned,
+    holdEndedEvent,
     endLiveSessionWithStats,
     acceptLiveTerms,
     fetchHostingStatus,
@@ -61,6 +63,7 @@
   import { watchingCount, watchingLabel } from '$lib/streams/goLive';
   import { ReconnectPolicy, type StopReason } from '$lib/live/host/reconnect';
   import { WatchRepeatGate } from '$lib/live/host/watchRepeats';
+  import { endedTwinTemplate, pickHostRelays } from '$lib/live/endedEvent';
   import {
     cameraAttempts,
     classifyMediaError,
@@ -364,6 +367,12 @@
   let refreshTicks = 0;
   /** Repeats are for signers that answer at once: see WatchRepeatGate. */
   const watchRepeats = new WatchRepeatGate();
+  // The same rule for the pre-signed "ended" announcement, counted on its
+  // own: a signer that declines it, or takes a while over it, is not
+  // asked for another one this stream.
+  const endedPresign = new WatchRepeatGate();
+  /** The live announcement whose ended twin has been dealt with, so a republish does not repeat it. */
+  let endedTwinFor: string | null = null;
   const NOTE_RETRY_MS = 15000;
   const NOTE_MAX_TRIES = 5;
   let noteTries = 0;
@@ -578,12 +587,44 @@
       announcePublishedFor = forSession.id;
       if (status === 'live') startAnnouncementRefresh();
       const urls = [...new Set([...$ndk.pool.relays.keys(), ...DISCOVERY_RELAYS])];
-      await Promise.race([
+      const published = Promise.race([
         event.publish(NDKRelaySet.fromRelayUrls(urls, $ndk, true)),
         new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 10000))
       ]);
+      // The live one is on its way first; its ended twin never holds it up.
+      if (status === 'live') void presignEnded(forSession, event, urls);
+      await published;
     } catch {
       // Best-effort: the Live now note is the primary surface.
+    }
+  }
+
+  /**
+   * Sign the ended twin of a live announcement and leave it with the
+   * server, which publishes it when the session ends without this page
+   * (tab closed, connection lost, the time limit): only the host can
+   * sign "ended", and by then the host is often gone.
+   *
+   * One more signature per live announcement, so the fast-signer rule
+   * applies: declined, failed or slow, and this stream is not asked
+   * again. A live announcement that then goes out without a twin makes
+   * the held one too old to end anything, so it is withdrawn. Going live
+   * never waits on any of this.
+   */
+  async function presignEnded(forSession: HostSession, live: NDKEvent, relays: string[]) {
+    if (!live.id || endedTwinFor === live.id) return;
+    endedTwinFor = live.id;
+    try {
+      if (!endedPresign.allows(forSession.id)) throw new Error('not asked');
+      const twin = new NDKEvent($ndk, endedTwinTemplate(live.rawEvent() as never) as never);
+      await endedPresign.timed(forSession.id, () => twin.sign());
+      if (session?.id !== forSession.id) return; // ended while signing
+      await holdEndedEvent(forSession, twin.rawEvent(), pickHostRelays(relays));
+    } catch {
+      // Not asked, declined or failed: the ended event this page publishes
+      // itself at End is what remains. A twin held from an earlier live
+      // announcement is too old now; have the server forget it.
+      if (session?.id === forSession.id) void dropHeldEndedEvent(forSession);
     }
   }
 

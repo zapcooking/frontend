@@ -18,6 +18,7 @@ again.
 | `0008_add_live_watching_counts.sql` | 2026-11-15 (#984) | 2026-11-15 (#984) |
 | `0009_live_terms_acceptance.sql` | 2026-11-15 (#986) | 2026-11-15 (#986), after #985 was live |
 | `0010_live_metrics.sql` | 2026-11-15 (#991; 25 objects) | 2026-11-15 (#991), after #994 was live (build 4.2.1114) |
+| `0011_live_ended_event.sql` | **not applied yet** | **not applied yet** |
 
 ## Applying a new migration
 

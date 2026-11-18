@@ -19,6 +19,11 @@
  * and the host token is dead). An unconfirmed delete leaves the input id
  * on the row, which is the record the sweep uses to retry.
  *
+ * Ending also publishes the host's pre-signed "ended" announcement (kind
+ * 30311), when one is held, so other Nostr apps stop showing the stream
+ * as live (see $lib/live/endedEvent.server). After the reply; never
+ * changes it.
+ *
  * Idempotent: ending a session that has already ended returns the same
  * 200 and changes nothing. That reply needs no credential (the status is
  * public, and by then the host token no longer exists).
@@ -31,6 +36,8 @@ import { json, type RequestHandler } from '@sveltejs/kit';
 import { verifyNip98 } from '$lib/nip98.server';
 import { authFailedResponse } from '$lib/scheduleApi.server';
 import { readBodyCapped } from '$lib/live/body.server';
+import { parseRelaysOverride, publishHeldEnded } from '$lib/live/endedEvent.server';
+import { readLiveEnv } from '$lib/live/env.server';
 import { removeInputAfterEnd } from '$lib/live/relay.server';
 import { readStreamConfig } from '$lib/live/stream.server';
 import {
@@ -92,6 +99,16 @@ export const POST: RequestHandler = async ({ request, params, platform }) => {
     // viewers. If it cannot be confirmed the session is still ended, and
     // the input id stays on the row for the sweep to retry.
     await removeInputAfterEnd(db, readStreamConfig(platform), row.id);
+    // Tell other Nostr apps: publish the "ended" announcement the host
+    // signed ahead of time, if one is held. One try now, after the reply;
+    // the sweep retries whatever this leaves waiting.
+    const told = publishHeldEnded(db, row.id, {
+      relaysOverride: parseRelaysOverride(readLiveEnv(platform, 'LIVE_ENDED_RELAYS'))
+    }).catch((err) => {
+      console.error(`[LiveEnded] session=${row.id} publish failed: ${(err as Error)?.name ?? 'error'}`);
+    });
+    if (platform?.ctx?.waitUntil) platform.ctx.waitUntil(told);
+    else await told;
     // The host's after-the-stream counts go with THIS reply only (it is the
     // authenticated one). The idempotent reply above carries none.
     const stats = await getSessionStats(db, row.id).catch(() => null);

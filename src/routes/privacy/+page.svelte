@@ -25,7 +25,7 @@
   <h1 class="text-3xl font-bold mb-8" style="color: var(--color-text-primary)">Privacy Policy</h1>
 
   <div class="flex flex-col gap-6 leading-relaxed" style="color: var(--color-text-primary)">
-    <p class="text-sm opacity-75">Last updated: November 16, 2026</p>
+    <p class="text-sm opacity-75">Last updated: November 18, 2026</p>
 
     <p>Zap Cooking LLC ("Zap Cooking," "we," "our," or "us") respects your privacy and is committed to transparency about how information is handled when you use our website, mobile applications, and related services (collectively, the "Service").</p>
 
@@ -236,6 +236,8 @@
     <p><strong>No recording.</strong> We set up every stream on Cloudflare Stream with recording turned off, and we do not create or keep recordings of broadcasts. Cloudflare processes the audio and video as needed to deliver them to viewers in real time; any temporary processing or storage that involves is handled by Cloudflare under its own infrastructure practices and its terms with us. Anyone watching can still record or capture the stream with their own tools.</p>
 
     <p><strong>What we keep about a stream.</strong> For each stream we keep the host's public key, its title, any attached recipe, when it started and ended, why it ended, how many viewers joined, the most viewers watching at once, the total time viewers spent watching, the number of guest viewers admitted and turned away, the sats zapped to the stream, and the ID of the host's "Live now" note if there is one. These records are deleted 30 days after the stream ends, unless a report about it is under review (see "Reports and reviews" below) or the law requires us to keep them longer.</p>
+
+    <p><strong>Ending the stream in other apps.</strong> When a stream is announced to other Nostr apps, your browser also signs, ahead of time, the public announcement that says the stream has ended, and sends it to us together with up to 8 of the relays you publish to. We hold both with the stream's record and publish the announcement to public Nostr relays when the stream ends, so other apps stop showing it as live even if you have closed the page. We cannot create or change that announcement ourselves. It is deleted with the stream's record.</p>
 
     <p><strong>Viewers.</strong> We do not keep a viewing history or a record of who watched a stream, and we do not store viewers' IP addresses or public keys with a stream. Watching does involve some limited, short-lived processing:</p>
 
