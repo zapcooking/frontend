@@ -18,7 +18,7 @@ again.
 | `0008_add_live_watching_counts.sql` | 2026-11-15 (#984) | 2026-11-15 (#984) |
 | `0009_live_terms_acceptance.sql` | 2026-11-15 (#986) | 2026-11-15 (#986), after #985 was live |
 | `0010_live_metrics.sql` | 2026-11-15 (#991; 25 objects) | 2026-11-15 (#991), after #994 was live (build 4.2.1114) |
-| `0011_live_ended_event.sql` | 2026-11-18 (#1012; 25 objects, columns only) | **not applied yet** |
+| `0011_live_ended_event.sql` | 2026-11-18 (#1012; 25 objects, columns only) | 2026-11-18 (#1012), before merge; 25 objects, columns only |
 
 ## Applying a new migration
 
@@ -55,7 +55,9 @@ Any difference means a migration reached one database and not the other.
 Last checked 2026-11-15, after 0008 reached both: no drift (22 objects in
 each; 0008 adds columns only, no objects). After 0009 reached both
 (2026-11-15): no drift (23 objects in each; schemas identical). After 0010 reached both (2026-11-15): no
-drift (25 objects in each; schemas identical).
+drift (25 objects in each; schemas identical). After 0011 reached both (2026-11-18): 25
+objects in each and the same four new columns on `live_sessions` (checked
+with `pragma_table_info`; the full schema diff was not run).
 
 Trap: `wrangler d1 execute --file` combined with `--json` returned without
 applying anything (2026-11-15, 0008 on production). Apply without `--json`,
