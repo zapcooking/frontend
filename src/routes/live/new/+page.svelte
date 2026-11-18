@@ -22,8 +22,9 @@
    *  - It keeps the screen awake while live.
    *  - With the "Live now" note switch on (the default), it posts a kind 1
    *    note from the host when the broadcast first connects, records the
-   *    note's id on the session, and announces the stream (NIP-53). Off:
-   *    no note, no announcement. Either way the stream has a zap total and
+   *    note's id on the session, and announces the stream (NIP-53) with
+   *    a pinned chat message linking the watch page, posted again every
+   *    15 minutes. Off: no note, no announcement, no link messages. Either way the stream has a zap total and
    *    a chat, on the session's own address (kind 1311).
    */
   import { onDestroy, onMount, tick } from 'svelte';
@@ -59,10 +60,13 @@
   import { LIVE_WATCHING_POLL_MS } from '$lib/live/config';
   import { watchingCount, watchingLabel } from '$lib/streams/goLive';
   import { ReconnectPolicy, type StopReason } from '$lib/live/host/reconnect';
+  import { WatchRepeatGate } from '$lib/live/host/watchRepeats';
   import {
     cameraAttempts,
     classifyMediaError,
     clearStoredSession,
+    loadPinnedMessage,
+    storePinnedMessage,
     detectPlatform,
     isConstraintFailure,
     liveDurationLine,
@@ -78,9 +82,18 @@
   import { fetchSession, sessionToStreamItem } from '$lib/streams/goLive';
   import { fetchRecipeEvent, recipeCardOf } from '$lib/streams/recipeCard';
   import { createStreamPool } from '$lib/streams/relayPage';
-  import { DISCOVERY_RELAYS, goLiveAnnouncementRelays } from '$lib/streams/relays';
+  import {
+    DISCOVERY_RELAYS,
+    goLiveAnnouncementRelays,
+    goLiveChatRelays
+  } from '$lib/streams/relays';
   import { goLiveAddress } from '$lib/streams/target';
-  import { liveAnnouncementTemplate, liveNoteTemplate } from '$lib/live/liveNote';
+  import { chatTemplate, goLiveChatScope } from '$lib/streams/chat';
+  import {
+    liveAnnouncementTemplate,
+    liveNoteTemplate,
+    liveWatchMessageText
+  } from '$lib/live/liveNote';
   import { addClientTagToEvent } from '$lib/nip89';
   import { NDKEvent, NDKRelaySet } from '@nostr-dev-kit/ndk';
   import type { SimplePool } from 'nostr-tools/pool';
@@ -341,9 +354,16 @@
    */
   let signedNote: { sessionId: string; event: NDKEvent } | null = null;
   let signedAnnouncement: { sessionId: string; event: NDKEvent } | null = null;
+  let signedWatchMessage: { sessionId: string; event: NDKEvent } | null = null;
   let announcePublishedFor: string | null = null;
   let announceRefreshTimer: ReturnType<typeof setInterval> | null = null;
-  const ANNOUNCE_REFRESH_MS = 30 * 60 * 1000;
+  /** The watch-link chat message repeats this often while live. */
+  const WATCH_MESSAGE_MS = 15 * 60 * 1000;
+  /** The announcement is re-signed on every 2nd repeat: every 30 minutes. */
+  const ANNOUNCE_REFRESH_EVERY = 2;
+  let refreshTicks = 0;
+  /** Repeats are for signers that answer at once: see WatchRepeatGate. */
+  const watchRepeats = new WatchRepeatGate();
   const NOTE_RETRY_MS = 15000;
   const NOTE_MAX_TRIES = 5;
   let noteTries = 0;
@@ -409,6 +429,92 @@
   }
 
   /**
+   * The id of this session's "Watch live on Zap Cooking: <link>" chat
+   * message (kind 1311 on the session's address), which the announcement
+   * pins so other live apps show the link at the top of the chat. Signed
+   * once per session, right before the announcement that names it; its id
+   * is kept with the session, so a reload pins the same message and never
+   * posts a second one. A signer that declined it, or took long over it,
+   * is not asked again. `create` is false for the ended announcement: it
+   * keeps an existing pin but never posts a new message. Nothing clears
+   * the id at teardown: the ended announcement is signed after it, and
+   * the id is only ever read for its own session. Null when there
+   * is none (the announcement then goes out without a pin).
+   */
+  async function pinnedWatchMessage(
+    forSession: HostSession,
+    hostPubkey: string,
+    watchUrl: string,
+    create: boolean
+  ): Promise<string | null> {
+    if (signedWatchMessage?.sessionId !== forSession.id) signedWatchMessage = null;
+    let id = signedWatchMessage?.event.id ?? loadPinnedMessage(storage(), forSession.id);
+    if (!id && create && watchRepeats.allows(forSession.id)) {
+      try {
+        const event = await signWatchMessage(forSession, hostPubkey, watchUrl);
+        if (!event) return null;
+        signedWatchMessage = { sessionId: forSession.id, event };
+        storePinnedMessage(storage(), forSession.id, event.id);
+        id = event.id;
+      } catch {
+        return null;
+      }
+    }
+    // Sent with every live announcement while this tab holds the signed
+    // event: a relay that missed it the first time gets it again (the
+    // same event, so never a duplicate).
+    if (create && signedWatchMessage) publishWatchMessage(signedWatchMessage.event);
+    return id;
+  }
+
+  /** A signed "Watch live on Zap Cooking: <link>" chat message (kind 1311). */
+  async function signWatchMessage(
+    forSession: HostSession,
+    hostPubkey: string,
+    watchUrl: string
+  ): Promise<NDKEvent | null> {
+    const scope = goLiveChatScope(hostPubkey, forSession.id);
+    if (!scope) return null;
+    const event = new NDKEvent($ndk, chatTemplate(scope, liveWatchMessageText(watchUrl)) as never);
+    // Timed: a slow or failed signature ends this stream's repeats.
+    await watchRepeats.timed(forSession.id, () => event.sign());
+    return event;
+  }
+
+  /** To the chat relays, best-effort. */
+  function publishWatchMessage(event: NDKEvent) {
+    void Promise.race([
+      event.publish(NDKRelaySet.fromRelayUrls(goLiveChatRelays(), $ndk, true)),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 10000))
+    ]).catch(() => undefined);
+  }
+
+  /**
+   * The same link again, as a new chat message: someone who opens the
+   * stream in another live app mid-way sees it near the bottom of the
+   * chat, not only at the very start. Zap Cooking's own chat leaves these
+   * out (isLiveWatchMessage). Only for a signer that answers at once:
+   * after one slow or failed signature the stream posts no more repeats
+   * (its pinned message and the announcement's link stay). Best-effort.
+   */
+  async function repeatWatchMessage(forSession: HostSession) {
+    if (!watchRepeats.allows(forSession.id)) return;
+    try {
+      const user = await $ndk.signer?.user();
+      const hostPubkey = user?.pubkey ?? $ndk.activeUser?.pubkey ?? '';
+      if (!hostPubkey) return;
+      const event = await signWatchMessage(
+        forSession,
+        hostPubkey,
+        `${getSiteOrigin()}/live/s/${forSession.id}`
+      );
+      if (event && session?.id === forSession.id) publishWatchMessage(event);
+    } catch {
+      // Not signed: the gate has stopped this stream's repeats.
+    }
+  }
+
+  /**
    * The NIP-53 announcement puts the session in the main live category so
    * other clients (Sidecar's video feature, zap.stream…) can pick it up.
    * The announcement is cached per session; `fresh` forces a re-sign so a
@@ -436,13 +542,22 @@
         signedAnnouncement?.sessionId === forSession.id
           ? signedAnnouncement.event
           : null;
+      // zap.cooking in production, the preview's own origin on a preview.
+      const watchUrl = `${getSiteOrigin()}/live/s/${forSession.id}`;
+      const pinnedId = await pinnedWatchMessage(
+        forSession,
+        hostPubkey,
+        watchUrl,
+        status === 'live'
+      );
       if (!event) {
         const template = liveAnnouncementTemplate({
           sessionId: forSession.id,
           name: streamName,
           hostPubkey,
           joinUrl: `${getSiteOrigin()}/api/live/${forSession.id}/join`,
-          watchUrl: `${getSiteOrigin()}/live/s/${forSession.id}`,
+          watchUrl,
+          pinnedId,
           // The session's start in seconds (startedAt is a local ms clock
           // from the resume point; good enough when the server time is
           // not in hand yet).
@@ -474,14 +589,23 @@
 
   /**
    * The directory treats announcements older than an hour as ended, so a
-   * long broadcast re-signs and republishes a fresh replacement while
-   * still live — regardless of whether the tab is in the background.
+   * long broadcast re-signs and republishes a fresh replacement every 30
+   * minutes while still live — regardless of whether the tab is in the
+   * background. The same timer posts the watch-link chat message again
+   * every 15 minutes (fast signers only), so every other one is signed
+   * together with the announcement.
    */
   function startAnnouncementRefresh() {
     if (announceRefreshTimer) return;
+    refreshTicks = 0;
     announceRefreshTimer = setInterval(() => {
-      if (session) void postLiveAnnouncement('live', session, true);
-    }, ANNOUNCE_REFRESH_MS);
+      if (!session) return;
+      refreshTicks++;
+      void repeatWatchMessage(session);
+      if (refreshTicks % ANNOUNCE_REFRESH_EVERY === 0) {
+        void postLiveAnnouncement('live', session, true);
+      }
+    }, WATCH_MESSAGE_MS);
   }
 
   /** The host's own name, for "<name> is cooking <recipe>". */

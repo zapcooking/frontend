@@ -256,6 +256,39 @@ export function clearStoredSession(storage: KeyValue | undefined): void {
   safely(() => storage.removeItem(SESSION_KEY), undefined);
 }
 
+// ── The pinned watch-link chat message, kept across a reload ────────
+//
+// The host posts one "Watch live on Zap Cooking: <link>" chat message per
+// announced stream and the announcement pins it by id. The id is kept
+// with the session (same storage, same lifetime) so a reload re-announces
+// with the same pin and never posts a second message.
+
+const PINNED_KEY = 'zc_live_host_pinned';
+
+export function loadPinnedMessage(storage: KeyValue | undefined, sessionId: string): string | null {
+  if (!storage) return null;
+  return safely(() => {
+    const raw = storage.getItem(PINNED_KEY);
+    if (!raw) return null;
+    const v = JSON.parse(raw) as { session?: unknown; id?: unknown };
+    return v.session === sessionId && typeof v.id === 'string' && /^[0-9a-f]{64}$/.test(v.id)
+      ? v.id
+      : null;
+  }, null);
+}
+
+export function storePinnedMessage(
+  storage: KeyValue | undefined,
+  sessionId: string,
+  eventId: string
+): void {
+  if (!storage) return;
+  safely(
+    () => storage.setItem(PINNED_KEY, JSON.stringify({ session: sessionId, id: eventId })),
+    undefined
+  );
+}
+
 /** The address `<kind>:<pubkey>:<d>` and title handed over from a recipe page, if well formed. */
 export function readRecipeHandoff(
   params: URLSearchParams

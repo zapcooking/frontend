@@ -24,6 +24,8 @@
  * read as kind 1311 on that address AND kind 1 replies in the "Live now"
  * note's thread (when the session has a note), so comments made from
  * apps that only reply to the note still show. One event id is one row.
+ * The host's pinned "Watch live on Zap Cooking: <link>" message (posted
+ * for other apps' viewers, see $lib/live/liveNote) is left out here.
  *
  * @see https://nips.nostr.com/53
  */
@@ -34,6 +36,7 @@ import type { Filter } from 'nostr-tools/filter';
 import { relayPage } from './relayPage';
 import { goLiveAddress, isEventTarget } from './target';
 import { getThreadRootId } from '$lib/thread/replyParent';
+import { isLiveWatchMessage } from '$lib/live/liveNote';
 import type { EventVerifier, NostrEventLike } from './types';
 
 export const CHAT_KIND = 1311;
@@ -226,9 +229,12 @@ export class ChatMessages {
   readonly address: string;
   private readonly chatAddress: string | null;
   private readonly noteId: string | null;
+  /** A Go live scope's host: their pinned watch-link message is not a row. */
+  private readonly host: string | null;
 
   constructor(target: ChatTarget) {
     this.address = typeof target === 'string' ? target : target.address;
+    this.host = typeof target === 'string' ? null : target.host;
     const reads = readsOf(target);
     this.chatAddress = reads.address;
     this.noteId = reads.noteId;
@@ -267,6 +273,7 @@ export class ChatMessages {
       !event ||
       !Array.isArray(event.tags) ||
       !(this.isChat(event) || this.isNoteReply(event)) ||
+      isLiveWatchMessage(event, this.host) ||
       typeof event.content !== 'string' ||
       event.content.length > CHAT_MAX_LEN ||
       !Number.isSafeInteger(event.created_at) ||
