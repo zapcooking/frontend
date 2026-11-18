@@ -172,11 +172,22 @@ export function isPublicRelayUrl(value: unknown): value is string {
   return true;
 }
 
-/** The host's own relays the server will use: valid ones, deduplicated, capped. */
+/**
+ * Relays in most hosts' lists that never keep a live announcement:
+ * purplepag.es holds profiles and relay lists only. Never sent, stored
+ * or published to as a host relay.
+ */
+export const ENDED_HOST_RELAYS_NEVER: readonly string[] = ['wss://purplepag.es'];
+
+/**
+ * The host's own relays the server will use: valid ones, deduplicated,
+ * capped, without `exclude` (the fixed list, which is used anyway) and
+ * without ENDED_HOST_RELAYS_NEVER.
+ */
 export function pickHostRelays(value: unknown, exclude: readonly string[] = []): string[] {
   if (!Array.isArray(value)) return [];
   const norm = (url: string) => url.replace(/\/+$/, '').toLowerCase();
-  const seen = new Set(exclude.map(norm));
+  const seen = new Set([...exclude, ...ENDED_HOST_RELAYS_NEVER].map(norm));
   const out: string[] = [];
   for (const url of value) {
     if (out.length >= ENDED_HOST_RELAYS_MAX) break;
