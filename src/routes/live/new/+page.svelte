@@ -60,6 +60,7 @@
   import { LIVE_WATCHING_POLL_MS } from '$lib/live/config';
   import { watchingCount, watchingLabel } from '$lib/streams/goLive';
   import { ReconnectPolicy, type StopReason } from '$lib/live/host/reconnect';
+  import { WatchRepeatGate } from '$lib/live/host/watchRepeats';
   import {
     cameraAttempts,
     classifyMediaError,
@@ -361,6 +362,8 @@
   /** The announcement is re-signed on every 2nd repeat: every 30 minutes. */
   const ANNOUNCE_REFRESH_EVERY = 2;
   let refreshTicks = 0;
+  /** Repeats are for signers that answer at once: see WatchRepeatGate. */
+  const watchRepeats = new WatchRepeatGate();
   const NOTE_RETRY_MS = 15000;
   const NOTE_MAX_TRIES = 5;
   let noteTries = 0;
@@ -431,7 +434,8 @@
    * pins so other live apps show the link at the top of the chat. Signed
    * once per session, right before the announcement that names it; its id
    * is kept with the session, so a reload pins the same message and never
-   * posts a second one. `create` is false for the ended announcement: it
+   * posts a second one. A signer that declined it, or took long over it,
+   * is not asked again. `create` is false for the ended announcement: it
    * keeps an existing pin but never posts a new message. Nothing clears
    * the id at teardown: the ended announcement is signed after it, and
    * the id is only ever read for its own session. Null when there
@@ -445,7 +449,7 @@
   ): Promise<string | null> {
     if (signedWatchMessage?.sessionId !== forSession.id) signedWatchMessage = null;
     let id = signedWatchMessage?.event.id ?? loadPinnedMessage(storage(), forSession.id);
-    if (!id && create) {
+    if (!id && create && watchRepeats.allows(forSession.id)) {
       try {
         const event = await signWatchMessage(forSession, hostPubkey, watchUrl);
         if (!event) return null;
@@ -472,7 +476,8 @@
     const scope = goLiveChatScope(hostPubkey, forSession.id);
     if (!scope) return null;
     const event = new NDKEvent($ndk, chatTemplate(scope, liveWatchMessageText(watchUrl)) as never);
-    await event.sign();
+    // Timed: a slow or failed signature ends this stream's repeats.
+    await watchRepeats.timed(forSession.id, () => event.sign());
     return event;
   }
 
@@ -488,9 +493,12 @@
    * The same link again, as a new chat message: someone who opens the
    * stream in another live app mid-way sees it near the bottom of the
    * chat, not only at the very start. Zap Cooking's own chat leaves these
-   * out (isLiveWatchMessage). Best-effort.
+   * out (isLiveWatchMessage). Only for a signer that answers at once:
+   * after one slow or failed signature the stream posts no more repeats
+   * (its pinned message and the announcement's link stay). Best-effort.
    */
   async function repeatWatchMessage(forSession: HostSession) {
+    if (!watchRepeats.allows(forSession.id)) return;
     try {
       const user = await $ndk.signer?.user();
       const hostPubkey = user?.pubkey ?? $ndk.activeUser?.pubkey ?? '';
@@ -502,7 +510,7 @@
       );
       if (event && session?.id === forSession.id) publishWatchMessage(event);
     } catch {
-      // Not signed or not sent: the next repeat tries again.
+      // Not signed: the gate has stopped this stream's repeats.
     }
   }
 
@@ -584,8 +592,8 @@
    * long broadcast re-signs and republishes a fresh replacement every 30
    * minutes while still live — regardless of whether the tab is in the
    * background. The same timer posts the watch-link chat message again
-   * every 15 minutes, so every other one is signed together with the
-   * announcement.
+   * every 15 minutes (fast signers only), so every other one is signed
+   * together with the announcement.
    */
   function startAnnouncementRefresh() {
     if (announceRefreshTimer) return;

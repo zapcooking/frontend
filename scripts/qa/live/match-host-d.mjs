@@ -21,6 +21,15 @@
  *   - another account's announcement under the same session id is not
  *     taken for ours: it keeps its own card and its naddr does not
  *     redirect.
+ * The link message repeats every 15 minutes for a fast signer only (the
+ * page's clock is moved forward; the host signs through a NIP-07
+ * stand-in answered here):
+ *   - fast signer: a new host chat message at 15 and 30 minutes, the
+ *     announcement re-signed at 30 with the same pin;
+ *   - signer that takes 2.5 s over the chat message: the pinned message
+ *     and the announcement still go out, and no repeat follows;
+ *   - signer that declines the chat message: the announcement goes out
+ *     with its summary and link and no pin, and it is not asked again.
  * With the note off (no announcement at all):
  *   - no kind 30311 and no host chat message is published;
  *   - the naddr built from host + session id still lands on the session
@@ -75,8 +84,12 @@ async function until(fn, ms = 15000, step = 100) {
   return null;
 }
 
-/** A context signed in as `sk`, with the Go live API answered by `api`. */
-async function signedIn(sk, api, viewport) {
+/**
+ * A context signed in as `sk`, with the Go live API answered by `api`.
+ * With `signer`, the account signs through a NIP-07 stand-in answered
+ * here: `signer(template)` may wait, or throw to decline.
+ */
+async function signedIn(sk, api, viewport, signer = null) {
   const ctx = await browser.newContext({
     viewport,
     serviceWorkers: 'block',
@@ -96,6 +109,21 @@ async function signedIn(sk, api, viewport) {
       await route.abort();
     }
   });
+  if (signer) {
+    await ctx.exposeFunction('__qaSign', async (template) => {
+      await signer(template);
+      return finalizeEvent(
+        { kind: template.kind, created_at: template.created_at, content: template.content, tags: template.tags },
+        sk
+      );
+    });
+    await ctx.addInitScript((pk) => {
+      localStorage.setItem('nostrcooking_loggedInPublicKey', pk);
+      localStorage.setItem('nostrcooking_authMethod', 'nip07');
+      window.nostr = { getPublicKey: async () => pk, signEvent: (e) => window.__qaSign(e) };
+    }, getPublicKey(sk));
+    return ctx;
+  }
   await ctx.addInitScript(
     ([pk, key]) => {
       localStorage.setItem('nostrcooking_loggedInPublicKey', pk);
@@ -142,7 +170,7 @@ async function directoryCards(page) {
   });
 }
 
-async function scenario(label, { withNote }) {
+async function scenario(label, { withNote, repeats = null }) {
   console.log(`\n── ${label} ──`);
   const hostSk = generateSecretKey();
   const hostPk = getPublicKey(hostSk);
@@ -222,9 +250,22 @@ async function scenario(label, { withNote }) {
   };
 
   // ── Host goes live ────────────────────────────────────────────────
-  const hostCtx = await signedIn(hostSk, api, { width: 1280, height: 900 });
+  // repeats: 'fast' | 'slow' | 'declined' — how the host's signer treats
+  // the watch-link chat message (kind 1311). Everything else signs at once.
+  const asked = [];
+  const signer = repeats
+    ? async (template) => {
+        if (template.kind !== 1311) return;
+        asked.push(template);
+        if (repeats === 'slow') await sleep(2500);
+        if (repeats === 'declined') throw new Error('declined');
+      }
+    : null;
+  const hostCtx = await signedIn(hostSk, api, { width: 1280, height: 900 }, signer);
   hostPage = await net.newPage(hostCtx);
   hostPage.setDefaultTimeout(30000);
+  // A clock the run can move forward, for the 15 minute timer.
+  if (repeats) await hostPage.clock.install();
   await hostPage.goto(`${ORIGIN}/live/new`, { waitUntil: 'domcontentloaded' });
   const goLive = hostPage.getByRole('button', { name: 'Go live', exact: true });
   await goLive.waitFor();
@@ -261,7 +302,57 @@ async function scenario(label, { withNote }) {
     return cards;
   };
 
-  if (withNote) {
+  if (repeats) {
+    const posted = await until(() => sentBy(hostPk, 1)[0], 20000);
+    noteId = posted?.id ?? null;
+    const announced = () => sentBy(hostPk, 30311).filter((e) => e.tags.some((t) => t[0] === 'd' && t[1] === sessionId));
+    const first = await until(() => announced()[0], 20000);
+    check(`${label}: the announcement (kind 30311) was published`, !!first);
+    const pin = (e) => e?.tags.find((t) => t[0] === 'pinned')?.[1] ?? null;
+    const summary = first?.tags.find((t) => t[0] === 'summary')?.[1] ?? '';
+    check(`${label}: its summary and r tag link the watch page`, summary.includes(sessionPath) && !!first?.tags.some((t) => t[0] === 'r' && t[1].endsWith(sessionPath)));
+    await sleep(1500);
+    const chat = () => sentBy(hostPk, 1311);
+    if (repeats === 'declined') {
+      check(`${label}: no chat message was posted`, chat().length === 0, `${chat().length}`);
+      check(`${label}: the announcement has no pin`, pin(first) === null);
+    } else {
+      check(`${label}: the pinned message was posted`, chat().length === 1 && pin(first) === chat()[0]?.id, `${chat().length} message(s)`);
+    }
+    const pinnedId = pin(first);
+    const askedAtStart = asked.length;
+    check(`${label}: the signer was asked for one chat message at the start`, askedAtStart === 1, `${askedAtStart}`);
+
+    // 15 minutes on: a repeat for the fast signer only.
+    await hostPage.clock.fastForward('15:01');
+    await sleep(5000);
+    const want15 = repeats === 'fast' ? 2 : repeats === 'slow' ? 1 : 0;
+    check(`${label}: after 15 minutes there ${want15 === 1 ? 'is' : 'are'} ${want15} host chat message(s)`, chat().length === want15, `${chat().length}`);
+    check(
+      `${label}: after 15 minutes the signer ${repeats === 'fast' ? 'was asked once more' : 'was not asked again'}`,
+      asked.length === askedAtStart + (repeats === 'fast' ? 1 : 0),
+      `${asked.length} request(s) in all`
+    );
+    check(`${label}: the announcement was not re-signed at 15 minutes`, announced().length === 1, `${announced().length}`);
+
+    // 30 minutes on: the announcement is re-signed; again a repeat only for the fast signer.
+    await hostPage.clock.fastForward('15:01');
+    const second = await until(() => announced().length >= 2 && announced().at(-1), 20000);
+    await sleep(5000);
+    const want30 = repeats === 'fast' ? 3 : repeats === 'slow' ? 1 : 0;
+    check(`${label}: after 30 minutes there ${want30 === 1 ? 'is' : 'are'} ${want30} host chat message(s)`, chat().length === want30, `${chat().length}`);
+    check(`${label}: the announcement was re-signed at 30 minutes`, !!second && announced().length === 2, `${announced().length}`);
+    check(`${label}: the re-signed announcement ${pinnedId ? 'keeps the same pin' : 'still has no pin'}`, !!second && pin(second) === pinnedId);
+    check(
+      `${label}: in all the signer was asked for ${repeats === 'fast' ? 3 : 1} chat message(s)`,
+      asked.length === (repeats === 'fast' ? 3 : 1),
+      `${asked.length}`
+    );
+    if (repeats === 'fast') {
+      const texts = new Set(chat().map((e) => e.content));
+      check(`${label}: every repeat reads the same and is a new event`, texts.size === 1 && new Set(chat().map((e) => e.id)).size === 3);
+    }
+  } else if (withNote) {
     const posted = await until(() => sentBy(hostPk, 1)[0], 20000);
     noteId = posted?.id ?? null;
     check(`${label}: the Live now note was posted`, !!noteId);
@@ -360,7 +451,7 @@ async function scenario(label, { withNote }) {
     await directory('the Live directory shows it once');
   }
 
-  await opensSession('an naddr for a session id the server does not know stays put', hostPk, unknownId, false);
+  if (!repeats) await opensSession('an naddr for a session id the server does not know stays put', hostPk, unknownId, false);
 
   await viewerCtx.close();
   await hostCtx.close();
@@ -369,6 +460,9 @@ async function scenario(label, { withNote }) {
 try {
   await scenario('note on', { withNote: true });
   await scenario('note off', { withNote: false });
+  await scenario('fast signer', { withNote: true, repeats: 'fast' });
+  await scenario('slow signer', { withNote: true, repeats: 'slow' });
+  await scenario('signer declines', { withNote: true, repeats: 'declined' });
   net.verify(check);
 } catch (err) {
   check('the run completed', false, err?.stack || String(err));
