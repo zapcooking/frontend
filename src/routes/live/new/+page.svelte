@@ -64,6 +64,7 @@
   import { ReconnectPolicy, type StopReason } from '$lib/live/host/reconnect';
   import { WatchRepeatGate } from '$lib/live/host/watchRepeats';
   import { endedTwinTemplate, pickHostRelays } from '$lib/live/endedEvent';
+  import { publishWithRetry } from '$lib/live/host/publishRetry';
   import {
     cameraAttempts,
     classifyMediaError,
@@ -587,12 +588,21 @@
       announcePublishedFor = forSession.id;
       if (status === 'live') startAnnouncementRefresh();
       const urls = [...new Set([...$ndk.pool.relays.keys(), ...DISCOVERY_RELAYS])];
+      const signed = event;
+      const send = () => signed.publish(NDKRelaySet.fromRelayUrls(urls, $ndk, true));
+      if (status === 'ended') {
+        // The event that takes the LIVE card away in other apps: when no
+        // relay takes it, the same signed event is sent again, twice at
+        // most. The signer is asked once.
+        await publishWithRetry(send);
+        return;
+      }
       const published = Promise.race([
-        event.publish(NDKRelaySet.fromRelayUrls(urls, $ndk, true)),
+        send(),
         new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 10000))
       ]);
       // The live one is on its way first; its ended twin never holds it up.
-      if (status === 'live') void presignEnded(forSession, event, urls);
+      void presignEnded(forSession, event, urls);
       await published;
     } catch {
       // Best-effort: the Live now note is the primary surface.
@@ -1494,6 +1504,14 @@
     // covers a stream resumed after a reload) replaces it when it arrives.
     liveLine = everLive && startedAt ? liveDurationLine((Date.now() - startedAt) / 1000) : null;
     teardown(true);
+    // Replace the 'live' announcement with the ended one, first thing and
+    // alongside the server calls below: this is what other Nostr apps go
+    // by, and a host who closes the page right after End must not leave a
+    // LIVE card behind. Only when a live announcement went out
+    // (never-live sessions publish nothing).
+    if (closing && announcePublishedFor === closing.id) {
+      void postLiveAnnouncement('ended', closing, true);
+    }
     let stats: LiveStats | null = null;
     if (tellServer && closing) stats = (await endLiveSessionWithStats(closing)).stats;
     // Ended elsewhere (time limit, admin, another device): the host token
@@ -1505,11 +1523,6 @@
       if (read?.started_at) {
         const end = read.ended_at ?? Math.floor(Date.now() / 1000);
         liveLine = liveDurationLine(end - read.started_at);
-      }
-      // Replace the 'live' announcement with the ended one — only when a
-      // live announcement went out (never-live sessions publish nothing).
-      if (announcePublishedFor === closing.id) {
-        void postLiveAnnouncement('ended', closing, true);
       }
     }
   }

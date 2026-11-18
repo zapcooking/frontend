@@ -20,6 +20,10 @@
  *   - signer that declines the twin: the stream goes live and announces
  *     as usual; nothing is handed over; it is not asked again;
  *   - note off: no announcement, so no twin and no request for one.
+ *   - End (fast signer): the page signs a fresh ended announcement once
+ *     (its `ends` is now, not the twin's) and it is on the relays while
+ *     the End request to the server is still unanswered;
+ *   - the relays handed over never include purplepag.es.
  * It also prints how many signatures each moment asked for.
  *
  * The Go live API (/api/live…) is answered here. Every relay is local
@@ -83,16 +87,19 @@ async function scenario(name, { withNote = true, twin = 'fast' }) {
   /** Every signature the page asked for, in order. */
   const asked = [];
   let liveAt = 0;
+  let ended = false;
+  let endAskedAt = 0;
+  let endRepliedAt = 0;
 
   const session = () => ({
     id: sessionId,
-    status: 'live',
+    status: ended ? 'ended' : 'live',
     title: 'QA ended twin',
     recipe_a: null,
     host_pubkey: hostPk,
     created_at: Math.floor(Date.now() / 1000) - 30,
     started_at: Math.floor(Date.now() / 1000) - 30,
-    ended_at: null,
+    ended_at: ended ? Math.floor(Date.now() / 1000) : null,
     note_id: noteId
   });
   const api = async (req, u) => {
@@ -118,6 +125,13 @@ async function scenario(name, { withNote = true, twin = 'fast' }) {
       return method === 'DELETE'
         ? json(200, { id: sessionId, dropped: true })
         : json(200, { id: sessionId, event_id: body?.event?.id });
+    }
+    if (path === `/api/live/${sessionId}/end`) {
+      endAskedAt = Date.now();
+      await sleep(4000); // a slow server: the announcement must not wait for it
+      endRepliedAt = Date.now();
+      ended = true;
+      return json(200, { id: sessionId, status: 'ended', peak_watching: 1, joins: 1 });
     }
     if (path === `/api/live/${sessionId}/hidden`) return json(200, { hidden: [] });
     if (path === `/api/live/${sessionId}/publish`) {
@@ -246,6 +260,7 @@ async function scenario(name, { withNote = true, twin = 'fast' }) {
       Array.isArray(relays) && relays.length <= 8 && relays.every((r) => /^wss:\/\/[a-z0-9.-]+\.[a-z]+/.test(r)),
       JSON.stringify(relays)
     );
+    check(`${name}: purplepag.es is not among them`, Array.isArray(relays) && !relays.some((r) => r.includes('purplepag.es')));
     if (twin === 'slow') {
       check(`${name}: going live did not wait for the twin`, post.at - liveAt > 1500, `handed over ${post.at - liveAt} ms after live`);
       const liveSeenAt = [...sent.values()].find((e) => e.id === first?.id) ? 'published' : 'missing';
@@ -279,6 +294,27 @@ async function scenario(name, { withNote = true, twin = 'fast' }) {
   }
   console.log(`      signatures at 15 minutes (${midCount - startCount}): ${asked.slice(startCount, midCount).map(label).join(', ') || 'none'}`);
   console.log(`      signatures at 30 minutes (${asked.length - midCount}): ${asked.slice(midCount).map(label).join(', ') || 'none'}`);
+
+  if (twin === 'fast') {
+    // End: a fresh ended announcement, signed once, out before the server answers.
+    const beforeEnd = asked.length;
+    const twinIds = new Set(posts().map((p) => p.body?.event?.id));
+    const pressedAt = Math.floor(Date.now() / 1000);
+    await hostPage.locator('.end-btn').click();
+    const final = await until(() => announced().find((e) => tag(e, 'status') === 'ended'), 15000);
+    const seenAt = Date.now();
+    check(`${name}: End published an ended announcement`, !!final);
+    check(`${name}: freshly signed, not the held twin`, !!final && !twinIds.has(final.id));
+    // The page's clock was moved 30 minutes on; its "now" is ahead of ours by that much.
+    const ahead = Number(tag(final, 'ends')) - pressedAt;
+    check(`${name}: its ends is the moment End was pressed`, tag(final, 'ends') === String(final?.created_at) && ahead >= 1800 && ahead < 1900, `ends is ${ahead} s ahead of this machine's clock (page clock moved ~1802 s)`);
+    await until(() => endRepliedAt, 10000);
+    check(`${name}: it was on the relays before the server answered End`, endAskedAt > 0 && seenAt < endRepliedAt, `seen ${seenAt - endAskedAt} ms after End was sent; the server answered after ${endRepliedAt - endAskedAt} ms`);
+    await sleep(1000);
+    const endAsks = asked.slice(beforeEnd).filter((t) => t.kind === 30311);
+    check(`${name}: the signer was asked for it once`, endAsks.length === 1, `${endAsks.length}`);
+    console.log(`      signatures at End (${asked.length - beforeEnd}): ${asked.slice(beforeEnd).map(label).join(', ') || 'none'}`);
+  }
   await ctx.close();
 }
 

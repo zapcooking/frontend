@@ -166,6 +166,11 @@ describe('isPublicRelayUrl', () => {
     expect(picked).toEqual(many.slice(0, 8));
     expect(pickHostRelays('wss://nos.lol')).toEqual([]);
   });
+  it('never takes purplepag.es: it keeps profiles and relay lists only', () => {
+    expect(
+      pickHostRelays(['wss://purplepag.es/', 'wss://PurplePag.es', 'wss://relay.example.com'])
+    ).toEqual(['wss://relay.example.com']);
+  });
 });
 
 describe('endedEventProblem', () => {
@@ -197,7 +202,7 @@ describe('storeEndedEvent', () => {
         db,
         session,
         { ...first, extra: 'dropped' },
-        ['wss://relay.example.com', 'wss://10.0.0.1', 'wss://nos.lol'],
+        ['wss://relay.example.com', 'wss://10.0.0.1', 'wss://nos.lol', 'wss://purplepag.es/'],
         { now: NOW }
       )
     ).toEqual({ ok: true, id: first.id });
@@ -350,11 +355,12 @@ describe('publishHeldEnded', () => {
     expect(parseRelaysOverride('nope')).toBeNull();
   });
 
-  it('never re-checks host relays into private ones at publish time', async () => {
+  it('checks host relays again at publish time: no private ones, no purplepag.es', async () => {
     await held();
     db.raw
       .prepare('UPDATE live_sessions SET ended_event_relays = ? WHERE id = ?')
-      .run(JSON.stringify(['wss://10.0.0.1', 'wss://localhost', 'wss://ok.example.com']), ID);
+      // purplepag.es: a row stored before it was left out.
+      .run(JSON.stringify(['wss://10.0.0.1', 'wss://localhost', 'wss://purplepag.es/', 'wss://ok.example.com']), ID);
     endRow();
     const net = relays({});
     await publishHeldEnded(db, ID, net);
