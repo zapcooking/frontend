@@ -1,7 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   fetchLiveSessions,
   fetchSession,
+  goLiveSessionFor,
   isGoLiveSession,
   mergeLiveItems,
   sessionToStreamItem,
@@ -67,22 +68,6 @@ describe('sessionToStreamItem', () => {
     expect(sessionToStreamItem(session({ note_id: 'bad' })).noteId).toBeNull();
   });
 
-  it('expects the note while starting or just live, and says so (no silent profile zap)', () => {
-    const t = 1_000_000;
-    const at = (startedAgo: number | null, over: Partial<GoLiveSession> = {}) =>
-      sessionToStreamItem(
-        session({ started_at: startedAgo == null ? null : t - startedAgo, ...over }),
-        null,
-        null,
-        t * 1000
-      );
-    expect(at(null).notePending).toBe(true);
-    expect(at(10).notePending).toBe(true);
-    expect(at(300).notePending).toBe(false); // live for 5 min with no note: switch was off
-    expect(at(10, { note_id: 'e'.repeat(64) }).notePending).toBe(false);
-    expect(at(10, { status: 'ended' }).notePending).toBe(false);
-  });
-
   it('reads a not-yet-started session as live and an ended one as ended', () => {
     expect(sessionToStreamItem(session({ status: 'created', started_at: null })).status).toBe(
       'live'
@@ -117,17 +102,81 @@ describe('mergeLiveItems', () => {
     ]);
   });
 
-  it('drops the announcement copy of a session that also came from the API', () => {
+  it('drops the announcement copy of a session that also came from the API (host + d)', () => {
     const id = 'a'.repeat(32);
     const live = sessionToStreamItem(session({ id }));
-    const announcement = {
-      key: `30311:${'b'.repeat(32)}:${id}`,
+    // No streaming tag, no url: the address alone identifies it.
+    const announcement = { key: `30311:${HOST}:${id}`, url: null } as StreamItem;
+    const unrelated = { key: 'n1' } as StreamItem;
+    expect(mergeLiveItems([live], [announcement, unrelated]).map((i) => i.key)).toEqual([
+      `zc:${id}`,
+      'n1'
+    ]);
+  });
+
+  it('keeps an announcement that only looks like ours', () => {
+    const id = 'a'.repeat(32);
+    const live = sessionToStreamItem(session({ id }));
+    // Another account reusing the session id, even pointing at our join URL.
+    const imposter = {
+      key: `30311:${'c'.repeat(64)}:${id}`,
       url: `https://zap.cooking/api/live/${id}/join`
     } as StreamItem;
-    const unrelated = { key: 'n1' } as StreamItem;
+    // The host's own announcement of another stream.
+    const otherStream = { key: `30311:${HOST}:${'9'.repeat(32)}` } as StreamItem;
+    expect(mergeLiveItems([live], [imposter, otherStream]).map((i) => i.key)).toEqual([
+      `zc:${id}`,
+      imposter.key,
+      otherStream.key
+    ]);
+  });
+});
+
+describe('goLiveSessionFor', () => {
+  const id = 'a'.repeat(32);
+  const server = (body: unknown, status = 200) =>
+    vi.fn(async () => new Response(JSON.stringify(body), { status })) as unknown as typeof fetch;
+
+  it('is the session id when the address is the session host + session id', async () => {
+    const fetchFn = server(session({ id }));
+    expect(await goLiveSessionFor({ pubkey: HOST, identifier: id }, fetchFn)).toBe(id);
+    expect(await goLiveSessionFor({ pubkey: HOST.toUpperCase(), identifier: id }, fetchFn)).toBe(
+      id
+    );
+    // An ended session is still ours: its page says the stream has ended.
     expect(
-      mergeLiveItems([live], [announcement, unrelated]).map((i) => i.key)
-    ).toEqual([`zc:${id}`, 'n1']);
+      await goLiveSessionFor(
+        { pubkey: HOST, identifier: id },
+        server(session({ id, status: 'ended', ended_at: 200 }))
+      )
+    ).toBe(id);
+  });
+
+  it("is null for another account's announcement under our session id", async () => {
+    expect(
+      await goLiveSessionFor({ pubkey: 'c'.repeat(64), identifier: id }, server(session({ id })))
+    ).toBeNull();
+  });
+
+  it('does not ask the server about an address that cannot be a session', async () => {
+    const fetchFn = server(session({ id }));
+    expect(await goLiveSessionFor({ pubkey: HOST, identifier: 'my-stream' }, fetchFn)).toBeNull();
+    expect(
+      await goLiveSessionFor(
+        { pubkey: HOST, identifier: '0b9a3c1e-52f4-4a56-9a3e-1f2b3c4d5e6f' },
+        fetchFn
+      )
+    ).toBeNull();
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it('is null when the session is unknown or the server cannot be reached', async () => {
+    expect(await goLiveSessionFor({ pubkey: HOST, identifier: id }, server({}, 404))).toBeNull();
+    expect(await goLiveSessionFor({ pubkey: HOST, identifier: id }, server({}, 500))).toBeNull();
+    const down = vi.fn(async () => {
+      throw new Error('offline');
+    }) as unknown as typeof fetch;
+    expect(await goLiveSessionFor({ pubkey: HOST, identifier: id }, down)).toBeNull();
   });
 });
 

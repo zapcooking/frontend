@@ -472,6 +472,49 @@ export async function recordLiveNote(
   }
 }
 
+/**
+ * Leave the pre-signed "ended" announcement with the server, which
+ * publishes it when the session ends without this page (tab closed,
+ * connection lost, the time limit). `relays` is where the live one went.
+ * True when the server holds it.
+ */
+export async function holdEndedEvent(
+  session: HostSession,
+  event: unknown,
+  relays: readonly string[],
+  fetchFn: typeof fetch = fetch
+): Promise<boolean> {
+  try {
+    const res = await fetchFn(`/api/live/${session.id}/ended-event`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session.token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ event, relays })
+    });
+    return res.status === 200;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Have the server forget the held "ended" announcement: a newer live one
+ * went out without a twin, so the held one can no longer end the stream.
+ */
+export async function dropHeldEndedEvent(
+  session: HostSession,
+  fetchFn: typeof fetch = fetch
+): Promise<boolean> {
+  try {
+    const res = await fetchFn(`/api/live/${session.id}/ended-event`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${session.token}` }
+    });
+    return res.status === 200;
+  } catch {
+    return false;
+  }
+}
+
 /** End a session we hold no token for (opened in another tab or device), by signature. */
 export async function endLiveSessionSigned(
   id: string,

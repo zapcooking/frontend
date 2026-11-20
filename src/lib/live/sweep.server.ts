@@ -27,6 +27,12 @@
  *  2. Ended sessions that still have an input recorded (an earlier delete
  *     could not be confirmed): delete it again.
  *
+ *  2b. Ended sessions holding a pre-signed "ended" announcement that has
+ *     not gone out yet: publish it to relays, a few tries, a minute
+ *     apart (see endedEvent.server.ts). This is what ends the stream in
+ *     other Nostr apps when the host page was not there to do it. Only
+ *     when `ended` is given.
+ *
  *  3. Orphan check: list the account's live inputs, and delete any that
  *     carry this environment's name prefix, are older than ten minutes
  *     and are not recorded on any row.
@@ -61,6 +67,11 @@ import {
   type CloseOutSummary,
   type MetricsDeps
 } from './metrics.server';
+import {
+  publishPendingEnded,
+  type EndedPublishDeps,
+  type EndedSweepSummary
+} from './endedEvent.server';
 import { removeInputAfterEnd } from './relay.server';
 import { cleanupSafetyRecords } from './safety.server';
 import {
@@ -93,6 +104,8 @@ export interface SweepSummary {
   inputsDeleted: number;
   inputsPending: number;
   retried: { deleted: number; pending: number };
+  /** Held "ended" announcements: published, left for the next run, given up on. */
+  endedEvents: EndedSweepSummary;
   orphans: { listed: number | null; candidates: number; deleted: number; failed: number };
   rowsDeleted: number;
   metrics: CloseOutSummary;
@@ -108,6 +121,8 @@ export interface SweepOptions {
   budgetMs?: number;
   /** The presence object and relays, for the metrics close-out. Skipped when absent. */
   metrics?: MetricsDeps;
+  /** How to publish held "ended" announcements. The step is skipped when absent. */
+  ended?: EndedPublishDeps;
 }
 
 /** One log line per reading acted on. Session id and status words only. */
@@ -141,6 +156,7 @@ export async function runLiveSweep(
     inputsDeleted: 0,
     inputsPending: 0,
     retried: { deleted: 0, pending: 0 },
+    endedEvents: { published: 0, retry: 0, gaveUp: 0 },
     orphans: { listed: null, candidates: 0, deleted: 0, failed: 0 },
     rowsDeleted: 0,
     metrics: { recorded: 0, gaveUp: 0, retry: 0, waiting: 0 },
@@ -259,6 +275,18 @@ export async function runLiveSweep(
         summary.retried.deleted++;
         console.log(`[LiveSweep] session=${row.id} status=ended action=delete_retry:deleted`);
       }
+    }
+  }
+
+  // ── 2b. Held "ended" announcements ─────────────────────────────────
+  // Includes the sessions step 1 ended a moment ago.
+  if (opts.ended && !outOfTime()) {
+    try {
+      summary.endedEvents = await publishPendingEnded(db, opts.ended, outOfTime);
+    } catch (err) {
+      // Migration 0011 missing, or the database failed: the rest of the
+      // sweep must still run.
+      console.error(`[LiveSweep] ended announcements skipped: ${(err as Error)?.name ?? 'error'}`);
     }
   }
 

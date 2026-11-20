@@ -112,7 +112,12 @@ describe('POST /api/live/<id>/report', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true, duplicate: false });
     const row = db.raw.prepare('SELECT * FROM live_reports').get();
-    expect(row).toMatchObject({ session_id: SESSION, reason: 'nudity', details: 'look at 2:10', comment_id: null });
+    expect(row).toMatchObject({
+      session_id: SESSION,
+      reason: 'nudity',
+      details: 'look at 2:10',
+      comment_id: null
+    });
     expect(row.reporter_hash).toMatch(/^[0-9a-f]{64}$/);
     expect(JSON.stringify(row)).not.toContain('10.0.0.');
     expect(count('live_holds')).toBe(1);
@@ -214,6 +219,51 @@ describe('POST /api/live/<id>/report', () => {
     });
   });
 
+  it('takes a kind 1311 chat message id, on a session with no "Live now" note', async () => {
+    // What the chat reports since Go live chat moved to kind 1311: the id
+    // of a real signed 1311 on the session's address. The session has no
+    // note (the fixture's note_id is NULL): the report does not need one.
+    const author = generateSecretKey();
+    const message = finalizeEvent(
+      {
+        kind: 1311,
+        created_at: 1_700_000_000,
+        content: 'spam spam',
+        tags: [
+          ['a', `30311:${HOST}:${SESSION}`],
+          ['p', HOST]
+        ]
+      },
+      author
+    );
+    const res = await post({
+      reason: 'spam',
+      comment: { id: message.id, pubkey: message.pubkey }
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, duplicate: false });
+    expect(db.raw.prepare('SELECT comment_id, comment_pubkey FROM live_reports').get()).toEqual({
+      comment_id: message.id,
+      comment_pubkey: message.pubkey
+    });
+    // The hold opens with the session's facts; the chat address is
+    // rebuilt from them (host + id), with no note on record.
+    const hold = db.raw.prepare('SELECT status, snapshot_json FROM live_holds').get();
+    expect(hold.status).toBe('open');
+    expect(JSON.parse(hold.snapshot_json)).toMatchObject({
+      id: SESSION,
+      host_pubkey: HOST,
+      note_id: null
+    });
+    // Another message by the same author is its own target.
+    const again = await post(
+      { reason: 'spam', comment: { id: '3'.repeat(64), pubkey: message.pubkey } },
+      { ip: '10.9.9.9' }
+    );
+    expect(await again.json()).toEqual({ ok: true, duplicate: false });
+    expect(count('live_reports')).toBe(2);
+  });
+
   it('refuses a comment report without a valid signature, and stores nothing', async () => {
     const body = { reason: 'spam', comment: COMMENT };
     const unsigned = await post(body, { auth: null });
@@ -243,7 +293,9 @@ describe('POST /api/live/<id>/report', () => {
   it('stores and sends nothing about the comment reporter but the keyed IP hash', async () => {
     await post({ reason: 'spam', comment: COMMENT });
     const signer = getPublicKey(reporterSk);
-    expect(JSON.stringify(db.raw.prepare('SELECT * FROM live_reports').get())).not.toContain(signer);
+    expect(JSON.stringify(db.raw.prepare('SELECT * FROM live_reports').get())).not.toContain(
+      signer
+    );
     const sent = mocks.publish.mock.calls.map((c: any) => JSON.stringify(c[0])).join('');
     expect(sent).not.toContain(signer);
   });
@@ -327,7 +379,12 @@ describe('POST /api/live/<id>/report', () => {
   it('rate limits per address', async () => {
     let last = 0;
     for (let i = 0; i < 9; i++) {
-      last = (await post({ reason: 'other', comment: { ...COMMENT, id: String(i).repeat(64) } }, { ip: '10.1.1.1' })).status;
+      last = (
+        await post(
+          { reason: 'other', comment: { ...COMMENT, id: String(i).repeat(64) } },
+          { ip: '10.1.1.1' }
+        )
+      ).status;
     }
     expect(last).toBe(429);
   });

@@ -22,8 +22,10 @@
    *  - It keeps the screen awake while live.
    *  - With the "Live now" note switch on (the default), it posts a kind 1
    *    note from the host when the broadcast first connects, records the
-   *    note's id on the session, and shows the comments (replies to the
-   *    note). Off: no note, no comments, no zap total.
+   *    note's id on the session, and announces the stream (NIP-53) with
+   *    a pinned chat message linking the watch page, posted again every
+   *    15 minutes. Off: no note, no announcement, no link messages. Either way the stream has a zap total and
+   *    a chat, on the session's own address (kind 1311).
    */
   import { onDestroy, onMount, tick } from 'svelte';
   import { browser } from '$app/environment';
@@ -39,7 +41,9 @@
     createLiveSession,
     endedStatsLine,
     endLiveSession,
+    dropHeldEndedEvent,
     endLiveSessionSigned,
+    holdEndedEvent,
     endLiveSessionWithStats,
     acceptLiveTerms,
     fetchHostingStatus,
@@ -58,10 +62,15 @@
   import { LIVE_WATCHING_POLL_MS } from '$lib/live/config';
   import { watchingCount, watchingLabel } from '$lib/streams/goLive';
   import { ReconnectPolicy, type StopReason } from '$lib/live/host/reconnect';
+  import { WatchRepeatGate } from '$lib/live/host/watchRepeats';
+  import { endedTwinTemplate, pickHostRelays } from '$lib/live/endedEvent';
+  import { publishWithRetry } from '$lib/live/host/publishRetry';
   import {
     cameraAttempts,
     classifyMediaError,
     clearStoredSession,
+    loadPinnedMessage,
+    storePinnedMessage,
     detectPlatform,
     isConstraintFailure,
     liveDurationLine,
@@ -77,8 +86,18 @@
   import { fetchSession, sessionToStreamItem } from '$lib/streams/goLive';
   import { fetchRecipeEvent, recipeCardOf } from '$lib/streams/recipeCard';
   import { createStreamPool } from '$lib/streams/relayPage';
-  import { DISCOVERY_RELAYS } from '$lib/streams/relays';
-  import { liveAnnouncementTemplate, liveNoteTemplate } from '$lib/live/liveNote';
+  import {
+    DISCOVERY_RELAYS,
+    goLiveAnnouncementRelays,
+    goLiveChatRelays
+  } from '$lib/streams/relays';
+  import { goLiveAddress } from '$lib/streams/target';
+  import { chatTemplate, goLiveChatScope } from '$lib/streams/chat';
+  import {
+    liveAnnouncementTemplate,
+    liveNoteTemplate,
+    liveWatchMessageText
+  } from '$lib/live/liveNote';
   import { addClientTagToEvent } from '$lib/nip89';
   import { NDKEvent, NDKRelaySet } from '@nostr-dev-kit/ndk';
   import type { SimplePool } from 'nostr-tools/pool';
@@ -108,6 +127,7 @@
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import LightningSlashIcon from 'phosphor-svelte/lib/LightningSlash';
   import LiveOverlay from '../../../components/streams/LiveOverlay.svelte';
+  import HostReactions from '../../../components/streams/HostReactions.svelte';
   import {
     OVERLAY_PREF_KEYS,
     readOverlayPref,
@@ -241,8 +261,12 @@
   $: isLive = phase === 'live' || phase === 'reconnecting';
   $: canStart = phase === 'preview' && !!stream && title.trim().length > 0;
 
-  // ── "Live now" note and comments ───────────────────────────────────
-  /** The switch on the preview screen. Off: no note, so no comments. */
+  // ── "Live now" note and chat ───────────────────────────────────────
+  /**
+   * The "Announce on Nostr" switch on the preview screen. Off: no "Live
+   * now" note and no NIP-53 announcement. The chat does not depend on it:
+   * it hangs off the session's own address.
+   */
   let postNote = true;
   /** The posted note's id, once it exists (also read back on resume). */
   let noteId: string | null = null;
@@ -255,7 +279,7 @@
   let hostTab: 'chat' | 'recipe' = 'chat';
   let recipeImageFor: string | null = null;
   let chatPool: SimplePool | null = null;
-  /** Verified zaps on the note, as the chat counts them. */
+  /** Verified zaps to the stream (its note and its address), as the chat counts them. */
   let zapSats = 0;
   let zapCount = 0;
   let chatItem: StreamItem | null = null;
@@ -272,8 +296,10 @@
     }
   }
 
+  // The chat's stream: this session, live. Built without waiting for the
+  // note; its id is filled in when the note is posted.
   $: chatItem =
-    session && noteId
+    session && isLive
       ? sessionToStreamItem(
           {
             id: session.id,
@@ -292,9 +318,11 @@
       : null;
   $: if (chatItem && !chatPool) chatPool = createStreamPool();
 
-  // The side panel: the comments (when the note exists) and, for a stream
+  // The side panel: the chat (every live stream has one) and, for a stream
   // with a recipe attached, the recipe. A title-only stream keeps chat alone.
-  $: sideChat = !!(chatItem && chatPool && noteId);
+  $: sideChat = !!(chatItem && chatPool);
+  /** Where the chat and the on-video comments hang: the session's address. */
+  $: chatAddress = session ? goLiveAddress($userPublickey, session.id) : null;
   $: sideRecipe = !!recipeA && isLive;
   $: sideTabs = sideChat && sideRecipe;
   $: withSide = phase !== 'ended' && (sideChat || sideRecipe);
@@ -330,9 +358,22 @@
    */
   let signedNote: { sessionId: string; event: NDKEvent } | null = null;
   let signedAnnouncement: { sessionId: string; event: NDKEvent } | null = null;
+  let signedWatchMessage: { sessionId: string; event: NDKEvent } | null = null;
   let announcePublishedFor: string | null = null;
   let announceRefreshTimer: ReturnType<typeof setInterval> | null = null;
-  const ANNOUNCE_REFRESH_MS = 30 * 60 * 1000;
+  /** The watch-link chat message repeats this often while live. */
+  const WATCH_MESSAGE_MS = 15 * 60 * 1000;
+  /** The announcement is re-signed on every 2nd repeat: every 30 minutes. */
+  const ANNOUNCE_REFRESH_EVERY = 2;
+  let refreshTicks = 0;
+  /** Repeats are for signers that answer at once: see WatchRepeatGate. */
+  const watchRepeats = new WatchRepeatGate();
+  // The same rule for the pre-signed "ended" announcement, counted on its
+  // own: a signer that declines it, or takes a while over it, is not
+  // asked for another one this stream.
+  const endedPresign = new WatchRepeatGate();
+  /** The live announcement whose ended twin has been dealt with, so a republish does not repeat it. */
+  let endedTwinFor: string | null = null;
   const NOTE_RETRY_MS = 15000;
   const NOTE_MAX_TRIES = 5;
   let noteTries = 0;
@@ -388,11 +429,98 @@
             if (isLive) void postLiveNote();
           }, NOTE_RETRY_MS);
         } else {
-          notice = "The Live now note wasn't posted, so this stream has no comments.";
+          notice =
+            "The Live now note wasn't posted, so this stream isn't announced on Nostr. Chat still works.";
         }
       }
     } finally {
       notePosting = false;
+    }
+  }
+
+  /**
+   * The id of this session's "Watch live on Zap Cooking: <link>" chat
+   * message (kind 1311 on the session's address), which the announcement
+   * pins so other live apps show the link at the top of the chat. Signed
+   * once per session, right before the announcement that names it; its id
+   * is kept with the session, so a reload pins the same message and never
+   * posts a second one. A signer that declined it, or took long over it,
+   * is not asked again. `create` is false for the ended announcement: it
+   * keeps an existing pin but never posts a new message. Nothing clears
+   * the id at teardown: the ended announcement is signed after it, and
+   * the id is only ever read for its own session. Null when there
+   * is none (the announcement then goes out without a pin).
+   */
+  async function pinnedWatchMessage(
+    forSession: HostSession,
+    hostPubkey: string,
+    watchUrl: string,
+    create: boolean
+  ): Promise<string | null> {
+    if (signedWatchMessage?.sessionId !== forSession.id) signedWatchMessage = null;
+    let id = signedWatchMessage?.event.id ?? loadPinnedMessage(storage(), forSession.id);
+    if (!id && create && watchRepeats.allows(forSession.id)) {
+      try {
+        const event = await signWatchMessage(forSession, hostPubkey, watchUrl);
+        if (!event) return null;
+        signedWatchMessage = { sessionId: forSession.id, event };
+        storePinnedMessage(storage(), forSession.id, event.id);
+        id = event.id;
+      } catch {
+        return null;
+      }
+    }
+    // Sent with every live announcement while this tab holds the signed
+    // event: a relay that missed it the first time gets it again (the
+    // same event, so never a duplicate).
+    if (create && signedWatchMessage) publishWatchMessage(signedWatchMessage.event);
+    return id;
+  }
+
+  /** A signed "Watch live on Zap Cooking: <link>" chat message (kind 1311). */
+  async function signWatchMessage(
+    forSession: HostSession,
+    hostPubkey: string,
+    watchUrl: string
+  ): Promise<NDKEvent | null> {
+    const scope = goLiveChatScope(hostPubkey, forSession.id);
+    if (!scope) return null;
+    const event = new NDKEvent($ndk, chatTemplate(scope, liveWatchMessageText(watchUrl)) as never);
+    // Timed: a slow or failed signature ends this stream's repeats.
+    await watchRepeats.timed(forSession.id, () => event.sign());
+    return event;
+  }
+
+  /** To the chat relays, best-effort. */
+  function publishWatchMessage(event: NDKEvent) {
+    void Promise.race([
+      event.publish(NDKRelaySet.fromRelayUrls(goLiveChatRelays(), $ndk, true)),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 10000))
+    ]).catch(() => undefined);
+  }
+
+  /**
+   * The same link again, as a new chat message: someone who opens the
+   * stream in another live app mid-way sees it near the bottom of the
+   * chat, not only at the very start. Zap Cooking's own chat leaves these
+   * out (isLiveWatchMessage). Only for a signer that answers at once:
+   * after one slow or failed signature the stream posts no more repeats
+   * (its pinned message and the announcement's link stay). Best-effort.
+   */
+  async function repeatWatchMessage(forSession: HostSession) {
+    if (!watchRepeats.allows(forSession.id)) return;
+    try {
+      const user = await $ndk.signer?.user();
+      const hostPubkey = user?.pubkey ?? $ndk.activeUser?.pubkey ?? '';
+      if (!hostPubkey) return;
+      const event = await signWatchMessage(
+        forSession,
+        hostPubkey,
+        `${getSiteOrigin()}/live/s/${forSession.id}`
+      );
+      if (event && session?.id === forSession.id) publishWatchMessage(event);
+    } catch {
+      // Not signed: the gate has stopped this stream's repeats.
     }
   }
 
@@ -424,20 +552,30 @@
         signedAnnouncement?.sessionId === forSession.id
           ? signedAnnouncement.event
           : null;
+      // zap.cooking in production, the preview's own origin on a preview.
+      const watchUrl = `${getSiteOrigin()}/live/s/${forSession.id}`;
+      const pinnedId = await pinnedWatchMessage(
+        forSession,
+        hostPubkey,
+        watchUrl,
+        status === 'live'
+      );
       if (!event) {
         const template = liveAnnouncementTemplate({
           sessionId: forSession.id,
           name: streamName,
           hostPubkey,
           joinUrl: `${getSiteOrigin()}/api/live/${forSession.id}/join`,
-          watchUrl: `${getSiteOrigin()}/live/s/${forSession.id}`,
+          watchUrl,
+          pinnedId,
           // The session's start in seconds (startedAt is a local ms clock
           // from the resume point; good enough when the server time is
           // not in hand yet).
           startedAt: Math.floor((startedAt ?? Date.now()) / 1000),
           status,
           image: recipeImage,
-          recipeA
+          recipeA,
+          relays: goLiveAnnouncementRelays()
         });
         event = new NDKEvent($ndk, template as never);
         addClientTagToEvent(event);
@@ -450,25 +588,75 @@
       announcePublishedFor = forSession.id;
       if (status === 'live') startAnnouncementRefresh();
       const urls = [...new Set([...$ndk.pool.relays.keys(), ...DISCOVERY_RELAYS])];
-      await Promise.race([
-        event.publish(NDKRelaySet.fromRelayUrls(urls, $ndk, true)),
+      const signed = event;
+      const send = () => signed.publish(NDKRelaySet.fromRelayUrls(urls, $ndk, true));
+      if (status === 'ended') {
+        // The event that takes the LIVE card away in other apps: when no
+        // relay takes it, the same signed event is sent again, twice at
+        // most. The signer is asked once.
+        await publishWithRetry(send);
+        return;
+      }
+      const published = Promise.race([
+        send(),
         new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 10000))
       ]);
+      // The live one is on its way first; its ended twin never holds it up.
+      void presignEnded(forSession, event, urls);
+      await published;
     } catch {
       // Best-effort: the Live now note is the primary surface.
     }
   }
 
   /**
+   * Sign the ended twin of a live announcement and leave it with the
+   * server, which publishes it when the session ends without this page
+   * (tab closed, connection lost, the time limit): only the host can
+   * sign "ended", and by then the host is often gone.
+   *
+   * One more signature per live announcement, so the fast-signer rule
+   * applies: declined, failed or slow, and this stream is not asked
+   * again. A live announcement that then goes out without a twin makes
+   * the held one too old to end anything, so it is withdrawn. Going live
+   * never waits on any of this.
+   */
+  async function presignEnded(forSession: HostSession, live: NDKEvent, relays: string[]) {
+    if (!live.id || endedTwinFor === live.id) return;
+    endedTwinFor = live.id;
+    try {
+      if (!endedPresign.allows(forSession.id)) throw new Error('not asked');
+      const twin = new NDKEvent($ndk, endedTwinTemplate(live.rawEvent() as never) as never);
+      await endedPresign.timed(forSession.id, () => twin.sign());
+      if (session?.id !== forSession.id) return; // ended while signing
+      await holdEndedEvent(forSession, twin.rawEvent(), pickHostRelays(relays));
+    } catch {
+      // Not asked, declined or failed: the ended event this page publishes
+      // itself at End is what remains. A twin held from an earlier live
+      // announcement is too old now; have the server forget it.
+      if (session?.id === forSession.id) void dropHeldEndedEvent(forSession);
+    }
+  }
+
+  /**
    * The directory treats announcements older than an hour as ended, so a
-   * long broadcast re-signs and republishes a fresh replacement while
-   * still live — regardless of whether the tab is in the background.
+   * long broadcast re-signs and republishes a fresh replacement every 30
+   * minutes while still live — regardless of whether the tab is in the
+   * background. The same timer posts the watch-link chat message again
+   * every 15 minutes (fast signers only), so every other one is signed
+   * together with the announcement.
    */
   function startAnnouncementRefresh() {
     if (announceRefreshTimer) return;
+    refreshTicks = 0;
     announceRefreshTimer = setInterval(() => {
-      if (session) void postLiveAnnouncement('live', session, true);
-    }, ANNOUNCE_REFRESH_MS);
+      if (!session) return;
+      refreshTicks++;
+      void repeatWatchMessage(session);
+      if (refreshTicks % ANNOUNCE_REFRESH_EVERY === 0) {
+        void postLiveAnnouncement('live', session, true);
+      }
+    }, WATCH_MESSAGE_MS);
   }
 
   /** The host's own name, for "<name> is cooking <recipe>". */
@@ -482,6 +670,7 @@
 
   // On-video comments and zap animations: on unless this device turned
   // them off. They only change the host's own screen, never the broadcast.
+  // The zap switch also covers viewers' floating reactions.
   let overlayComments = true;
   let overlayZaps = true;
   function overlayStorage(): Storage | null {
@@ -1092,7 +1281,7 @@
       return;
     }
     startedAt = Date.now();
-    // The note (if any) was posted before the reload: show its comments,
+    // The note (if any) was posted before the reload: read its id back,
     // never post a second one. The announcement also waits for the
     // session read: it only republishes when the host kept the note (a
     // host who turned it off must not get a public 30311), and it needs
@@ -1307,14 +1496,22 @@
     endedMessage = message;
     const closing = session;
     // Captured before teardown clears them: the ended screen's sats are
-    // the note's zap total as the chat counted it.
-    const sats = noteId ? zapSats : 0;
+    // the stream's zap total as the chat counted it (note and address).
+    const sats = zapSats;
     const wasLive = everLive;
     statsLine = null;
     // This page's own clock first; the server's start time (which also
     // covers a stream resumed after a reload) replaces it when it arrives.
     liveLine = everLive && startedAt ? liveDurationLine((Date.now() - startedAt) / 1000) : null;
     teardown(true);
+    // Replace the 'live' announcement with the ended one, first thing and
+    // alongside the server calls below: this is what other Nostr apps go
+    // by, and a host who closes the page right after End must not leave a
+    // LIVE card behind. Only when a live announcement went out
+    // (never-live sessions publish nothing).
+    if (closing && announcePublishedFor === closing.id) {
+      void postLiveAnnouncement('ended', closing, true);
+    }
     let stats: LiveStats | null = null;
     if (tellServer && closing) stats = (await endLiveSessionWithStats(closing)).stats;
     // Ended elsewhere (time limit, admin, another device): the host token
@@ -1326,11 +1523,6 @@
       if (read?.started_at) {
         const end = read.ended_at ?? Math.floor(Date.now() / 1000);
         liveLine = liveDurationLine(end - read.started_at);
-      }
-      // Replace the 'live' announcement with the ended one — only when a
-      // live announcement went out (never-live sessions publish nothing).
-      if (announcePublishedFor === closing.id) {
-        void postLiveAnnouncement('ended', closing, true);
       }
     }
   }
@@ -1470,14 +1662,25 @@
         class:mirrored={facing === 'user' && !sharing}
       ></video>
 
-      {#if isLive && noteId}
+      {#if isLive && chatAddress}
         <!-- Newest comments and zap lightning, on the host's screen only
              (drawn over the preview, not into the broadcast). -->
         <LiveOverlay
-          target={noteId}
+          target={chatAddress}
           showComments={overlayComments}
           showZaps={overlayZaps}
           bottom="4.75rem"
+        />
+      {/if}
+      {#if isLive && session && $userPublickey}
+        <!-- Viewers' reactions float up here too, with or without the
+             note (they also hang off the stream's address). Host's
+             screen only; the zap animations switch turns them off. -->
+        <HostReactions
+          sessionId={session.id}
+          hostPubkey={$userPublickey}
+          {noteId}
+          show={overlayZaps}
         />
       {/if}
 
@@ -1558,7 +1761,7 @@
               {sharing ? 'Stop sharing' : 'Share screen'}
             </button>
           {/if}
-          {#if isLive && noteId}
+          {#if isLive && chatAddress}
             <button
               class="icon-btn"
               class:off={!overlayComments}
@@ -1573,15 +1776,21 @@
                 <ChatCircleSlashIcon size={20} weight="bold" />
               {/if}
             </button>
+          {/if}
+          {#if isLive}
+            <!-- Shown without a note too: it also switches viewers'
+                 reactions, which do not need one. -->
             <button
               class="icon-btn"
               class:off={!overlayZaps}
               on:click={toggleOverlayZaps}
               aria-pressed={overlayZaps}
-              aria-label={overlayZaps ? 'Turn off zap animations' : 'Turn on zap animations'}
+              aria-label={overlayZaps
+                ? 'Turn off zap animations and reactions'
+                : 'Turn on zap animations and reactions'}
               title={overlayZaps
-                ? 'Turn off zap animations (your screen only)'
-                : 'Turn on zap animations (your screen only)'}
+                ? 'Turn off zap animations and reactions (your screen only)'
+                : 'Turn on zap animations and reactions (your screen only)'}
             >
               {#if overlayZaps}
                 <LightningIcon size={20} weight="bold" />
@@ -1667,13 +1876,14 @@
         <label class="switch-row">
           <input type="checkbox" role="switch" bind:checked={postNote} />
           <span class="switch-text">
-            <strong>Post a “Live now” note</strong>
+            <strong>Announce on Nostr</strong>
             <span class="muted small">
               {#if postNote}
-                Posts “{streamName}” from your account with the watch link. Viewers comment by
-                replying to it.
+                Posts “{streamName}” from your account with the watch link, so it shows in your
+                followers' feeds and in live apps.
               {:else}
-                No note: this stream will have no comments and no zap total.
+                Not announced: no note in your followers' feeds and no listing in other live
+                apps. The stream still shows on Zap Cooking's Live page, and chat and zaps work.
               {/if}
             </span>
           </span>
@@ -1746,8 +1956,8 @@
               />
             </section>
           {/if}
-          {#if sideChat && chatItem && chatPool && noteId}
-            <!-- The stream's comments: replies to the Live now note. -->
+          {#if sideChat && chatItem && chatPool}
+            <!-- The stream's chat, on the session's address (note or no note). -->
             <section
               class="host-chat"
               id="host-panel-chat"
@@ -1756,11 +1966,10 @@
               aria-label={sideTabs ? undefined : 'Live chat'}
               hidden={sideTabs && hostTab !== 'chat'}
             >
-              {#key noteId}
+              {#key session?.id}
                 <StreamChat
                   item={chatItem}
                   pool={chatPool}
-                  target={noteId}
                   on:zaps={(e) => {
                     zapSats = Math.max(zapSats, e.detail.sats);
                     zapCount = Math.max(zapCount, e.detail.count);

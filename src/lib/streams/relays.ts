@@ -27,6 +27,25 @@ export const STREAM_RECEIPT_RELAYS: readonly string[] = Object.freeze([
   ...new Set([...DISCOVERY_RELAYS, ...RECEIPT_RELAYS, 'wss://offchain.pub'])
 ]);
 
+/**
+ * Where Go live chat is written and read: the same shared list, so a
+ * stream's chat, its zap receipts and (later) its announcement's `relays`
+ * tag all name the same relays. A session lists no relays of its own.
+ */
+export function goLiveChatRelays(): string[] {
+  return [...STREAM_RECEIPT_RELAYS];
+}
+
+/**
+ * The relays a Go live session's NIP-53 announcement names (its `relays`
+ * tag), so other live apps read and write the stream's chat and zaps
+ * where we do: the shared list, without purplepag.es (it keeps profiles
+ * and relay lists only, never chat or receipts).
+ */
+export function goLiveAnnouncementRelays(): string[] {
+  return STREAM_RECEIPT_RELAYS.filter((url) => url !== 'wss://purplepag.es');
+}
+
 /** The chat's starting receipt set: the stream's own relays, then the shared list. */
 export function chatReceiptRelays(itemRelays: readonly string[] = []): string[] {
   return [...new Set([...itemRelays, ...STREAM_RECEIPT_RELAYS])];

@@ -92,6 +92,16 @@ body {
   }
 }
 
+/* ≥1280px: the fixed header strip is gone entirely — search and the
+   account controls nest in the sidebar under the logo — so the reserved
+   space collapses to zero for the scroll padding and every sticky
+   sub-header that hangs off --header-h. */
+@media (min-width: 1280px) {
+  :root {
+    --header-h: 0px;
+  }
+}
+
 /* Center loading states in the space actually left below the fixed
    header — 100vh overfills by the header height, nudging small loaders
    below true center (the old full-width pan was tall enough to mask it;

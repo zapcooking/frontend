@@ -27,7 +27,9 @@ import {
   detectPlatform,
   isConstraintFailure,
   liveDurationLine,
+  loadPinnedMessage,
   loadStoredSession,
+  storePinnedMessage,
   mediaHelp,
   readRecipeHandoff,
   setMicrophoneEnabled,
@@ -616,6 +618,21 @@ describe('device helpers', () => {
     expect(loadStoredSession(storage, 'd'.repeat(64))).toBeNull();
     clearStoredSession(storage);
     expect(loadStoredSession(storage, PUBKEY)).toBeNull();
+  });
+
+  it('keeps the pinned chat message id for its own session only', () => {
+    const storage = memoryStorage();
+    const EVENT = 'e'.repeat(64);
+    expect(loadPinnedMessage(storage, ID)).toBeNull();
+    storePinnedMessage(storage, ID, EVENT);
+    expect(loadPinnedMessage(storage, ID)).toBe(EVENT);
+    expect(loadPinnedMessage(storage, 'f'.repeat(32))).toBeNull();
+    storage.data.set('zc_live_host_pinned', JSON.stringify({ session: ID, id: 'short' }));
+    expect(loadPinnedMessage(storage, ID)).toBeNull();
+    storage.data.set('zc_live_host_pinned', 'not json');
+    expect(loadPinnedMessage(storage, ID)).toBeNull();
+    expect(loadPinnedMessage(undefined, ID)).toBeNull();
+    expect(() => storePinnedMessage(undefined, ID, EVENT)).not.toThrow();
   });
 
   it('rejects a stored session that is malformed', () => {

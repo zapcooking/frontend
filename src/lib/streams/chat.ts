@@ -16,15 +16,27 @@
  * the text. `ChatMessages` verifies, dedupes and caps the model; history
  * pages backward through a relay set with a real EOSE-vs-timeout answer.
  *
+ * Go live chat on the session's own address (`ChatScope`):
+ *
+ * A Go live session's chat is NIP-53 live chat too, on the address built
+ * from the host and the session id (see ./target `goLiveAddress`). It is
+ * written as kind 1311 only, tagged `a` <address> and `p` <host>. It is
+ * read as kind 1311 on that address AND kind 1 replies in the "Live now"
+ * note's thread (when the session has a note), so comments made from
+ * apps that only reply to the note still show. One event id is one row.
+ * The host's pinned "Watch live on Zap Cooking: <link>" message (posted
+ * for other apps' viewers, see $lib/live/liveNote) is left out here.
+ *
  * @see https://nips.nostr.com/53
  */
 
 import { nip19 } from 'nostr-tools';
 import type { SimplePool } from 'nostr-tools/pool';
 import type { Filter } from 'nostr-tools/filter';
-import { relayPage, type RelayPageResult } from './relayPage';
-import { isEventTarget, targetFilter } from './target';
+import { relayPage } from './relayPage';
+import { goLiveAddress, isEventTarget } from './target';
 import { getThreadRootId } from '$lib/thread/replyParent';
+import { isLiveWatchMessage } from '$lib/live/liveNote';
 import type { EventVerifier, NostrEventLike } from './types';
 
 export const CHAT_KIND = 1311;
@@ -35,6 +47,69 @@ export const NOTE_REPLY_KIND = 1;
 export function chatKindFor(target: string): number {
   return isEventTarget(target) ? NOTE_REPLY_KIND : CHAT_KIND;
 }
+
+/**
+ * A Go live session's chat: written to `address` as kind 1311, read from
+ * `address` (kind 1311) and from the `noteId` thread (kind 1 replies).
+ */
+export interface ChatScope {
+  /** `30311:<host>:<session id>`. */
+  address: string;
+  /** The host's pubkey: every message tags it. */
+  host: string;
+  /** The "Live now" note, when the session has one: its replies are read too. */
+  noteId?: string | null;
+}
+
+/** A plain target (a stream address, or a note id) or a Go live scope. */
+export type ChatTarget = string | ChatScope;
+
+/**
+ * The chat scope for a Go live session, from the session's own facts.
+ * Null when the host or the session id is unusable. A malformed note id
+ * is dropped (the chat then reads the address alone).
+ */
+export function goLiveChatScope(
+  hostPubkey: string | null | undefined,
+  sessionId: string | null | undefined,
+  noteId?: string | null
+): ChatScope | null {
+  const address = goLiveAddress(hostPubkey, sessionId);
+  if (!address) return null;
+  return {
+    address,
+    host: (hostPubkey as string).toLowerCase(),
+    noteId: noteId && ID_RE.test(noteId) ? noteId : null
+  };
+}
+
+/** What a target reads: its address (kind 1311) and/or its note thread (kind 1). */
+function readsOf(target: ChatTarget): { address: string | null; noteId: string | null } {
+  if (typeof target !== 'string') {
+    return {
+      address: ADDRESS_RE.test(target.address || '') ? target.address : null,
+      noteId: target.noteId && ID_RE.test(target.noteId) ? target.noteId : null
+    };
+  }
+  return isEventTarget(target)
+    ? { address: null, noteId: target }
+    : { address: target, noteId: null };
+}
+
+/**
+ * One relay filter per thing the target reads. Kept apart (never one
+ * filter with both tags, which a relay would AND together), and each
+ * pages on its own: a busy chat and a quiet note thread have different
+ * depths.
+ */
+export function chatFilters(target: ChatTarget): Filter[] {
+  const { address, noteId } = readsOf(target);
+  const filters: Filter[] = [];
+  if (address) filters.push({ kinds: [CHAT_KIND], '#a': [address] } as Filter);
+  if (noteId) filters.push({ kinds: [NOTE_REPLY_KIND], '#e': [noteId] } as Filter);
+  return filters;
+}
+
 export const CHAT_MAX_LEN = 4000;
 export const CHAT_MAX_EVENTS = 1000;
 
@@ -85,18 +160,25 @@ export interface ChatTemplate {
  * author — callers show that as a normal input error.
  *
  * `rootAuthor` is the note's author (the host), required for a note target.
+ *
+ * A Go live scope always writes kind 1311 on its address, tagging the
+ * host; it never writes a kind 1 reply, note or no note. A reply to a
+ * comment that arrived as a kind 1 note reply is still a kind 1311.
  */
 export function chatTemplate(
-  address: string,
+  target: ChatTarget,
   content: string,
   reply?: { id: string; pubkey: string } | null,
   decode?: (encoded: string) => { type: string; data: Record<string, unknown> },
   rootAuthor?: string | null
 ): ChatTemplate {
   const text = typeof content === 'string' ? content.trim() : '';
-  const note = isEventTarget(address);
+  const scope = typeof target === 'string' ? null : target;
+  const address = scope ? scope.address : (target as string);
+  const note = !scope && isEventTarget(address);
   if (
     !(note ? ID_RE.test(rootAuthor || '') : ADDRESS_RE.test(address || '')) ||
+    (scope && !ID_RE.test(scope.host || '')) ||
     !text ||
     text.length > CHAT_MAX_LEN
   ) {
@@ -107,7 +189,12 @@ export function chatTemplate(
         ['e', address, '', 'root'],
         ['p', rootAuthor as string]
       ]
-    : [['a', address]];
+    : scope
+      ? [
+          ['a', address],
+          ['p', scope.host]
+        ]
+      : [['a', address]];
   if (
     reply &&
     ID_RE.test(reply.id) &&
@@ -122,7 +209,7 @@ export function chatTemplate(
     if (!tags.some((t) => t[0] === 'p' && t[1] === pubkey)) tags.push(['p', pubkey]);
   }
   return {
-    kind: chatKindFor(address),
+    kind: scope ? CHAT_KIND : chatKindFor(address),
     created_at: Math.floor(Date.now() / 1000),
     content: text,
     tags
@@ -131,15 +218,50 @@ export function chatTemplate(
 
 // ── Model ──────────────────────────────────────────────────────────────
 
-/** Verified, deduped chat messages for one stream target (address or note id). */
+/**
+ * Verified, deduped chat messages for one target: a stream address (kind
+ * 1311), a note id (kind 1 replies), or a Go live scope (both, in one
+ * list; an event id is held once whichever way it arrived).
+ */
 export class ChatMessages {
   readonly events = new Map<string, NostrEventLike>();
-  private readonly kind: number;
-  private readonly tag: 'a' | 'e';
+  /** The plain target, or a scope's address. */
+  readonly address: string;
+  private readonly chatAddress: string | null;
+  private readonly noteId: string | null;
+  /** A Go live scope's host: their pinned watch-link message is not a row. */
+  private readonly host: string | null;
 
-  constructor(readonly address: string) {
-    this.kind = chatKindFor(address);
-    this.tag = isEventTarget(address) ? 'e' : 'a';
+  constructor(target: ChatTarget) {
+    this.address = typeof target === 'string' ? target : target.address;
+    this.host = typeof target === 'string' ? null : target.host;
+    const reads = readsOf(target);
+    this.chatAddress = reads.address;
+    this.noteId = reads.noteId;
+  }
+
+  /** A kind 1311 message tagged with the address. */
+  private isChat(event: NostrEventLike): boolean {
+    const address = this.chatAddress;
+    return (
+      !!address &&
+      event.kind === CHAT_KIND &&
+      event.tags.some((t) => Array.isArray(t) && t[0] === 'a' && t[1] === address)
+    );
+  }
+
+  /**
+   * A kind 1 comment in the note's thread: the NIP-10 root (marked, or the
+   * first positional `e`) must be the note. A post that only mentions the
+   * note, or belongs to another thread, is not a comment; nor is the note.
+   */
+  private isNoteReply(event: NostrEventLike): boolean {
+    return (
+      !!this.noteId &&
+      event.kind === NOTE_REPLY_KIND &&
+      event.id !== this.noteId &&
+      getThreadRootId(event) === this.noteId
+    );
   }
 
   get size(): number {
@@ -149,15 +271,9 @@ export class ChatMessages {
   accept(event: NostrEventLike, verify: EventVerifier): boolean {
     if (
       !event ||
-      event.kind !== this.kind ||
-      event.id === this.address ||
       !Array.isArray(event.tags) ||
-      // A note's comments are its thread: the NIP-10 root (marked, or the
-      // first positional `e`) must be the note. A post that only mentions
-      // the note, or belongs to another thread, is not a comment.
-      (this.tag === 'e'
-        ? getThreadRootId(event) !== this.address
-        : !event.tags.some((t) => Array.isArray(t) && t[0] === 'a' && t[1] === this.address)) ||
+      !(this.isChat(event) || this.isNoteReply(event)) ||
+      isLiveWatchMessage(event, this.host) ||
       typeof event.content !== 'string' ||
       event.content.length > CHAT_MAX_LEN ||
       !Number.isSafeInteger(event.created_at) ||
@@ -208,23 +324,50 @@ export interface ChatPage {
   complete: boolean;
   /** How many relays answered at all. */
   answered: number;
+  /**
+   * Where the next older page starts: pass it as `until` (inclusive; the
+   * model drops the repeats). Null when every read ran dry, so there is
+   * no older history to ask for.
+   *
+   * It is the NEWEST of the points the unfinished reads stopped at, not
+   * the oldest event returned: a quiet read (three note replies from an
+   * hour ago) comes back whole while a busy one (the chat) has only gone
+   * back a minute, and paging from the oldest event would skip the hour
+   * of chat in between.
+   */
+  next: number | null;
+}
+
+/** One relay reading one filter backward. */
+interface ChatLane {
+  events: NostrEventLike[];
+  /** The relay answered every round with EOSE. */
+  complete: boolean;
+  /** The relay has nothing older for this filter. */
+  dry: boolean;
+  /** The oldest point this read reached (its `until` when it got nothing). */
+  reached: number | null;
 }
 
 /**
  * One backward page of chat history, merged across the relay set. Unlike a
  * plain querySync, the distinction between an empty EOSE and failure
  * survives: `complete` is false when any relay timed out or closed.
+ *
+ * `address` is the chat target: a stream address, a note id, or a Go live
+ * scope (which reads its address and its note thread, each on its own).
  */
 export async function fetchChatPage(opts: {
   pool: SimplePool;
   sources: string[];
-  address: string;
+  address: ChatTarget;
   signal: AbortSignal;
   until?: number;
   pageSize?: number;
   timeout?: number;
 }): Promise<ChatPage> {
   const { pool, sources, address, signal, until, pageSize = 50, timeout = 6500 } = opts;
+  const filters = chatFilters(address);
 
   // Per-relay cursors: each relay walks backward with its OWN boundary
   // (inclusive, deduped by id) until it fills its share or runs dry. A
@@ -232,67 +375,80 @@ export async function fetchChatPage(opts: {
   // than another's — small relays would lose their tail forever.
   const perRelay = Math.ceil(pageSize / Math.max(1, sources.length));
   const rounds = 4;
-  const results = await Promise.all(
-    sources.map(async (relay): Promise<RelayPageResult<NostrEventLike>> => {
-      const collected: NostrEventLike[] = [];
-      const seen = new Set<string>();
-      let cursor = until;
-      let complete = false;
-      for (let round = 0; round < rounds && collected.length < perRelay; round++) {
-        const filter: Filter = {
-          kinds: [chatKindFor(address)],
-          ...targetFilter(address),
-          limit: perRelay
-        } as Filter;
-        if (cursor != null) filter.until = cursor;
-        const page = await relayPage<NostrEventLike>(pool, relay, filter, signal, timeout);
-        const fresh = page.events.filter((e) => {
-          if (seen.has(e.id)) return false;
-          seen.add(e.id);
-          return cursor == null || e.created_at <= cursor;
-        });
-        collected.push(...fresh);
-        if (!fresh.length) {
-          complete = page.complete;
-          break;
-        }
-        complete = page.complete;
-        cursor = Math.min(...fresh.map((e) => e.created_at));
-        if (round === rounds - 1) complete = false;
-      }
-      return { events: collected, complete };
-    })
+  const walk = async (relay: string, base: Filter): Promise<ChatLane> => {
+    const collected: NostrEventLike[] = [];
+    const seen = new Set<string>();
+    let cursor = until;
+    let complete = false;
+    let dry = false;
+    for (let round = 0; round < rounds && collected.length < perRelay; round++) {
+      const filter: Filter = { ...base, limit: perRelay };
+      if (cursor != null) filter.until = cursor;
+      const page = await relayPage<NostrEventLike>(pool, relay, filter, signal, timeout);
+      const fresh = page.events.filter((e) => {
+        if (seen.has(e.id)) return false;
+        seen.add(e.id);
+        return cursor == null || e.created_at <= cursor;
+      });
+      collected.push(...fresh);
+      complete = page.complete;
+      // An EOSE with fewer events than asked for is the end of this
+      // relay's history; so is an EOSE that brought nothing new.
+      if (page.complete && (!fresh.length || page.events.length < perRelay)) dry = true;
+      if (!fresh.length || dry) break;
+      cursor = Math.min(...fresh.map((e) => e.created_at));
+      if (round === rounds - 1) complete = false;
+    }
+    return {
+      events: collected,
+      complete,
+      dry,
+      reached: collected.length ? Math.min(...collected.map((e) => e.created_at)) : (until ?? null)
+    };
+  };
+  const perSource = await Promise.all(
+    sources.map((relay) => Promise.all(filters.map((filter) => walk(relay, filter))))
   );
+  const lanes = perSource.flat();
   const merged = [
-    ...new Map(
-      results.flatMap((r: RelayPageResult<NostrEventLike>) => r.events).map((e) => [e.id, e])
-    ).values()
+    ...new Map(lanes.flatMap((lane) => lane.events).map((e) => [e.id, e])).values()
   ].sort((a, b) => a.created_at - b.created_at);
+  // The next page starts at the newest stopping point among reads that
+  // may still hold older messages. A read that never got an answer and
+  // had no `until` stopped at "now": start the next page from now too.
+  const open = lanes.filter((lane) => !lane.dry);
+  const now = Math.floor(Date.now() / 1000);
   return {
     events: merged,
-    complete: results.every((r) => r.complete),
-    answered: results.filter((r) => r.complete).length
+    complete: lanes.every((lane) => lane.complete),
+    answered: perSource.filter((relayLanes) => relayLanes.every((lane) => lane.complete)).length,
+    next: open.length ? Math.max(...open.map((lane) => lane.reached ?? now)) : null
   };
 }
 
-/** Live subscription for new chat messages. Returns the closer. */
+/**
+ * Live subscription for new chat messages. Returns the closer. A Go live
+ * scope opens one subscription per filter (the chat, the note thread);
+ * the model holds an event id once, so a message is never shown twice.
+ */
 export function subscribeChat(opts: {
   pool: SimplePool;
   sources: string[];
-  address: string;
+  address: ChatTarget;
   onEvent: (event: NostrEventLike) => void;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
 }): { close: () => void } {
   const { pool, sources, address, onEvent } = opts;
   const since = Math.floor(Date.now() / 1000) - 10;
-  const closer = pool.subscribeMany(
-    sources,
-    { kinds: [chatKindFor(address)], ...targetFilter(address), since } as Filter,
-    {
-      onevent: (event: unknown) => onEvent(event as NostrEventLike)
-    } as never
+  const closers = chatFilters(address).map((filter) =>
+    pool.subscribeMany(
+      sources,
+      { ...filter, since } as Filter,
+      {
+        onevent: (event: unknown) => onEvent(event as NostrEventLike)
+      } as never
+    )
   );
-  return { close: () => closer.close() };
+  return { close: () => closers.forEach((closer) => closer.close()) };
 }
 
 // ── Profiles ───────────────────────────────────────────────────────────

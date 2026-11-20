@@ -12,10 +12,10 @@
    * live stream with a recipe gets "Chat | Recipe" tabs there, Chat
    * selected.
    *
-   *  - NIP-53: live chat (kind 1311).
-   *  - Go live: comments are replies to the host's "Live now" note; until
-   *    the note's id is known the chat panel says so instead of vanishing.
-   *    A session without a note (switch off) has no chat.
+   * Both have a live chat (kind 1311 on the stream's address). A Go live
+   * session's address comes from its host and session id, so it has a chat
+   * from the start, with or without a "Live now" note; replies to the note
+   * from other apps show in it too. Read-only once the stream has ended.
    *
    * Scrolling past the video docks it to a corner (StreamPlayer's
    * `chatMarker`: the panel under the video).
@@ -34,9 +34,8 @@
   import StreamTopZappers from './StreamTopZappers.svelte';
   import RecipePanel from './RecipePanel.svelte';
   import LiveReport from './LiveReport.svelte';
-  import ArrowsIn from 'phosphor-svelte/lib/ArrowsIn';
-  import ArrowsOutSimple from 'phosphor-svelte/lib/ArrowsOutSimple';
   import { isGoLiveItem } from '$lib/streams/goLive';
+  import { goLiveAddress } from '$lib/streams/target';
   import type { StreamZapTally } from '$lib/streams/streamZaps';
   import type { StreamItem } from '$lib/streams/types';
 
@@ -78,11 +77,9 @@
 
   $: goLive = isGoLiveItem(item);
   $: hasRecipe = goLive && !!item.recipeA;
-  /** Go live: the note exists (chat), or is expected any moment. */
-  $: chatShown = !goLive || !!item.noteId || !!item.notePending;
   /** A vertical picture: the wide layout keeps the chat beside it at full height. */
   $: portraitVideo = $streamPlayer.orientation === 'portrait';
-  $: twoCol = wide && chatShown;
+  $: twoCol = wide;
   /**
    * The video minimized itself (docked to the corner): the leftover strips
    * would strand the chat in a skinny rail beside a hole in every layout,
@@ -117,13 +114,13 @@
     chatExpanded = !chatExpanded;
   }
   /** Narrow Go live with both: the Chat | Recipe tabs. */
-  $: tabbed = !wide && goLive && hasRecipe && chatShown;
+  $: tabbed = !wide && goLive && hasRecipe;
   // The chat stays mounted on the Recipe tab (hidden, not removed): it
   // feeds the on-video comments and zap animations, which must keep
   // working while the viewer reads the recipe (or goes full screen from it).
   $: chatHidden = tabbed && tab !== 'chat';
   $: recipeInMain = hasRecipe && wide;
-  $: recipeInSide = hasRecipe && !wide && (!chatShown || tab === 'recipe');
+  $: recipeInSide = hasRecipe && !wide && tab === 'recipe';
   // The marker that docks the video on scroll: whatever sits under it.
   $: marker = twoCol ? (recipeInMain ? recipeEl : null) : panelEl;
 </script>
@@ -149,10 +146,8 @@
       {/if}
       <div class="zap-bar">
         <StreamZapTotal
-          address={goLive ? null : item.key}
+          address={goLive ? goLiveAddress(item.host, item.sessionId) : item.key}
           noteId={item.noteId ?? null}
-          notePending={!!item.notePending}
-          {goLive}
           hostPubkey={item.host}
           sats={tally?.totalSats ?? 0}
           count={tally?.zapCount ?? 0}
@@ -196,64 +191,21 @@
       </div>
     {/if}
 
-    {#if chatShown}
-      <section class="chat-box" aria-label="Live chat" hidden={chatHidden}>
-        {#if !goLive}
-          <StreamChat
-            {item}
-            {pool}
-            {topZappers}
-            expanded={railCollapsed || $streamSlot === null}
-            expandable={twoCol}
-            on:toggleExpand={toggleChatExpand}
-          />
-        {:else if item.noteId}
-          <!-- Comments: replies to the host's "Live now" note, in #954's
-               chat layout. Read-only once the stream has ended. -->
-          {#key item.noteId}
-            <StreamChat
-              {item}
-              {pool}
-              {topZappers}
-              target={item.noteId}
-              closed={item.status === 'ended'}
-              expanded={railCollapsed || $streamSlot === null}
-              expandable={twoCol}
-              on:toggleExpand={toggleChatExpand}
-              on:zaps={(e) => dispatch('zaps', e.detail)}
-            />
-          {/key}
-        {:else}
-          <div class="chat-wait" role="status">
-            <div class="flex items-center justify-between px-3 pt-2 text-xs">
-              <span class="font-semibold uppercase tracking-wide" style="color: var(--color-caption);">
-                Live chat
-              </span>
-              {#if twoCol}
-                <button
-                  type="button"
-                  class="rounded p-1 hover:opacity-80 cursor-pointer"
-                  style="color: var(--color-caption);"
-                  aria-pressed={railCollapsed || $streamSlot === null}
-                  aria-label="Toggle chat panel size"
-                  title={railCollapsed || $streamSlot === null ? 'Collapse chat' : 'Expand chat'}
-                  on:click={toggleChatExpand}
-                >
-                  {#if railCollapsed || $streamSlot === null}
-                    <ArrowsIn size={16} />
-                  {:else}
-                    <ArrowsOutSimple size={16} />
-                  {/if}
-                </button>
-              {/if}
-            </div>
-            <p class="px-3 pb-3 text-xs" style="color: var(--color-caption);">
-              Comments open in a moment, when the host's “Live now” note is posted.
-            </p>
-          </div>
-        {/if}
-      </section>
-    {/if}
+    <section class="chat-box" aria-label="Live chat" hidden={chatHidden}>
+      <!-- One chat per stream: a switch to another stream starts a new one. -->
+      {#key item.key}
+        <StreamChat
+          {item}
+          {pool}
+          {topZappers}
+          closed={goLive && item.status === 'ended'}
+          expanded={railCollapsed || $streamSlot === null}
+          expandable={twoCol}
+          on:toggleExpand={toggleChatExpand}
+          on:zaps={(e) => dispatch('zaps', e.detail)}
+        />
+      {/key}
+    </section>
 
     {#if goLive && recipeInSide}
       <section aria-label="Recipe">
@@ -377,17 +329,5 @@
   .tabs button.active {
     background: var(--color-text-primary);
     color: var(--color-bg-primary);
-  }
-  .chat-wait {
-    display: flex;
-    height: 100%;
-    align-items: center;
-    justify-content: center;
-    padding: 1.5rem;
-    text-align: center;
-    font-size: 0.875rem;
-    color: var(--color-caption);
-    border-radius: 0.75rem;
-    border: 1px dashed var(--color-input-border);
   }
 </style>

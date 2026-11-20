@@ -8,6 +8,7 @@
  * stream page's side panels look at `source`.
  */
 import { naddrEncode, streamAddress } from './parse';
+import { goLiveAddress } from './target';
 import type { StreamItem } from './types';
 import { liveStreamName } from '$lib/live/streamName';
 
@@ -60,14 +61,10 @@ export function isGoLiveItem(item: Pick<StreamItem, 'source'> | null | undefined
  * known. Its title is the stream's name (see $lib/live/streamName): pass the
  * host's real name, when known, for "<host> is cooking <recipe>".
  */
-/** How long after going live a missing note is still "expected" (the host posts it on connect). */
-export const NOTE_GRACE_SECONDS = 90;
-
 export function sessionToStreamItem(
   session: GoLiveSession,
   recipe?: RecipeCard | null,
-  hostName?: string | null,
-  now: number = Date.now()
+  hostName?: string | null
 ): StreamItem {
   const noteId = session.note_id && /^[0-9a-f]{64}$/.test(session.note_id) ? session.note_id : null;
   // A session the host has created but not yet published to reads as live:
@@ -101,11 +98,7 @@ export function sessionToStreamItem(
     source: 'zapcooking',
     sessionId: session.id,
     recipeA: session.recipe_a,
-    noteId,
-    notePending:
-      !noteId &&
-      session.status !== 'ended' &&
-      (session.started_at == null || now / 1000 - session.started_at < NOTE_GRACE_SECONDS)
+    noteId
   };
 }
 
@@ -188,21 +181,39 @@ export async function fetchSession(
 }
 
 /**
+ * The Go live session a stream address belongs to, or null: the address's
+ * `d` is the id of a session on our server AND its pubkey is that
+ * session's host. Asked of the server, so it does not depend on what the
+ * announcement says (or on the announcement having reached a relay), and
+ * an announcement another account publishes under one of our session ids
+ * is not ours. Null also when the server cannot be reached right now.
+ */
+export async function goLiveSessionFor(
+  address: { pubkey: string; identifier: string },
+  fetchFn: typeof fetch = fetch
+): Promise<string | null> {
+  if (!SESSION_ID.test(address.identifier)) return null;
+  const session = await fetchSession(address.identifier, fetchFn);
+  if (!session) return null;
+  return session.host_pubkey.toLowerCase() === address.pubkey.toLowerCase() ? session.id : null;
+}
+
+/**
  * Sessions first, then NIP-53 streams: the Live now tab's order. Zap
  * Cooking's own broadcasts lead, newest first.
  */
 export function mergeLiveItems(goLive: StreamItem[], nostr: StreamItem[]): StreamItem[] {
   const ours = [...goLive].sort((a, b) => (b.starts ?? b.updated) - (a.starts ?? a.updated));
   // A Go live session that published its NIP-53 announcement would appear
-  // twice — once from the API, once from 30311 discovery. The
-  // announcement's streaming tag names the session's join endpoint: match
-  // on the session id and keep the API copy (it has the live chat).
-  const sessionIds = new Set(
-    goLive.map((i) => i.sessionId).filter((id): id is string => !!id)
+  // twice — once from the API, once from 30311 discovery. The announcement
+  // is the host's own, with `d` = the session id, so its address is the
+  // session's (`30311:<host>:<session id>`): match on that and keep the API
+  // copy (it has the moderated chat). Nothing in the announcement's other
+  // tags is relied on. Another account's announcement that reuses the id
+  // has another address and stays.
+  const ourAddresses = new Set(
+    goLive.map((i) => goLiveAddress(i.host, i.sessionId)).filter((a): a is string => !!a)
   );
-  const nostrOnly = nostr.filter((i) => {
-    const m = i.url?.match(/\/api\/live\/([0-9a-f-]+)\/join/i);
-    return !(m && sessionIds.has(m[1]));
-  });
+  const nostrOnly = nostr.filter((i) => !ourAddresses.has(i.key));
   return [...ours, ...nostrOnly];
 }

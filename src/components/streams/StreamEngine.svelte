@@ -30,6 +30,7 @@
   import { hlsJsConfig, pickHlsEngine } from '$lib/streams/hlsEngine';
   import { get } from 'svelte/store';
   import { isGoLiveItem } from '$lib/streams/goLive';
+  import { goLiveAddress } from '$lib/streams/target';
   import { ndk, userPublickey } from '$lib/nostr';
   import { signNip98AuthHeader } from '$lib/nip98';
   import { joinLiveSession, loadPass, savePass } from '$lib/live/watch/joinClient';
@@ -526,7 +527,7 @@
   });
   $: overlayTarget =
     $streamPlayer.item && isGoLiveItem($streamPlayer.item) && $streamPlayer.item.status !== 'ended'
-      ? ($streamPlayer.item.noteId ?? null)
+      ? goLiveAddress($streamPlayer.item.host, $streamPlayer.item.sessionId)
       : null;
   $: inPageSlot = !!$streamSlot && $streamSlot.isConnected;
   $: overlayCommentsOn = fullscreen ? commentsFullscreen : inPageSlot && commentsInline;
@@ -954,7 +955,9 @@
     </div>
   {/if}
 
-  <!-- Rapid-fire likes: local and ephemeral, nothing is signed or sent. -->
+  <!-- Rapid-fire likes: each one floats up here at once; signed-in
+       viewers also publish them as signed ephemeral events (kind 21111)
+       so other viewers and the host see them. -->
   <StreamLikes />
 </div>
 
