@@ -620,6 +620,17 @@ import { eventPath } from '$lib/utils/eventUrl';
       !deletedReplyIds.has(r.id) &&
       !isEventMutedBy($muteListStore.muteList, r)
   );
+  // Muted ancestors (a muted account inside the parent chain above the
+  // focused note) collapse to a one-line placeholder — the reader reveals
+  // one row at a time, and nothing unmutes.
+  let revealedMutedContext = new Set<string>();
+  function revealMutedContext(id: string) {
+    revealedMutedContext = new Set([...revealedMutedContext, id]);
+  }
+  // The focused note hides the same way when its author is muted: opening
+  // a permalink must not surface the muted account's content unasked.
+  let revealedMutedFocus = false;
+
   // The sibling-filter fetch returns the whole conversation — including
   // the focused note's own ancestors, which match `#E` like any other
   // comment. Split them off so a parent never renders as its own child,
@@ -921,62 +932,88 @@ import { eventPath } from '$lib/utils/eventUrl';
       <div class="space-y-0">
         {#each contextRows as parentNote, index}
           <div>
-            <article class="py-3">
-              <div class="flex space-x-3 -mx-2 px-2 py-2 rounded-lg">
-                <div class="flex-shrink-0">
-                  <a
-                    href="/user/{nip19.npubEncode(
-                      parentNote.author?.hexpubkey || parentNote.pubkey
-                    )}"
-                  >
-                    <Avatar
-                      pubkey={parentNote.author?.hexpubkey || parentNote.pubkey}
-                      size={40}
-                    />
-                  </a>
-                </div>
-                <div class="flex-1 min-w-0">
-                  <div class="flex items-center justify-between mb-1">
-                    <div class="flex items-center space-x-2 min-w-0">
-                      <a
-                        href="/user/{nip19.npubEncode(
-                          parentNote.author?.hexpubkey || parentNote.pubkey
-                        )}"
-                        class="font-semibold text-sm transition-colors username-link truncate min-w-0"
-                        style="color: var(--color-text-primary)"
-                      >
-                        <CustomName pubkey={parentNote.author?.hexpubkey || parentNote.pubkey} />
-                      </a>
-                      <span class="text-sm flex-shrink-0" style="color: var(--color-caption)">·</span>
-                      <span class="text-sm whitespace-nowrap flex-shrink-0" style="color: var(--color-caption)">
-                        {parentNote.created_at ? formatTimeAgo(parentNote.created_at) : ''}
-                      </span>
-                    </div>
-                    <PostActionsMenu event={parentNote} />
-                  </div>
-                  {#if parentNote.kind === 1068}
-                    <PollDisplay event={parentNote} />
-                  {:else}
+            {#if isEventMutedBy($muteListStore.muteList, parentNote) && !revealedMutedContext.has(parentNote.id)}
+              <!-- Muted ancestor: one opaque line, reveal per row. -->
+              <article class="py-3">
+                <button
+                  type="button"
+                  class="muted-reply-reveal"
+                  on:click|stopPropagation={() => revealMutedContext(parentNote.id)}
+                >
+                  Post from an account you muted · <span class="muted-reply-view">view</span>
+                </button>
+              </article>
+            {:else}
+              <article class="py-3">
+                <div class="flex space-x-3 -mx-2 px-2 py-2 rounded-lg">
+                  <div class="flex-shrink-0">
                     <a
-                      href="{eventPath(parentNote)}"
-                      class="block text-base leading-relaxed hover:opacity-80"
-                      style="color: var(--color-text-secondary)"
+                      href="/user/{nip19.npubEncode(
+                        parentNote.author?.hexpubkey || parentNote.pubkey
+                      )}"
                     >
-                      <NoteContent content={parentNote.content} showNostrEmbeds={false} />
+                      <Avatar
+                        pubkey={parentNote.author?.hexpubkey || parentNote.pubkey}
+                        size={40}
+                      />
                     </a>
-                  {/if}
-                  <!-- Parent note actions -->
-                  <div class="mt-2">
-                    <NoteActionBar
-                      event={parentNote}
-                      variant="compact"
-                      showEngagementDetails={true}
-                      onCommentClick={() => openReplyModal(parentNote)}
-                    />
+                  </div>
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-center justify-between mb-1">
+                      <div class="flex items-center space-x-2 min-w-0">
+                        <a
+                          href="/user/{nip19.npubEncode(
+                            parentNote.author?.hexpubkey || parentNote.pubkey
+                          )}"
+                          class="font-semibold text-sm transition-colors username-link truncate min-w-0"
+                          style="color: var(--color-text-primary)"
+                        >
+                          <CustomName pubkey={parentNote.author?.hexpubkey || parentNote.pubkey} />
+                        </a>
+                        <span class="text-sm flex-shrink-0" style="color: var(--color-caption)">·</span>
+                        <span class="text-sm whitespace-nowrap flex-shrink-0" style="color: var(--color-caption)">
+                          {parentNote.created_at ? formatTimeAgo(parentNote.created_at) : ''}
+                        </span>
+                      </div>
+                      <div class="flex items-center gap-1">
+                        {#if revealedMutedContext.has(parentNote.id)}
+                          <button
+                            type="button"
+                            class="muted-reply-hide"
+                            on:click|stopPropagation={() => {
+                              const next = new Set(revealedMutedContext);
+                              next.delete(parentNote.id);
+                              revealedMutedContext = next;
+                            }}
+                          >Hide</button>
+                        {/if}
+                        <PostActionsMenu event={parentNote} />
+                      </div>
+                    </div>
+                    {#if parentNote.kind === 1068}
+                      <PollDisplay event={parentNote} />
+                    {:else}
+                      <a
+                        href="{eventPath(parentNote)}"
+                        class="block text-base leading-relaxed hover:opacity-80"
+                        style="color: var(--color-text-secondary)"
+                      >
+                        <NoteContent content={parentNote.content} showNostrEmbeds={false} />
+                      </a>
+                    {/if}
+                    <!-- Parent note actions -->
+                    <div class="mt-2">
+                      <NoteActionBar
+                        event={parentNote}
+                        variant="compact"
+                        showEngagementDetails={true}
+                        onCommentClick={() => openReplyModal(parentNote)}
+                      />
+                    </div>
                   </div>
                 </div>
-              </div>
-            </article>
+              </article>
+            {/if}
           </div>
         {/each}
       </div>
@@ -993,6 +1030,17 @@ import { eventPath } from '$lib/utils/eventUrl';
          below it must be at least a viewport tall, or the arrival scroll
          clamps at the page bottom and leaves the parent half in view. -->
     <div class:focus-runway={contextRows.length > 0}>
+    {#if isEventMutedBy($muteListStore.muteList, event) && !revealedMutedFocus}
+      <article class="py-4 focused-note" bind:this={mainNoteEl}>
+        <button
+          type="button"
+          class="muted-reply-reveal"
+          on:click|stopPropagation={() => (revealedMutedFocus = true)}
+        >
+          Post from an account you muted · <span class="muted-reply-view">view</span>
+        </button>
+      </article>
+    {:else}
     <article class="py-4 focused-note" bind:this={mainNoteEl} class:arrival-flash={arrivalFlash}>
       <div class="flex items-start justify-between gap-3 mb-2">
         <div class="flex items-center gap-3 min-w-0">
@@ -1039,6 +1087,7 @@ import { eventPath } from '$lib/utils/eventUrl';
       <NoteReactionPills {event} />
       <NoteActionBar {event} showCheffy={false} onCommentClick={() => openReplyModal()} />
     </article>
+    {/if}
 
     <!-- Inline reply box directly below a top-level note (iOS detail-view
          parity); reply-focused views use the modal instead. -->
@@ -1173,7 +1222,41 @@ import { eventPath } from '$lib/utils/eventUrl';
 
 
 <style>
-  /* Thread page styles */
+ 
+  /* Muted ancestor placeholder — same contract as the thread rows. */
+  .muted-reply-hide {
+    font-size: 0.75rem;
+    color: var(--color-caption);
+    background: none;
+    border: 0;
+    cursor: pointer;
+    padding: 0.125rem 0.375rem;
+    border-radius: 6px;
+    transition: color 140ms ease;
+  }
+  .muted-reply-hide:hover {
+    color: var(--color-text-primary);
+  }
+  .muted-reply-reveal {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 0.25rem 0;
+    font-size: 0.8125rem;
+    color: var(--color-caption);
+    background: none;
+    border: 0;
+    cursor: pointer;
+    transition: color 140ms ease;
+  }
+  .muted-reply-reveal:hover {
+    color: var(--color-text-primary);
+  }
+  .muted-reply-view {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+ /* Thread page styles */
 
   /* Two-column layout: reading column + right rail (rail self-hides below
      2xl via RightRail's own media query). Left-aligned to the content grid. */

@@ -28,6 +28,7 @@
   import PollDisplay from '../PollDisplay.svelte';
   import PowBadge from '../PowBadge.svelte';
   import { threadIndentPx } from '$lib/thread/threadFlatten';
+  import { muteListStore, mutedPubkeys } from '$lib/muteListStore';
   import { eventPath } from '$lib/utils/eventUrl';
 
   export let event: NDKEvent;
@@ -54,7 +55,14 @@
   // same-height placeholder holds the layout until then.
   let rowEl: HTMLElement | null = null;
   let engagementReady = false;
+  // Muted replies collapse behind a per-row reveal, the same contract as
+  // CommentCard: the placeholder names no author and reveals only this
+  // row. The mute list may never have loaded on a direct thread link —
+  // the load is deduped and cached by the store.
+  let mutedRevealed = false;
+  $: authorMuted = $mutedPubkeys.has(event.pubkey);
   onMount(() => {
+    void muteListStore.load();
     if (typeof IntersectionObserver === 'undefined' || !rowEl) {
       engagementReady = true;
       return;
@@ -107,6 +115,15 @@
        row's real permalink for keyboard and screen-reader users. -->
   <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-noninteractive-element-interactions -->
   <article class="row-body" on:click={gotoUnlessInteractive}>
+    {#if authorMuted && !mutedRevealed}
+      <button
+        type="button"
+        class="muted-reply-reveal"
+        on:click|stopPropagation={() => (mutedRevealed = true)}
+      >
+        Reply from an account you muted · <span class="muted-reply-view">view</span>
+      </button>
+    {:else}
     <div class="flex items-center justify-between gap-3 mb-2">
       <div class="flex items-center gap-3 min-w-0">
         <a href="/user/{npub}" class="flex-shrink-0" on:click|stopPropagation>
@@ -136,6 +153,13 @@
           </a>
           <PowBadge id={event.id} tags={event.tags} />
         </div>
+        {#if authorMuted && mutedRevealed}
+          <button
+            type="button"
+            class="muted-reply-hide"
+            on:click|stopPropagation={() => (mutedRevealed = false)}
+          >Hide</button>
+        {/if}
       </div>
       <!-- Only stops the row's click-to-navigate; the menu owns its controls. -->
       <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
@@ -203,6 +227,7 @@
         </div>
       {/if}
     </div>
+    {/if}
   </article>
 </div>
 
@@ -270,6 +295,41 @@
     border-radius: 0.25rem;
     color: var(--color-primary);
     background-color: color-mix(in srgb, var(--color-primary) 15%, transparent);
+  }
+
+  /* Muted reply placeholder — same contract as CommentCard's. */
+  .muted-reply-hide {
+    margin-left: auto;
+    font-size: 0.75rem;
+    color: var(--color-caption);
+    background: none;
+    border: 0;
+    cursor: pointer;
+    padding: 0.125rem 0.375rem;
+    border-radius: 6px;
+    transition: color 140ms ease;
+  }
+  .muted-reply-hide:hover {
+    color: var(--color-text-primary);
+  }
+  .muted-reply-reveal {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 0.25rem 0;
+    font-size: 0.8125rem;
+    color: var(--color-caption);
+    background: none;
+    border: 0;
+    cursor: pointer;
+    transition: color 140ms ease;
+  }
+  .muted-reply-reveal:hover {
+    color: var(--color-text-primary);
+  }
+  .muted-reply-view {
+    text-decoration: underline;
+    text-underline-offset: 2px;
   }
 
   .username-link:hover {
