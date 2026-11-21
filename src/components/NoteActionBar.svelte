@@ -11,6 +11,8 @@
   import ZapModal from './ZapModal.svelte';
   import { ndk, userPublickey } from '$lib/nostr';
   import { fetchEngagement, optimisticZapUpdate, markSelfZapCompleted } from '$lib/engagementCache';
+  import { profileFor } from '$lib/profileStore';
+  import { canOfferZapToProfile } from '$lib/zapOffer';
 
   export let event: NDKEvent;
 
@@ -44,6 +46,12 @@
   let zapModalOpen = false;
   let engagementOpen = false;
   let engagementEventId = event.id;
+
+  // Same gate NoteTotalZaps applies internally: skip the zap slot (and
+  // its hover wrapper) entirely when the author has no lud16, so no
+  // empty box is left in the row.
+  $: authorProfileState = event.pubkey ? profileFor(event.pubkey) : null;
+  $: zapOffered = canOfferZapToProfile($authorProfileState);
 
   $: if (event.id !== engagementEventId) {
     engagementEventId = event.id;
@@ -95,7 +103,7 @@
 </script>
 
 <div class="note-action-bar" class:compact={isCompact} class:full={isFull}>
-  {#if showZapPills}
+  {#if showZapPills && zapOffered}
     <div class="zap-pills-row">
       <NoteTotalZaps
         {event}
@@ -127,9 +135,11 @@
       </div>
     {/if}
 
-    <div class={zapWrapClass}>
-      <NoteTotalZaps {event} onZapClick={openZapModal} />
-    </div>
+    {#if zapOffered}
+      <div class={zapWrapClass}>
+        <NoteTotalZaps {event} onZapClick={openZapModal} />
+      </div>
+    {/if}
 
     <!-- Bookmark + (cheffy) + details chevron pin to the far right. -->
     <div class="trailing-actions">

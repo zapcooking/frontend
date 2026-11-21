@@ -14,6 +14,8 @@
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import ChatCircleIcon from 'phosphor-svelte/lib/ChatCircle';
   import ZapModal from './ZapModal.svelte';
+  import { profileFor } from '$lib/profileStore';
+  import { canOfferZapToProfile } from '$lib/zapOffer';
 
   export let event: NDKEvent;
   export let compact: boolean = false;
@@ -30,6 +32,11 @@
 
   // Zap state
   let zapModalOpen = false;
+
+  // Hide the comment's zap button when its author has no lightning
+  // address — the zap would fail at send (same gate as note cards).
+  $: authorProfileState = event.pubkey ? profileFor(event.pubkey) : null;
+  $: zapOffered = canOfferZapToProfile($authorProfileState);
 
   onMount(() => {
     fetchEngagement($ndk, event, $userPublickey);
@@ -146,18 +153,20 @@
   </button>
 
   <!-- Zap Button -->
-  <button type="button" class="action-btn" on:click={openZapModal} title="Send zap">
-    <LightningIcon
-      size={compact ? 16 : 18}
-      weight={$store.zaps.userZapped ? 'fill' : 'regular'}
-      class="icon {$store.zaps.totalAmount > 0 ? 'text-yellow-500' : ''}"
-    />
-    <span class="count">
-      {#if $store.loading}<span class="opacity-0">0</span>{:else}{formatAmount(
-          $store.zaps.totalAmount / 1000
-        )}{/if}
-    </span>
-  </button>
+  {#if zapOffered}
+    <button type="button" class="action-btn" on:click={openZapModal} title="Send zap">
+      <LightningIcon
+        size={compact ? 16 : 18}
+        weight={$store.zaps.userZapped ? 'fill' : 'regular'}
+        class="icon {$store.zaps.totalAmount > 0 ? 'text-yellow-500' : ''}"
+      />
+      <span class="count">
+        {#if $store.loading}<span class="opacity-0">0</span>{:else}{formatAmount(
+            $store.zaps.totalAmount / 1000
+          )}{/if}
+      </span>
+    </button>
+  {/if}
 
   <!-- Reply Button -->
   {#if showReplyButton}

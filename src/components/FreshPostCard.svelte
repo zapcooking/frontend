@@ -60,6 +60,8 @@
   import PostEngagementDrawer from './PostEngagementDrawer.svelte';
   import CommentThread from './comments/CommentThread.svelte';
   import { requireAuth } from '$lib/auth/requireAuth';
+  import { profileFor } from '$lib/profileStore';
+  import { canOfferZapToProfile } from '$lib/zapOffer';
 
   export let raw: RelayEvent;
   export let event: NDKEvent;
@@ -92,6 +94,12 @@
   // The card's comment button opens the reply modal (iOS parity); the
   // inline CommentThread below the card remains for expanded reads.
   let replyModalOpen = false;
+
+  // Skip the zap slot (and its hover wrapper) when the note author has no
+  // lightning address — the zap would fail at send. NoteTotalZaps applies
+  // the same gate internally.
+  $: authorProfileState = event.pubkey ? profileFor(event.pubkey) : null;
+  $: zapOffered = canOfferZapToProfile($authorProfileState);
 
   $: kind = postKind(raw);
   $: media = kind === 'note' ? mediaUrls(raw.content) : [];
@@ -355,13 +363,15 @@
 
   {#if visible}
     <NoteReactionPills {event} />
-    <NoteTotalZaps
-      {event}
-      onZapClick={() => dispatch('zap', event)}
-      showPills={true}
-      onlyPills={true}
-      maxPills={10}
-    />
+    {#if zapOffered}
+      <NoteTotalZaps
+        {event}
+        onZapClick={() => dispatch('zap', event)}
+        showPills={true}
+        onlyPills={true}
+        maxPills={10}
+      />
+    {/if}
   {/if}
 
   <div class="flex items-center justify-between flex-wrap gap-2 py-1" use:lazy={raw.id}>
@@ -386,9 +396,11 @@
         <div class="hover:bg-accent-gray rounded-full p-1.5 transition-colors">
           <NoteRepost {event} />
         </div>
-        <div class="hover:bg-amber-50/50 rounded-full p-1 transition-colors">
-          <NoteTotalZaps {event} onZapClick={() => dispatch('zap', event)} showPills={false} />
-        </div>
+        {#if zapOffered}
+          <div class="hover:bg-amber-50/50 rounded-full p-1 transition-colors">
+            <NoteTotalZaps {event} onZapClick={() => dispatch('zap', event)} showPills={false} />
+          </div>
+        {/if}
         {#if kind === 'recipe' && !boxData}
           <SaveButton {event} size="sm" variant="ghost" />
         {/if}
