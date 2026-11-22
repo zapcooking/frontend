@@ -39,10 +39,12 @@
     addPendingTransaction,
     updatePendingTransaction,
     removePendingTransaction,
+    reconcilePendingWithHistory,
     transactionsNeedRefresh,
     ensurePendingTransactionsLoaded,
     type Transaction
   } from '$lib/wallet/walletManager';
+  import { sanitizeSatsInput, satsFromInput } from '$lib/wallet/satsInput';
   import { closeWallet as closeWalletModal, walletModalOpen } from '$lib/wallet/walletModalStore';
   import {
     parseNwcUrl,
@@ -87,6 +89,7 @@
     sendOnchain,
     listUnclaimedDeposits,
     claimDeposit,
+    quoteLnurlPayment,
     claimDepositWithNetworkFee,
     refundDeposit,
     stableBalance,
@@ -667,8 +670,44 @@
   let nwcLud16BrantaEncryptedDestination = '';
   let sparkLightningAddressBrantaSecret = '';
   let sparkLightningAddressBrantaEncryptedDestination = '';
-  let sendAmount = 0; // Amount for Lightning address sends
+  // Amount for Lightning-address / on-chain sends: a digits-only text
+  // field, empty until typed (see $lib/wallet/satsInput for why it is no
+  // longer a number input).
+  let sendAmountInput = '';
+  $: sendAmount = satsFromInput(sendAmountInput);
   let sendComment = ''; // Optional message for Lightning address sends
+
+  // Spark Lightning-address fee preview: the recipient gets the amount
+  // entered, the fee is paid on top. Debounced; each quote fetches an
+  // invoice from the recipient's server, so it waits for typing to pause.
+  let lnurlQuote: { recipientSats: number; feeSats: number; totalSats: number } | null = null;
+  let lnurlQuoteError = '';
+  let lnurlQuoteLoading = false;
+  let lnurlQuoteTimer: ReturnType<typeof setTimeout> | null = null;
+  let lnurlQuoteSeq = 0;
+  $: scheduleLnurlQuote(
+    $activeWallet?.kind === 4 && isLightningAddress && !isBtcAddress ? sendInput.trim() : '',
+    sendAmount
+  );
+  function scheduleLnurlQuote(destination: string, amount: number) {
+    if (lnurlQuoteTimer) clearTimeout(lnurlQuoteTimer);
+    const seq = ++lnurlQuoteSeq;
+    lnurlQuote = null;
+    lnurlQuoteError = '';
+    lnurlQuoteLoading = false;
+    if (!destination || !amount || amount <= 0) return;
+    lnurlQuoteTimer = setTimeout(async () => {
+      lnurlQuoteLoading = true;
+      try {
+        const quote = await quoteLnurlPayment(destination, amount);
+        if (seq === lnurlQuoteSeq) lnurlQuote = quote;
+      } catch (e) {
+        if (seq === lnurlQuoteSeq) lnurlQuoteError = e instanceof Error ? e.message : String(e);
+      } finally {
+        if (seq === lnurlQuoteSeq) lnurlQuoteLoading = false;
+      }
+    }, 600);
+  }
   let receiveAmount = 0;
   let customReceiveAmount = '';
   let generatedInvoice = '';
@@ -1263,38 +1302,32 @@
       // forever. Kept in sync with PENDING_TX_TTL_SECS in walletManager.
       const PENDING_MIGRATION_WINDOW_SECS = 30 * 60;
 
-      for (const pendingTx of pending) {
-        if (pendingTx.status === 'completed') {
-          const matchingRealIndex = transactions.findIndex(
-            (tx) =>
-              tx.amount === pendingTx.amount &&
-              tx.type === 'outgoing' &&
-              Math.abs(tx.timestamp - pendingTx.timestamp) < PENDING_MIGRATION_WINDOW_SECS
-          );
-
-          if (matchingRealIndex >= 0) {
-            const matchingReal = transactions[matchingRealIndex];
-            // Transfer description, pubkey, and comment from pending to real transaction
-            transactions[matchingRealIndex] = {
-              ...matchingReal,
-              description: pendingTx.description || matchingReal.description,
-              pubkey: pendingTx.pubkey || matchingReal.pubkey,
-              comment: pendingTx.comment || matchingReal.comment
-            };
-            // Save metadata for persistence (keyed by real transaction ID)
-            saveTransactionMetadata(matchingReal.id, {
-              description: pendingTx.description,
-              pubkey: pendingTx.pubkey,
-              comment: pendingTx.comment
-            });
-            removePendingTransaction(pendingTx.id);
-          } else if (now - pendingTx.timestamp > PENDING_MIGRATION_WINDOW_SECS) {
-            removePendingTransaction(pendingTx.id);
-          }
-        } else if (pendingTx.status === 'pending' && now - pendingTx.timestamp > 1800) {
-          removePendingTransaction(pendingTx.id);
-        }
+      // Rows tied to an SDK payment match by its id (whatever their status,
+      // so a Lightning-address send that settled after returning doesn't
+      // stay at "Sending…"); untied completed rows match by amount.
+      const { migrate, remove } = reconcilePendingWithHistory(
+        pending,
+        transactions,
+        now,
+        PENDING_MIGRATION_WINDOW_SECS
+      );
+      for (const { pending: pendingTx, realIndex } of migrate) {
+        const matchingReal = transactions[realIndex];
+        // Transfer description, pubkey, and comment from pending to real transaction
+        transactions[realIndex] = {
+          ...matchingReal,
+          description: pendingTx.description || matchingReal.description,
+          pubkey: pendingTx.pubkey || matchingReal.pubkey,
+          comment: pendingTx.comment || matchingReal.comment
+        };
+        // Save metadata for persistence (keyed by real transaction ID)
+        saveTransactionMetadata(matchingReal.id, {
+          description: pendingTx.description,
+          pubkey: pendingTx.pubkey,
+          comment: pendingTx.comment
+        });
       }
+      for (const id of remove) removePendingTransaction(id);
 
       // Apply any saved metadata to transactions (description, pubkey, comment)
       transactions = transactions.map((tx) => {
@@ -1427,7 +1460,7 @@
   // Reset send modal state
   function resetSendModal() {
     sendInput = '';
-    sendAmount = 0;
+    sendAmountInput = '';
     sendComment = '';
     sendError = '';
     sendSuccess = '';
@@ -6072,7 +6105,7 @@
                     type="button"
                     class="text-xs text-primary hover:text-primary font-medium"
                     on:click={() => {
-                      sendAmount = Number($walletBalance);
+                      sendAmountInput = String(Number($walletBalance));
                       sendingMaxBalance = true;
                       // Reset fee quote when amount changes
                       if (onchainFeeQuote) {
@@ -6086,13 +6119,17 @@
                 {/if}
               </div>
               <input
-                type="number"
-                bind:value={sendAmount}
+                type="text"
+                inputmode="numeric"
+                pattern="[0-9]*"
+                autocomplete="off"
+                bind:value={sendAmountInput}
                 placeholder="Enter amount in sats"
                 class="w-full p-3 rounded-lg bg-input border border-input text-primary-color placeholder-caption focus:outline-none focus:ring-2 focus:ring-amber-500"
                 disabled={isSending || isSendingOnchain}
-                min="1"
                 on:input={() => {
+                  // Digits only: no wheel/spinner changes, no stray zero.
+                  sendAmountInput = sanitizeSatsInput(sendAmountInput);
                   // Reset fee quote when amount changes
                   sendingMaxBalance = false;
                   if (onchainFeeQuote) {
@@ -6116,6 +6153,30 @@
                 maxlength="144"
               />
             </div>
+            {#if $activeWallet?.kind === 4 && sendAmount > 0}
+              <div class="text-sm rounded-lg p-3 bg-input border border-input space-y-1">
+                {#if lnurlQuote}
+                  <div class="flex justify-between">
+                    <span class="text-caption">Recipient gets</span>
+                    <span class="text-primary-color">{formatBalance(lnurlQuote.recipientSats)} sats</span>
+                  </div>
+                  <div class="flex justify-between">
+                    <span class="text-caption">Network fee</span>
+                    <span class="text-primary-color">+ {formatBalance(lnurlQuote.feeSats)} sats</span>
+                  </div>
+                  <div class="flex justify-between font-medium">
+                    <span class="text-caption">Total</span>
+                    <span class="text-primary-color">{formatBalance(lnurlQuote.totalSats)} sats</span>
+                  </div>
+                {:else if lnurlQuoteError}
+                  <div class="text-red-500">{lnurlQuoteError}</div>
+                {:else}
+                  <div class="text-caption">
+                    {lnurlQuoteLoading ? 'Checking the fee…' : 'The fee is added on top of the amount.'}
+                  </div>
+                {/if}
+              </div>
+            {/if}
           {/if}
         {/if}
 
@@ -6266,6 +6327,10 @@
               This payment may convert USDB to Bitcoin. The final rate and conversion fee are determined by Spark before settlement.
             </div>
           {/if}
+          <!-- Pinned to the bottom of the scrolling panel, so it never sits
+               below the fold (scrolling down to reach it is how a focused
+               amount field used to lose sats). -->
+          <div class="send-action-bar">
           <button
             class="w-full py-3 px-4 rounded-xl bg-action hover:bg-action-hover disabled:opacity-50 disabled:cursor-not-allowed text-on-action font-medium transition-colors flex items-center justify-center gap-2"
             on:click={handleSend}
@@ -6283,6 +6348,7 @@
               {isNoffer ? 'Pay Offer' : 'Send Payment'}
             {/if}
           </button>
+          </div>
         {/if}
       </div>
     </div>
@@ -7079,6 +7145,26 @@
   /* The inner scrollable area — this is the only element that bounces.
      Horizontal padding matches .balance-frame so transactions sit at
      the same inset as the balance card. */
+  /* The send view's primary button, pinned to the bottom of the scroll
+     container (.wallet-scroll.send-view) with the panel's own background
+     behind it; the negative bottom margin lets it sit over the view's
+     bottom padding instead of floating above it. */
+  .send-action-bar {
+    position: sticky;
+    bottom: -1.5rem;
+    z-index: 1;
+    margin-bottom: -1.5rem;
+    padding: 0.75rem 0 1.5rem;
+    background-color: var(--color-bg-secondary);
+  }
+  @media (min-width: 768px) {
+    /* Matches .wallet-scroll.send-view's 2rem bottom padding at md+. */
+    .send-action-bar {
+      bottom: -2rem;
+      margin-bottom: -2rem;
+      padding-bottom: 2rem;
+    }
+  }
   .wallet-scroll {
     flex: 1 1 0;
     min-height: 0;

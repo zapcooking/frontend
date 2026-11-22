@@ -446,6 +446,7 @@ export async function sendPayment(
   }
 
   let result: PaymentResult;
+  let sdkPaymentId: string | undefined;
   try {
     walletLoading.set(true);
 
@@ -482,6 +483,7 @@ export async function sendPayment(
           const { sendZap } = await import('$lib/spark');
           const payment = await sendZap(invoice, metadata?.amount || 0, metadata?.comment || '');
           result = fromBreez(payment);
+          sdkPaymentId = sparkPaymentIdOf(payment);
           break;
         }
 
@@ -499,8 +501,12 @@ export async function sendPayment(
   // The wallet history row: completed stays (dedups with the real entry),
   // pending stays visible as pending, anything else is removed.
   if (metadata?.amount) {
+    // Tie the row to its SDK payment, so it settles when that payment does
+    // (settleSparkPendingRows) instead of sitting at "Sending…" until expiry.
+    if (sdkPaymentId) updatePendingTransaction(pendingId, { sdkPaymentId });
     if (result.status === 'completed') updatePendingTransactionStatus(pendingId, 'completed');
     else if (result.status !== 'pending') removePendingTransaction(pendingId);
+    else settleSparkPendingRows(succeededPayments(get(recentSparkPayments)));
   }
   if (result.status === 'completed' || result.status === 'pending') {
     // Never let a refresh error escape: the outcome above is what the zap
@@ -679,6 +685,7 @@ export interface Transaction {
   status?: 'pending' | 'completed' | 'failed';
   pubkey?: string; // Nostr pubkey for zap sender/recipient
   walletId?: number; // ID of wallet this transaction belongs to
+  sdkPaymentId?: string; // Spark: the SDK payment this local pending row stands for
 }
 
 /**
@@ -808,6 +815,95 @@ export function updatePendingTransaction(
   updates: Partial<Omit<Transaction, 'id'>>
 ): void {
   pendingTransactions.update((txs) => txs.map((tx) => (tx.id === id ? { ...tx, ...updates } : tx)));
+}
+
+/** The SDK payment id inside a Breez send result (`{ payment }` or the payment). */
+export function sparkPaymentIdOf(result: unknown): string | undefined {
+  const r = result as { payment?: { id?: unknown }; id?: unknown } | null | undefined;
+  const id = r && typeof r === 'object' ? (r.payment?.id ?? r.id) : undefined;
+  return typeof id === 'string' && id ? id : undefined;
+}
+
+/**
+ * Settle local pending rows whose SDK payment has finished: a completed
+ * payment marks its row completed (the history pass then migrates its
+ * description onto the SDK row), a failed one removes it.
+ */
+export function settleSparkPendingRows(payments: Array<{ id?: string; status?: string }>): void {
+  const byId = new Map(payments.filter((p) => p?.id).map((p) => [p.id as string, p.status]));
+  if (byId.size === 0) return;
+  pendingTransactions.update((txs) => {
+    let changed = false;
+    const next = txs.flatMap((tx) => {
+      if (tx.status !== 'pending' || !tx.sdkPaymentId || !byId.has(tx.sdkPaymentId)) return [tx];
+      const status = byId.get(tx.sdkPaymentId);
+      if (status === 'failed') {
+        changed = true;
+        return [];
+      }
+      if (status === 'completed') {
+        changed = true;
+        return [{ ...tx, status: 'completed' as const }];
+      }
+      return [tx];
+    });
+    return changed ? next : txs;
+  });
+}
+
+// recentSparkPayments collects every paymentSucceeded the SDK reports, so a
+// Lightning-address payment that settles after its send call returned still
+// clears its row, even with the wallet panel closed.
+function succeededPayments(payments: any[] | null | undefined) {
+  return (payments || []).map((p: any) => ({ id: p?.id, status: p?.status ?? 'completed' }));
+}
+recentSparkPayments.subscribe((payments) => {
+  settleSparkPendingRows(succeededPayments(payments));
+});
+
+/**
+ * Match local pending rows against the wallet's real history.
+ *
+ * - Tied to an SDK payment (`sdkPaymentId`): matched by that id, whatever
+ *   the row's status. A failed payment drops the row; otherwise the row's
+ *   description moves onto the SDK row and the local row goes.
+ * - Completed rows with no id: matched by amount within the window, as before.
+ * - Anything left unmatched expires after `windowSecs`.
+ *
+ * Pure: returns what to migrate and what to remove; the caller applies it.
+ */
+export function reconcilePendingWithHistory(
+  pending: Transaction[],
+  history: Transaction[],
+  nowSecs: number,
+  windowSecs: number
+): { migrate: Array<{ pending: Transaction; realIndex: number }>; remove: string[] } {
+  const migrate: Array<{ pending: Transaction; realIndex: number }> = [];
+  const remove: string[] = [];
+  for (const p of pending) {
+    if (p.sdkPaymentId) {
+      const realIndex = history.findIndex((tx) => tx.id === p.sdkPaymentId);
+      if (realIndex >= 0) {
+        if (history[realIndex].status !== 'failed') migrate.push({ pending: p, realIndex });
+        remove.push(p.id);
+        continue;
+      }
+    } else if (p.status === 'completed') {
+      const realIndex = history.findIndex(
+        (tx) =>
+          tx.amount === p.amount &&
+          tx.type === 'outgoing' &&
+          Math.abs(tx.timestamp - p.timestamp) < windowSecs
+      );
+      if (realIndex >= 0) {
+        migrate.push({ pending: p, realIndex });
+        remove.push(p.id);
+        continue;
+      }
+    }
+    if (nowSecs - p.timestamp > windowSecs) remove.push(p.id);
+  }
+  return { migrate, remove };
 }
 
 /**

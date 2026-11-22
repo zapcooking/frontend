@@ -2,6 +2,7 @@ import type {
   InputType,
   LnurlPayRequestDetails,
   PrepareLnurlPayRequest,
+  PrepareLnurlPayResponse,
   PrepareSendPaymentRequest,
   PrepareSendPaymentResponse,
   SendPaymentRequest,
@@ -78,15 +79,44 @@ export function payRequestOf(parsed: InputType): LnurlPayRequestDetails | null {
   return null;
 }
 
-/** Prepare an LNURL / Lightning-address payment. */
+/**
+ * Prepare an LNURL / Lightning-address payment. The recipient gets exactly
+ * `amountSats`; the fee is paid on top by the sender. `feesExcluded` is the
+ * SDK's default, but it's set explicitly so a default change can't move the
+ * fee onto the recipient (`feesIncluded` sizes the invoice at amount − fee).
+ */
 export function prepareLnurlRequest(
   payRequest: LnurlPayRequestDetails,
   amountSats: number,
   comment?: string
 ): PrepareLnurlPayRequest {
-  const request: PrepareLnurlPayRequest = { payRequest, amount: BigInt(Math.floor(amountSats)) };
+  const request: PrepareLnurlPayRequest = {
+    payRequest,
+    amount: BigInt(Math.floor(amountSats)),
+    feePolicy: 'feesExcluded'
+  };
   if (comment) request.comment = comment;
   return request;
+}
+
+/**
+ * Why a prepared LNURL payment must not be sent, or null when it pays the
+ * recipient exactly `amountSats` with the fee on the sender. Checked before
+ * every `lnurlPay`, so a recipient short-change never leaves the wallet.
+ */
+export function lnurlPrepareProblem(
+  prepared: Pick<PrepareLnurlPayResponse, 'amountSats' | 'feePolicy' | 'invoiceDetails'>,
+  amountSats: number
+): string | null {
+  const wanted = Math.floor(amountSats);
+  if (prepared.feePolicy !== 'feesExcluded')
+    return `The fee would be taken from the recipient (fee policy ${prepared.feePolicy}). Nothing was sent.`;
+  const invoiceMsat = prepared.invoiceDetails?.amountMsat;
+  if (invoiceMsat === undefined || invoiceMsat === null)
+    return 'The recipient returned an invoice without an amount. Nothing was sent.';
+  if (Number(invoiceMsat) !== wanted * 1000 || Number(prepared.amountSats) !== wanted)
+    return `The recipient's invoice is for ${Math.floor(Number(invoiceMsat) / 1000).toLocaleString()} sats, not ${wanted.toLocaleString()}. Nothing was sent.`;
+  return null;
 }
 
 export function bolt11ReceiveRequest(
@@ -110,9 +140,14 @@ export function claimDepositRequest(
   maxFee?: { fixedSats: number } | { leewaySatPerVbyte: number }
 ): ClaimDepositRequest {
   const request: ClaimDepositRequest = { txid, vout };
-  if (maxFee && 'fixedSats' in maxFee) request.maxFee = { type: 'fixed', amount: maxFee.fixedSats };
+  // Since 0.28 MaxFee wraps the on-chain cap in `onchain`, beside an
+  // optional proportional share (left unset: the cap stays absolute).
+  if (maxFee && 'fixedSats' in maxFee)
+    request.maxFee = { onchain: { type: 'fixed', amount: maxFee.fixedSats } };
   else if (maxFee)
-    request.maxFee = { type: 'networkRecommended', leewaySatPerVbyte: maxFee.leewaySatPerVbyte };
+    request.maxFee = {
+      onchain: { type: 'networkRecommended', leewaySatPerVbyte: maxFee.leewaySatPerVbyte }
+    };
   return request;
 }
 

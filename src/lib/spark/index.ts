@@ -15,6 +15,7 @@ import {
   bolt11ReceiveRequest,
   buildSendPaymentRequest,
   claimDepositRequest,
+  lnurlPrepareProblem,
   onchainSendRequest,
   payRequestOf,
   prepareLnurlRequest,
@@ -23,6 +24,8 @@ import {
   sparkAddressReceiveRequest
 } from './sdkRequests';
 export { buildSendPaymentRequest } from './sdkRequests';
+import { waitForSparkPayment, type SparkPaymentLike } from './paymentWait';
+import { BREEZ_COMPLETION_TIMEOUT_SECS } from '$lib/wallet/paymentOutcome';
 import { browser } from '$app/environment';
 import { writable, get } from 'svelte/store';
 import type { NDKEvent } from '@nostr-dev-kit/ndk';
@@ -628,16 +631,30 @@ export async function sendPayment(
     sparkLoading.set(true);
     const parsedInput = await _sdkInstance.parse(destination);
 
-    // Lightning address / LNURL: pay through the LNURL flow.
+    // Lightning address / LNURL: pay through the LNURL flow. The recipient
+    // gets exactly `amountSats`; the fee is on top (see prepareLnurlRequest).
     const payRequest = payRequestOf(parsedInput);
     if (payRequest) {
       if (!amountSats) throw new Error('Amount is required for Lightning address payments');
       const prepareResponse = await _sdkInstance.prepareLnurlPay(
         prepareLnurlRequest(payRequest, amountSats, comment)
       );
-      const payment = await _sdkInstance.lnurlPay({ prepareResponse });
+      logger.info('[Spark] LNURL pay prepared', 'spark', {
+        requestedSats: amountSats,
+        invoiceMsat: prepareResponse.invoiceDetails?.amountMsat,
+        feeSats: prepareResponse.feeSats,
+        feePolicy: prepareResponse.feePolicy
+      });
+      // Never send a payment that would short-change the recipient.
+      const problem = lnurlPrepareProblem(prepareResponse, amountSats);
+      if (problem) throw new Error(problem);
+
+      const response = await _sdkInstance.lnurlPay({ prepareResponse });
+      // lnurlPay returns while the payment is still in flight; wait for the
+      // outcome as bolt11 sends do, so a settled payment isn't left pending.
+      const payment = await waitForSettled(response.payment as unknown as SparkPaymentLike);
       await refreshBalanceInternal();
-      return payment;
+      return { ...response, payment };
     }
 
     // Invoices and addresses: the SDK takes a tagged PaymentRequest, not the
@@ -656,6 +673,44 @@ export async function sendPayment(
   } finally {
     sparkLoading.set(false);
   }
+}
+
+/** Wait for an in-flight payment's outcome through the SDK's own events. */
+function waitForSettled(payment: SparkPaymentLike): Promise<SparkPaymentLike> {
+  const sdk = _sdkInstance;
+  return waitForSparkPayment(
+    payment,
+    {
+      onEvent: (callback) => onSparkEvent(callback),
+      getPayment: async (paymentId) =>
+        sdk
+          ? ((await sdk.getPayment({ paymentId })).payment as unknown as SparkPaymentLike)
+          : null
+    },
+    BREEZ_COMPLETION_TIMEOUT_SECS * 1000
+  );
+}
+
+/**
+ * Quote a Lightning-address / LNURL payment without sending it: what the
+ * recipient gets, the fee on top, and the total that leaves the wallet.
+ * Returns null for any other destination.
+ */
+export async function quoteLnurlPayment(
+  destination: string,
+  amountSats: number
+): Promise<{ recipientSats: number; feeSats: number; totalSats: number } | null> {
+  if (!_sdkInstance || !amountSats || amountSats <= 0) return null;
+  const payRequest = payRequestOf(await _sdkInstance.parse(destination));
+  if (!payRequest) return null;
+  const prepared = await _sdkInstance.prepareLnurlPay(
+    prepareLnurlRequest(payRequest, amountSats)
+  );
+  const problem = lnurlPrepareProblem(prepared, amountSats);
+  if (problem) throw new Error(problem);
+  const recipientSats = Math.floor(amountSats);
+  const feeSats = Number(prepared.feeSats);
+  return { recipientSats, feeSats, totalSats: recipientSats + feeSats };
 }
 
 /**

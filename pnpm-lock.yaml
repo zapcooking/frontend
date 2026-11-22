@@ -53,8 +53,8 @@ importers:
         specifier: ^4.0.5
         version: 4.2.0
       '@breeztech/breez-sdk-spark':
-        specifier: 0.23.1
-        version: 0.23.1
+        specifier: 0.28.6
+        version: 0.28.6
       '@gandlaf21/bolt11-decode':
         specifier: ^3.1.1
         version: 3.1.1
@@ -318,8 +318,8 @@ packages:
   '@branta-ops/branta@4.2.0':
     resolution: {integrity: sha512-behD+sU44o0J/65zxF8xnX+lYAbVOkFnsfvCBKhswZXZJVFMsVP+vybA7pVJ9LOnvA1n7JfU+XtP+i1LezFMAA==}
 
-  '@breeztech/breez-sdk-spark@0.23.1':
-    resolution: {integrity: sha512-oEORfCAsRVlWFLcyF7pYMQR7AY1rWUVFUWo0YPAOF2gL6XWRlzh5DEtnAnXtKbj2eolJvatIbX42wEU9BzkdbQ==}
+  '@breeztech/breez-sdk-spark@0.28.6':
+    resolution: {integrity: sha512-eLxT5T2py1ww0HFuTEscXxcwwKPWRtfK49mkLeJsUViBX2mOMwLj8oZv1/tRnB2hbFlgMkeiPzPExMw95vnXww==}
     engines: {node: '>=22'}
 
   '@cloudflare/kv-asset-handler@0.5.0':
@@ -4239,7 +4239,7 @@ snapshots:
 
   '@branta-ops/branta@4.2.0': {}
 
-  '@breeztech/breez-sdk-spark@0.23.1':
+  '@breeztech/breez-sdk-spark@0.28.6':
     optionalDependencies:
       better-sqlite3: 12.11.1
       pg: 8.23.1

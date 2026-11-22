@@ -203,3 +203,91 @@ describe('WebLN / Alby (no wallet entry)', () => {
     expect((await pay()).status).toBe('unavailable');
   });
 });
+
+describe('a Spark payment that settles after the send returned', () => {
+  async function sendToAddress() {
+    const wm = await import('./walletManager');
+    wm.clearPendingTransactions();
+    const r = await wm.sendPayment('zapcooking@wallet.example', {
+      amount: 5000,
+      description: 'Payment to zapcooking@wallet.example'
+    });
+    const { get } = await import('svelte/store');
+    return { wm, r, rows: () => get(wm.pendingTransactions) };
+  }
+
+  it('the pending row is tied to its SDK payment, then clears to completed on paymentSucceeded', async () => {
+    m.sendZap.mockResolvedValue({ payment: { id: 'pay-9', status: 'pending' } });
+    const { r, rows } = await sendToAddress();
+    expect(r.status).toBe('pending');
+    expect(rows()).toHaveLength(1);
+    expect(rows()[0]).toMatchObject({ status: 'pending', sdkPaymentId: 'pay-9', amount: 5000 });
+
+    const { recentSparkPayments } = await import('$lib/spark');
+    recentSparkPayments.set([{ id: 'pay-9', status: 'completed' }]);
+    expect(rows()[0].status).toBe('completed');
+  });
+
+  it('a payment that already succeeded by the time the send returned clears at once', async () => {
+    const { recentSparkPayments } = await import('$lib/spark');
+    recentSparkPayments.set([{ id: 'pay-10', status: 'completed' }]);
+    m.sendZap.mockResolvedValue({ payment: { id: 'pay-10', status: 'pending' } });
+    const { rows } = await sendToAddress();
+    expect(rows()[0].status).toBe('completed');
+  });
+
+  it('a payment for someone else leaves the row pending', async () => {
+    m.sendZap.mockResolvedValue({ payment: { id: 'pay-11', status: 'pending' } });
+    const { rows } = await sendToAddress();
+    const { recentSparkPayments } = await import('$lib/spark');
+    recentSparkPayments.set([{ id: 'unrelated', status: 'completed' }]);
+    expect(rows()[0].status).toBe('pending');
+  });
+});
+
+describe('reconcilePendingWithHistory', () => {
+  const now = 1_800_000_000;
+  const WINDOW = 30 * 60;
+  const row = (over: Record<string, unknown>) =>
+    ({ id: 'local', type: 'outgoing', amount: 5000, timestamp: now - 10, status: 'pending', ...over }) as any;
+  const real = (over: Record<string, unknown>) =>
+    ({ id: 'pay-1', type: 'outgoing', amount: 5000, timestamp: now - 5, status: 'completed', ...over }) as any;
+
+  it('a still-"pending" row tied to an SDK payment migrates onto that history row and goes', async () => {
+    const { reconcilePendingWithHistory } = await import('./walletManager');
+    const r = reconcilePendingWithHistory([row({ sdkPaymentId: 'pay-1' })], [real({})], now, WINDOW);
+    expect(r.remove).toEqual(['local']);
+    expect(r.migrate).toHaveLength(1);
+    expect(r.migrate[0].pending.id).toBe('local');
+    expect(r.migrate[0].realIndex).toBe(0);
+  });
+
+  it('matches by id, not amount, when tied (the SDK row may differ from the typed amount)', async () => {
+    const { reconcilePendingWithHistory } = await import('./walletManager');
+    const history = [real({ id: 'other', amount: 5000 }), real({ id: 'pay-1', amount: 4927 })];
+    const r = reconcilePendingWithHistory([row({ sdkPaymentId: 'pay-1' })], history, now, WINDOW);
+    expect(r.migrate[0].realIndex).toBe(1);
+  });
+
+  it('a failed SDK payment drops the row without migrating', async () => {
+    const { reconcilePendingWithHistory } = await import('./walletManager');
+    const r = reconcilePendingWithHistory(
+      [row({ sdkPaymentId: 'pay-1' })],
+      [real({ status: 'failed' })],
+      now,
+      WINDOW
+    );
+    expect(r).toEqual({ migrate: [], remove: ['local'] });
+  });
+
+  it('untied rows keep the old rules: completed matches by amount, pending only expires', async () => {
+    const { reconcilePendingWithHistory } = await import('./walletManager');
+    expect(
+      reconcilePendingWithHistory([row({ status: 'completed' })], [real({})], now, WINDOW).remove
+    ).toEqual(['local']);
+    expect(reconcilePendingWithHistory([row({})], [real({})], now, WINDOW).remove).toEqual([]);
+    expect(
+      reconcilePendingWithHistory([row({ timestamp: now - WINDOW - 1 })], [], now, WINDOW).remove
+    ).toEqual(['local']);
+  });
+});
