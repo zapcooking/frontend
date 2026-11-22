@@ -8,6 +8,7 @@ import {
   onchainSendRequest,
   payRequestOf,
   prepareLnurlRequest,
+  lnurlPrepareProblem,
   bolt11ReceiveRequest,
   claimDepositRequest,
   refundDepositRequest
@@ -91,21 +92,57 @@ describe('LNURL / Lightning address', () => {
     expect(r.comment).toBe('thanks');
     expect('amountSats' in r).toBe(false);
   });
+
+  it('the fee is paid by the sender: feesExcluded is always explicit', () => {
+    expect(prepareLnurlRequest(lnurlDetails, 5000).feePolicy).toBe('feesExcluded');
+    expect(prepareLnurlRequest(lnurlDetails, 5000, 'hi').feePolicy).toBe('feesExcluded');
+  });
+});
+
+describe('the pre-send guard on a prepared LNURL payment', () => {
+  const prepared = (amountSats: number, invoiceSats: number | undefined, feePolicy: string) =>
+    ({
+      amountSats,
+      feePolicy,
+      invoiceDetails: { amountMsat: invoiceSats === undefined ? undefined : invoiceSats * 1000 }
+    }) as never;
+
+  it('passes an invoice for exactly the amount, fee on top', () => {
+    expect(lnurlPrepareProblem(prepared(5000, 5000, 'feesExcluded'), 5000)).toBeNull();
+  });
+
+  it('refuses the reported case: 5,000 asked, an invoice for 4,927 (amount − fee)', () => {
+    expect(lnurlPrepareProblem(prepared(5000, 4927, 'feesExcluded'), 5000)).toMatch(
+      /4,927 sats, not 5,000/
+    );
+  });
+
+  it('refuses a fee taken from the recipient, whatever the invoice says', () => {
+    expect(lnurlPrepareProblem(prepared(5000, 4927, 'feesIncluded'), 5000)).toMatch(
+      /taken from the recipient/
+    );
+  });
+
+  it('refuses an amountless invoice and a prepared amount that drifted', () => {
+    expect(lnurlPrepareProblem(prepared(5000, undefined, 'feesExcluded'), 5000)).toMatch(
+      /without an amount/
+    );
+    expect(lnurlPrepareProblem(prepared(4999, 5000, 'feesExcluded'), 5000)).not.toBeNull();
+  });
 });
 
 describe('receiving and deposits', () => {
-  it('builds the 0.23 shapes', () => {
+  it('builds the 0.28 shapes', () => {
     expect(bolt11ReceiveRequest(21, 'zap')).toEqual({
       paymentMethod: { type: 'bolt11Invoice', amountSats: 21, description: 'zap' }
     });
     expect(claimDepositRequest('t', 0, { fixedSats: 500 })).toEqual({
       txid: 't',
       vout: 0,
-      maxFee: { type: 'fixed', amount: 500 }
+      maxFee: { onchain: { type: 'fixed', amount: 500 } }
     });
     expect(claimDepositRequest('t', 1, { leewaySatPerVbyte: 2 }).maxFee).toEqual({
-      type: 'networkRecommended',
-      leewaySatPerVbyte: 2
+      onchain: { type: 'networkRecommended', leewaySatPerVbyte: 2 }
     });
     expect(refundDepositRequest('t', 0, 'bc1q', 3).fee).toEqual({ type: 'rate', satPerVbyte: 3 });
   });

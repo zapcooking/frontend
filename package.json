@@ -1,7 +1,7 @@
 {
   "name": "zap.cooking",
   "license": "MIT",
-  "version": "4.2.1175",
+  "version": "4.2.1176",
   "private": true,
   "scripts": {
     "dev": "vite dev",
@@ -27,7 +27,7 @@
   },
   "dependencies": {
     "@branta-ops/branta": "^4.0.5",
-    "@breeztech/breez-sdk-spark": "0.23.1",
+    "@breeztech/breez-sdk-spark": "0.28.6",
     "@gandlaf21/bolt11-decode": "^3.1.1",
     "@getalby/bitcoin-connect": "^3.12.3",
     "@getalby/lightning-tools": "^6.1.0",
