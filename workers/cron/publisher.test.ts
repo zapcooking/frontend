@@ -27,7 +27,13 @@ class FakeWS implements WebSocketLike {
 
   constructor(
     public url: string,
-    private script: { framesOnSend?: unknown[]; neverOpen?: boolean; errorOnOpen?: boolean } = {}
+    private script: {
+      framesOnSend?: unknown[];
+      neverOpen?: boolean;
+      errorOnOpen?: boolean;
+      /** Delay before the first scripted frame (a slow relay). */
+      replyDelayMs?: number;
+    } = {}
   ) {
     if (!script.neverOpen) {
       setTimeout(() => {
@@ -49,7 +55,7 @@ class FakeWS implements WebSocketLike {
 
   send(data: string) {
     this.sent.push(data);
-    let delay = 0;
+    let delay = this.script.replyDelayMs ?? 0;
     for (const frame of this.script.framesOnSend ?? []) {
       setTimeout(() => this.emit('message', { data: typeof frame === 'string' ? frame : JSON.stringify(frame) }), ++delay);
     }
@@ -166,5 +172,205 @@ describe('publishEventRaw across a relay set', () => {
       wsFactory: factoryFor(sockets)
     });
     expect(okCount).toBe(2);
+  });
+});
+
+describe('publishEventRaw early settle (opt-in)', () => {
+  const okFalse = ['OK', EVENT.id, false, AUTH_REASON];
+  const hang = (url: string) => new FakeWS(url, { framesOnSend: [] }); // opens, never OKs
+  const allClosed = (sockets: Record<string, FakeWS>) =>
+    Object.values(sockets).every((s) => s.closed !== null);
+
+  async function timed<T>(fn: () => Promise<T>) {
+    const start = Date.now();
+    const settle = await fn().then(
+      (value) => ({ value, error: undefined as Error | undefined }),
+      (error: Error) => ({ value: undefined as T | undefined, error })
+    );
+    return { ...settle, elapsed: Date.now() - start };
+  }
+
+  it('defaults unchanged: with no options a silent relay is waited on for the full per-relay timeout', async () => {
+    const sockets = {
+      'wss://a': new FakeWS('wss://a', { framesOnSend: [okTrue] }),
+      'wss://c': hang('wss://c')
+    };
+    const { value, elapsed } = await timed(() =>
+      publishEventRaw(EVENT, ['wss://a', 'wss://c'], { timeoutMs: 150, wsFactory: factoryFor(sockets) })
+    );
+    expect(value).toBe(1);
+    expect(elapsed).toBeGreaterThanOrEqual(140);
+    expect(allClosed(sockets)).toBe(true);
+  });
+
+  it('grace: settles shortly after the first OK true instead of waiting out a silent relay', async () => {
+    const sockets = {
+      'wss://a': new FakeWS('wss://a', { framesOnSend: [okTrue] }),
+      'wss://c': hang('wss://c')
+    };
+    const { value, elapsed } = await timed(() =>
+      publishEventRaw(EVENT, ['wss://a', 'wss://c'], {
+        timeoutMs: 2000,
+        graceAfterFirstOkMs: 40,
+        wsFactory: factoryFor(sockets)
+      })
+    );
+    expect(value).toBe(1);
+    expect(elapsed).toBeGreaterThanOrEqual(35);
+    expect(elapsed).toBeLessThan(600);
+    // The abandoned relay's socket is closed, not leaked.
+    expect(sockets['wss://c'].closed).not.toBeNull();
+    expect(allClosed(sockets)).toBe(true);
+  });
+
+  it('grace: a relay that answers inside the grace period is counted', async () => {
+    const sockets = {
+      'wss://a': new FakeWS('wss://a', { framesOnSend: [okTrue] }),
+      'wss://b': new FakeWS('wss://b', { framesOnSend: [okTrue], replyDelayMs: 30 }),
+      'wss://c': hang('wss://c')
+    };
+    const okCount = await publishEventRaw(EVENT, ['wss://a', 'wss://b', 'wss://c'], {
+      timeoutMs: 2000,
+      graceAfterFirstOkMs: 150,
+      wsFactory: factoryFor(sockets)
+    });
+    expect(okCount).toBe(2);
+  });
+
+  it('grace: a relay that would answer after the grace period is abandoned and not counted', async () => {
+    const sockets = {
+      'wss://a': new FakeWS('wss://a', { framesOnSend: [okTrue] }),
+      'wss://b': new FakeWS('wss://b', { framesOnSend: [okTrue], replyDelayMs: 300 })
+    };
+    const okCount = await publishEventRaw(EVENT, ['wss://a', 'wss://b'], {
+      timeoutMs: 2000,
+      graceAfterFirstOkMs: 30,
+      wsFactory: factoryFor(sockets)
+    });
+    expect(okCount).toBe(1);
+    expect(sockets['wss://b'].closed).not.toBeNull();
+  });
+
+  it('grace: when every relay settles first, it returns at once without waiting out the grace period', async () => {
+    const sockets = {
+      'wss://a': new FakeWS('wss://a', { framesOnSend: [okTrue] }),
+      'wss://b': new FakeWS('wss://b', { framesOnSend: [okFalse] })
+    };
+    const { value, elapsed } = await timed(() =>
+      publishEventRaw(EVENT, ['wss://a', 'wss://b'], {
+        timeoutMs: 2000,
+        graceAfterFirstOkMs: 1500,
+        hardCapMs: 1800,
+        wsFactory: factoryFor(sockets)
+      })
+    );
+    expect(value).toBe(1);
+    expect(elapsed).toBeLessThan(600);
+  });
+
+  it('grace: an OK false does not start the grace period', async () => {
+    const sockets = {
+      'wss://a': new FakeWS('wss://a', { framesOnSend: [okFalse] }),
+      'wss://b': new FakeWS('wss://b', { framesOnSend: [okTrue], replyDelayMs: 120 })
+    };
+    const okCount = await publishEventRaw(EVENT, ['wss://a', 'wss://b'], {
+      timeoutMs: 2000,
+      graceAfterFirstOkMs: 20,
+      wsFactory: factoryFor(sockets)
+    });
+    expect(okCount).toBe(1); // waited for b; a's rejection did not cut it short
+  });
+
+  it('hard cap: stops when nothing has answered, closes every socket, and throws', async () => {
+    const sockets = { 'wss://a': hang('wss://a'), 'wss://b': new FakeWS('wss://b', { neverOpen: true }) };
+    const { error, elapsed } = await timed(() =>
+      publishEventRaw(EVENT, ['wss://a', 'wss://b'], {
+        timeoutMs: 2000,
+        graceAfterFirstOkMs: 20,
+        hardCapMs: 50,
+        wsFactory: factoryFor(sockets)
+      })
+    );
+    expect(error?.message).toMatch(/no relay answered before the publish was abandoned \(2 pending\)/);
+    expect(elapsed).toBeGreaterThanOrEqual(45);
+    expect(elapsed).toBeLessThan(600);
+    expect(allClosed(sockets)).toBe(true);
+  });
+
+  it('hard cap: the verbatim OK-false reason still surfaces, even behind a silent relay listed first', async () => {
+    const sockets = {
+      'wss://silent': hang('wss://silent'),
+      'wss://b': new FakeWS('wss://b', { framesOnSend: [authFrame, okFalse] })
+    };
+    const { error } = await timed(() =>
+      publishEventRaw(EVENT, ['wss://silent', 'wss://b'], {
+        timeoutMs: 2000,
+        hardCapMs: 60,
+        wsFactory: factoryFor(sockets)
+      })
+    );
+    expect(error?.message).toBe(AUTH_REASON);
+    expect(allClosed(sockets)).toBe(true);
+  });
+
+  it('hard cap wins when it comes before the grace period ends', async () => {
+    const sockets = {
+      'wss://a': new FakeWS('wss://a', { framesOnSend: [okTrue] }),
+      'wss://c': hang('wss://c')
+    };
+    const { value, elapsed } = await timed(() =>
+      publishEventRaw(EVENT, ['wss://a', 'wss://c'], {
+        timeoutMs: 2000,
+        graceAfterFirstOkMs: 1500,
+        hardCapMs: 50,
+        wsFactory: factoryFor(sockets)
+      })
+    );
+    expect(value).toBe(1);
+    expect(elapsed).toBeLessThan(600);
+    expect(allClosed(sockets)).toBe(true);
+  });
+
+  it('per-relay timeout still applies under a longer cap (all time out → first relay’s timeout reason)', async () => {
+    const sockets = { 'wss://a': hang('wss://a'), 'wss://b': hang('wss://b') };
+    await expect(
+      publishEventRaw(EVENT, ['wss://a', 'wss://b'], {
+        timeoutMs: 40,
+        hardCapMs: 1500,
+        wsFactory: factoryFor(sockets)
+      })
+    ).rejects.toThrow(/publish timed out awaiting OK \(wss:\/\/a\)/);
+  });
+
+  it('nonsense option values are ignored rather than settling instantly or never', async () => {
+    const sockets = {
+      'wss://a': new FakeWS('wss://a', { framesOnSend: [okTrue] }),
+      'wss://b': new FakeWS('wss://b', { framesOnSend: [okTrue], replyDelayMs: 40 })
+    };
+    const okCount = await publishEventRaw(EVENT, ['wss://a', 'wss://b'], {
+      timeoutMs: 500,
+      graceAfterFirstOkMs: Number.NaN,
+      hardCapMs: -1,
+      wsFactory: factoryFor(sockets)
+    });
+    expect(okCount).toBe(2);
+  });
+});
+
+describe('publishToRelay abort signal', () => {
+  it('abort closes the socket and rejects; an already-aborted signal never opens one', async () => {
+    const controller = new AbortController();
+    const ws = new FakeWS('wss://r', { framesOnSend: [] });
+    const pending = publishToRelay('wss://r', EVENT, 2000, () => ws, controller.signal);
+    await new Promise((r) => setTimeout(r, 5));
+    controller.abort();
+    await expect(pending).rejects.toThrow(/abandoned before OK \(wss:\/\/r\)/);
+    expect(ws.closed).not.toBeNull();
+
+    let constructed = 0;
+    await expect(
+      publishToRelay('wss://r2', EVENT, 2000, () => (constructed++, ws), controller.signal)
+    ).rejects.toThrow(/abandoned before OK/);
+    expect(constructed).toBe(0);
   });
 });
