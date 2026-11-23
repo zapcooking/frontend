@@ -5752,7 +5752,8 @@
                     </div>
                   {/if}
 
-                  <!-- Zap pills row: above action icons to avoid cutoff on the right -->
+                  <!-- Zap pills row: above action icons to avoid cutoff on the right.
+                       NoteTotalZaps hides itself when the author has no lud16. -->
                   {#if visibleNotes.has(event.id)}
                     <div class="px-2 sm:px-0">
                       <NoteTotalZaps
