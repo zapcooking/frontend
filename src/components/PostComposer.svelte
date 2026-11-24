@@ -2436,8 +2436,14 @@
   }
 
   /* ── Schedule ── same surface as the send-countdown popover ───── */
-  .schedule-wrap {
+  /* The popover is anchored to the tools ROW, not to the calendar button:
+     the button sits mid-row, and a popover hung from it runs off the right
+     edge of a phone. From the row's left edge it always fits. */
+  .composer-tools-row {
     position: relative;
+  }
+
+  .schedule-wrap {
     display: flex;
   }
 
@@ -2446,7 +2452,7 @@
     bottom: calc(100% + 0.5rem);
     left: 0;
     z-index: 50;
-    width: min(17rem, calc(100vw - 2rem));
+    width: min(17rem, 100%);
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
