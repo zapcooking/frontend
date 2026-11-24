@@ -12,7 +12,8 @@
    */
   import { onMount, onDestroy } from 'svelte';
   import { browser } from '$app/environment';
-  import { userPublickey } from '$lib/nostr';
+  import { get } from 'svelte/store';
+  import { ndk, userPublickey } from '$lib/nostr';
   import {
     listScheduled,
     cancelScheduled,
@@ -59,9 +60,26 @@
   $: groups = groupScheduled(items, now);
   $: isEmpty = groups.upcoming.length === 0 && groups.failed.length === 0 && groups.sent.length === 0;
 
+  /**
+   * On a direct load or a reload the account is known (from storage)
+   * before its signer has been restored: a bunker takes several seconds.
+   * Every request here needs a signature, so wait for the signer, up to a
+   * limit, instead of failing at once with "sign in".
+   */
+  const SIGNER_WAIT_MS = 12_000;
+  async function signerReady(): Promise<boolean> {
+    const deadline = Date.now() + SIGNER_WAIT_MS;
+    while (!get(ndk)?.signer) {
+      if (Date.now() >= deadline) return false;
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    return true;
+  }
+
   async function load() {
     if (!$userPublickey || loading) return;
     loading = true;
+    await signerReady();
     const result = await listScheduled();
     now = Math.floor(Date.now() / 1000);
     lastLoadedAt = Date.now();
