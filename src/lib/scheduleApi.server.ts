@@ -9,8 +9,29 @@ import { json } from '@sveltejs/kit';
 import { POLL_ENDS_AT_TAG, ZAP_POLL_CLOSED_AT_TAG } from './polls';
 import type { Nip98FailureReason } from './nip98.server';
 
-/** Event kinds that may be scheduled (spec §5.1). */
-export const SCHEDULABLE_KINDS = [1, 1068, 6969, 30023, 35000];
+/**
+ * Event kinds that may be scheduled: what the web, Android and iOS
+ * composers can produce. 1 note (and reply), 20 picture (NIP-68),
+ * 21 / 22 video, horizontal / vertical (NIP-71), 1068 poll (NIP-88),
+ * 1111 comment (NIP-22), 6969 zap poll, 30023 long-form.
+ * docs/schedule-contract.md lists these for the client ports.
+ */
+export const SCHEDULABLE_KINDS = [1, 20, 21, 22, 1068, 1111, 6969, 30023];
+
+/**
+ * Kinds that may be scheduled with relay_mode 'pantry'. Anything else
+ * in SCHEDULABLE_KINDS is refused for pantry with
+ * `kind_not_allowed_for_relay_mode`.
+ *
+ * The sweep holds no keys, so it publishes to pantry unauthenticated,
+ * and pantry accepts unauthenticated writes only for the kinds in
+ * `openWriteKinds` (zapcooking/member-relay, relay/writegate.go). This
+ * list must stay a SUBSET of that set: a kind listed here that pantry
+ * does not open is accepted by this API and then rejected by the relay
+ * at publish time, every retry, until the row fails. Adding a kind
+ * here means adding it to openWriteKinds first.
+ */
+export const PANTRY_SCHEDULABLE_KINDS = [1, 1068, 6969, 30023];
 
 /** publish_at window: strictly more than 2 minutes, less than 90 days out. */
 export const MIN_LEAD_SECONDS = 120;
@@ -23,16 +44,19 @@ export const MAX_EVENT_BYTES = 64 * 1024;
 export const POLL_CLOSE_MARGIN_SECONDS = 60;
 
 /** Max pending rows per pubkey. */
-export const MAX_PENDING_PER_PUBKEY = 25;
+export const MAX_PENDING_PER_PUBKEY = 50;
 
 /** Max creates per pubkey per rolling hour (counted by row created_at). */
-export const MAX_CREATES_PER_HOUR = 10;
+export const MAX_CREATES_PER_HOUR = 30;
 
 /** List endpoint row cap. */
 export const LIST_LIMIT = 100;
 
 export const RELAY_MODES = ['all', 'pantry'] as const;
 export type RelayMode = (typeof RELAY_MODES)[number];
+
+export const SCHEDULE_STATUSES = ['pending', 'publishing', 'sent', 'failed', 'cancelled'] as const;
+export type ScheduleStatus = (typeof SCHEDULE_STATUSES)[number];
 
 /** Row shape of the scheduled_events D1 table. */
 export interface ScheduledEventRow {
@@ -43,7 +67,9 @@ export interface ScheduledEventRow {
   relay_mode: RelayMode;
   ciphertext: string;
   iv: string;
-  status: 'pending' | 'publishing' | 'sent' | 'failed' | 'cancelled';
+  /** JSON array of client relay URLs, or null (migration 0012). */
+  relays: string | null;
+  status: ScheduleStatus;
   attempts: number;
   last_error: string | null;
   created_at: number;

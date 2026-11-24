@@ -19,6 +19,7 @@ again.
 | `0009_live_terms_acceptance.sql` | 2026-11-15 (#986) | 2026-11-15 (#986), after #985 was live |
 | `0010_live_metrics.sql` | 2026-11-15 (#991; 25 objects) | 2026-11-15 (#991), after #994 was live (build 4.2.1114) |
 | `0011_live_ended_event.sql` | 2026-11-18 (#1012; 25 objects, columns only) | 2026-11-18 (#1012), before merge; 25 objects, columns only |
+| `0012_add_scheduled_event_relays.sql` | **not applied** — apply before testing scheduling on a preview deployment | **not applied** — apply BEFORE merging the PR that adds it (the API writes this column) |
 
 ## Applying a new migration
 
