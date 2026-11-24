@@ -59,6 +59,20 @@
   import { timerSettings, loadTimerSettings, saveTimerSettings } from '$lib/timerSettings';
   import { get } from 'svelte/store';
   import ClockIcon from 'phosphor-svelte/lib/Clock';
+  import CalendarBlankIcon from 'phosphor-svelte/lib/CalendarBlank';
+  import { signForSchedule, scheduleEvent, scheduleErrorCopy } from '$lib/scheduleClient';
+  import {
+    toLocalInputValue,
+    fromLocalInputValue,
+    pickerBounds,
+    pickedTimeProblem,
+    submitTimeProblem,
+    formatScheduleTime,
+    pollCloseForSchedule,
+    powActive,
+    submitComposedNote,
+    scheduleComposedNote
+  } from '$lib/composerSchedule';
 
   // Clear stuck posts from the publish queue
   async function clearPendingQueue() {
@@ -388,6 +402,66 @@
   let showPollCreator = false;
   let pollConfig: PollConfig | null = null;
   let zapPollConfig: ZapPollConfig | null = null;
+  // When the poll was set up (unix seconds). Its close time is absolute,
+  // worked out from "ends in …" at that moment; a scheduled poll keeps
+  // that duration, counted from its publish time instead.
+  let pollConfiguredAt = 0;
+
+  // ── Schedule ──────────────────────────────────────────────────
+  //
+  // A publish time for THIS note (unix seconds), or null for an ordinary
+  // post. While it is set the note goes to the scheduler and nowhere else:
+  // see submitComposedNote in $lib/composerSchedule. Not saved with the
+  // draft, like the poll: a restored draft is an ordinary post again.
+  let scheduledAt: number | null = null;
+  let showSchedulePicker = false;
+  let scheduleInput = '';
+  let scheduleMin = '';
+  let scheduleMax = '';
+  let schedulePickError = '';
+  let scheduleError = '';
+  const nowSeconds = () => Math.floor(Date.now() / 1000);
+  const SCHEDULE_TIME_COPY = scheduleErrorCopy({ code: 'bad_publish_time' });
+
+  $: scheduleLabel = scheduledAt !== null ? formatScheduleTime(scheduledAt, nowSeconds()) : '';
+  // Proof of work is off whenever a time is set: mining re-stamps
+  // created_at as it runs, which would undo the schedule. The chosen bits
+  // are kept, so clearing the schedule brings them back.
+  $: powOn = powActive({ scheduledAt, powBits });
+
+  function openSchedulePicker() {
+    const now = nowSeconds();
+    const { min, max } = pickerBounds(now);
+    scheduleMin = toLocalInputValue(min);
+    scheduleMax = toLocalInputValue(max);
+    // Start from the time already chosen, or an hour from now on the
+    // next quarter hour.
+    const start =
+      scheduledAt !== null && scheduledAt >= min ? scheduledAt : Math.ceil((now + 3600) / 900) * 900;
+    scheduleInput = toLocalInputValue(start);
+    schedulePickError = '';
+    showSchedulePicker = true;
+  }
+
+  function applySchedulePick() {
+    const picked = fromLocalInputValue(scheduleInput);
+    if (picked === null || pickedTimeProblem(picked, nowSeconds())) {
+      schedulePickError = SCHEDULE_TIME_COPY;
+      return;
+    }
+    scheduledAt = picked;
+    schedulePickError = '';
+    scheduleError = '';
+    showSchedulePicker = false;
+  }
+
+  /** Back to an ordinary post: the next submit publishes now. */
+  function clearSchedule() {
+    scheduledAt = null;
+    schedulePickError = '';
+    scheduleError = '';
+    showSchedulePicker = false;
+  }
 
   const DRAFT_KEY = 'zapcooking_note_draft';
   let draftTimer: ReturnType<typeof setTimeout> | null = null;
@@ -600,6 +674,7 @@
     quotedNote = null;
     pollConfig = null;
     zapPollConfig = null;
+    clearSchedule();
     if (composerEl) {
       composerEl.innerHTML = '';
     }
@@ -764,7 +839,11 @@
 
   function handlePostClick() {
     const settings = get(timerSettings);
-    if (settings.postCountdownEnabled) {
+    // No send countdown for a scheduled post: nothing goes out now, and it
+    // can be cancelled until its time.
+    if (scheduledAt !== null) {
+      postToFeed();
+    } else if (settings.postCountdownEnabled) {
       startCountdown(settings.postCountdownSecs);
     } else {
       postToFeed();
@@ -796,6 +875,16 @@
       error = 'Please sign in to post';
       return;
     }
+
+    // A time picked a while ago may no longer be far enough off. Ask for a
+    // new one before anything is signed.
+    if (scheduledAt !== null && submitTimeProblem(scheduledAt, nowSeconds())) {
+      scheduleError = SCHEDULE_TIME_COPY;
+      openSchedulePicker();
+      schedulePickError = SCHEDULE_TIME_COPY;
+      return;
+    }
+    scheduleError = '';
 
     // One mine at a time. The miner keeps a single worker and its loop
     // never yields, so a second post started underneath the first would sit
@@ -881,52 +970,103 @@
           const relay = $ndk.explicitRelayUrls?.[0] || '';
           event.tags.push(relay ? ['p', $userPublickey, relay] : ['p', $userPublickey]);
         }
-        event.tags.push(...buildZapPollTags(zapPollConfig));
+        event.tags.push(
+          ...buildZapPollTags(
+            scheduledAt !== null
+              ? {
+                  ...zapPollConfig,
+                  closedAt: pollCloseForSchedule(zapPollConfig.closedAt, pollConfiguredAt, scheduledAt)
+                }
+              : zapPollConfig
+          )
+        );
       } else if (pollConfig) {
-        event.tags.push(...buildPollTags(pollConfig));
+        event.tags.push(
+          ...buildPollTags(
+            scheduledAt !== null
+              ? { ...pollConfig, endsAt: pollCloseForSchedule(pollConfig.endsAt, pollConfiguredAt, scheduledAt) }
+              : pollConfig
+          )
+        );
       }
 
       // Determine which relays to publish to
       // Priority: explicit selectedRelay prop (from modal) > activeTab (from feed context)
       const relayMode = selectedRelay || (activeTab === 'members' ? 'pantry' : 'all');
 
-      // ── Proof of work runs OUTSIDE the composer ──
-      //
-      // A mine can take the better part of a minute. Awaiting it here keeps
-      // the editor on screen for the whole wait — and for the modal, keeps
-      // the whole app behind it — so the note is handed to a module-level
-      // service that survives this component, reports into the floating
-      // indicator, and finishes the post on its own.
-      //
-      // The draft is flushed to disk and deliberately kept: a stopped mine
-      // or a failed publish must not cost the reader what they typed. The
-      // service clears it once the relays have the note.
-      if (powBits) {
-        flushDraftSave();
-        void startMinedPost({ event, bits: powBits, relayMode, draftKey: DRAFT_KEY });
+      // One route out, chosen in $lib/composerSchedule: the scheduler when
+      // a publish time is set, otherwise the miner or the publish queue. A
+      // scheduled note never reaches the other two, pass or fail.
+      const submitted = await submitComposedNote(
+        { event, scheduledAt, powBits, relayMode },
+        {
+          // Signs a COPY for the publish time (`event` itself is left
+          // unsigned with created_at unset), then stores it with the
+          // scheduler. The composer stays open until the answer is back, so
+          // a failure leaves everything the person wrote on screen.
+          schedule: (e, publishAt, mode) =>
+            scheduleComposedNote(e, publishAt, mode, { signForSchedule, scheduleEvent }),
+
+          // ── Proof of work runs OUTSIDE the composer ──
+          //
+          // A mine can take the better part of a minute. Awaiting it here
+          // keeps the editor on screen for the whole wait — and for the
+          // modal, keeps the whole app behind it — so the note is handed to
+          // a module-level service that survives this component, reports
+          // into the floating indicator, and finishes the post on its own.
+          //
+          // The draft is flushed to disk and deliberately kept: a stopped
+          // mine or a failed publish must not cost the reader what they
+          // typed. The service clears it once the relays have the note.
+          mine: (e, bits, mode) => {
+            flushDraftSave();
+            void startMinedPost({ event: e, bits, relayMode: mode, draftKey: DRAFT_KEY });
+          },
+
+          // For modal: close immediately so the user can keep browsing;
+          // publish runs in the background and surfaces result via toast +
+          // pending indicator.
+          beforePublish: () => {
+            console.log(`[PostComposer] Publishing with relay mode: ${relayMode}`);
+            if (variant === 'modal') {
+              opId = addPendingOp('Posting...');
+              resetComposerState();
+              dispatch('close');
+            }
+          },
+
+          // Use the resilient publish queue with automatic retry
+          publish: (e, mode) => publishQueue.publishWithRetry(e, mode)
+        }
+      );
+
+      if (submitted.route === 'schedule') {
+        const outcome = submitted.outcome;
+        if (outcome.ok) {
+          showToast(
+            'success',
+            `Scheduled for ${formatScheduleTime(outcome.publishAt, nowSeconds())}`,
+            12000
+          );
+          // Same clearing as a published note: the stored draft goes too.
+          resetComposerState();
+          isComposerOpen = false;
+          if (variant === 'modal') dispatch('close');
+        } else {
+          scheduleError = scheduleErrorCopy(outcome);
+          if (outcome.code === 'bad_publish_time') openSchedulePicker();
+        }
+        return;
+      }
+
+      if (submitted.route === 'mine') {
         resetComposerState(true);
         isComposerOpen = false;
-        posting = false;
-        dispatch('posting', false);
         if (variant === 'modal') dispatch('close');
         return;
       }
 
-      console.log(`[PostComposer] Publishing with relay mode: ${relayMode}`);
-      console.log('[PostComposer] Event content:', event.content);
-      console.log('[PostComposer] Event tags:', event.tags);
-
-      // For modal: close immediately so the user can keep browsing; publish runs
-      // in the background and surfaces result via toast + pending indicator.
-      if (variant === 'modal') {
-        opId = addPendingOp('Posting...');
-        resetComposerState();
-        dispatch('close');
-      }
-
-      // Use the resilient publish queue with automatic retry
-      console.log('[PostComposer] Calling publishQueue.publishWithRetry...');
-      const result = await publishQueue.publishWithRetry(event, relayMode);
+      const result = submitted.result;
       console.log('[PostComposer] Publish result:', result);
 
       if (result.success) {
@@ -1507,16 +1647,72 @@
               <button
                 on:click={cyclePow}
                 class="tool-btn pow-btn"
-                class:opacity-50={posting || showCountdown}
-                disabled={posting || showCountdown}
-                title={powBits
-                  ? `Mining ${powBits} bits of proof of work into this note. ${powLevelFor(powBits).cost}`
-                  : 'Proof of work: off. Tap to mine some into this note.'}
-                aria-label={powBits ? `Proof of work: ${powBits} bits` : 'Proof of work: off'}
+                class:opacity-50={posting || showCountdown || scheduledAt !== null}
+                disabled={posting || showCountdown || scheduledAt !== null}
+                title={scheduledAt !== null
+                  ? 'Proof of work is off for a scheduled post: mining would change its time.'
+                  : powBits
+                    ? `Mining ${powBits} bits of proof of work into this note. ${powLevelFor(powBits).cost}`
+                    : 'Proof of work: off. Tap to mine some into this note.'}
+                aria-label={scheduledAt !== null
+                  ? 'Proof of work: off for a scheduled post'
+                  : powBits
+                    ? `Proof of work: ${powBits} bits`
+                    : 'Proof of work: off'}
               >
-                <HammerIcon size={20} class={powBits ? 'text-primary' : 'text-caption'} />
-                {#if powBits}<span class="pow-bits">{powBits}</span>{/if}
+                <HammerIcon size={20} class={powOn ? 'text-primary' : 'text-caption'} />
+                {#if powOn}<span class="pow-bits">{powBits}</span>{/if}
               </button>
+
+              <!-- Schedule this note for later. A calendar, not a clock: the
+                   clock on the right is the send countdown. -->
+              {#if $userPublickey}
+                <div class="schedule-wrap" use:clickOutside on:click_outside={() => (showSchedulePicker = false)}>
+                  <button
+                    type="button"
+                    class="tool-btn"
+                    class:opacity-50={posting || showCountdown}
+                    disabled={posting || showCountdown}
+                    aria-haspopup="dialog"
+                    aria-expanded={showSchedulePicker}
+                    aria-label={scheduledAt !== null ? `Scheduled for ${scheduleLabel}. Change time` : 'Schedule for later'}
+                    title={scheduledAt !== null ? `Scheduled for ${scheduleLabel}` : 'Schedule for later'}
+                    on:click={() => (showSchedulePicker ? (showSchedulePicker = false) : openSchedulePicker())}
+                  >
+                    <CalendarBlankIcon size={20} class={scheduledAt !== null ? 'text-primary' : 'text-caption'} />
+                  </button>
+                  {#if showSchedulePicker}
+                    <div class="schedule-popover" role="dialog" aria-label="Schedule this post">
+                      <label class="schedule-popover-label" for="composer-schedule-{variant}">Post at</label>
+                      <input
+                        id="composer-schedule-{variant}"
+                        class="schedule-input"
+                        type="datetime-local"
+                        bind:value={scheduleInput}
+                        min={scheduleMin}
+                        max={scheduleMax}
+                        on:keydown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            applySchedulePick();
+                          }
+                        }}
+                      />
+                      {#if schedulePickError}
+                        <p class="schedule-popover-error" role="alert">{schedulePickError}</p>
+                      {:else}
+                        <p class="schedule-popover-hint">Your local time. From 5 minutes to 90 days from now.</p>
+                      {/if}
+                      <div class="schedule-popover-actions">
+                        {#if scheduledAt !== null}
+                          <button type="button" class="schedule-popover-clear" on:click={clearSchedule}>Clear</button>
+                        {/if}
+                        <button type="button" class="schedule-popover-set" on:click={applySchedulePick}>Set time</button>
+                      </div>
+                    </div>
+                  {/if}
+                </div>
+              {/if}
             </div>
 
             <!-- Right: status indicators -->
@@ -1584,6 +1780,37 @@
             </div>
           </div>
 
+          <!-- The chosen publish time, with a way back to an ordinary post. -->
+          {#if scheduledAt !== null}
+            <div class="schedule-chip">
+              <CalendarBlankIcon size={16} class="flex-shrink-0" />
+              <button
+                type="button"
+                class="schedule-chip-time"
+                on:click={openSchedulePicker}
+                disabled={posting}
+                title="Change time"
+              >
+                Will post {scheduleLabel}
+              </button>
+              <button
+                type="button"
+                class="schedule-chip-clear"
+                on:click={clearSchedule}
+                disabled={posting}
+                aria-label="Clear schedule and post now instead"
+                title="Clear schedule"
+              >
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          {/if}
+          {#if scheduleError}
+            <p class="text-red-500 text-xs" role="alert">{scheduleError}</p>
+          {/if}
+
           <!-- Row 2: cancel + post — same layout in both states -->
           <div class="composer-action-row">
             <!-- Cancel / X — same pill in both states -->
@@ -1615,7 +1842,11 @@
                 disabled={posting || uploadingImage || uploadingVideo || $miningOp !== null ||
                   (!content.trim() && media.length === 0 && !quotedNote && !pollConfig && !zapPollConfig)}
               >
-                {posting ? 'Posting…' : 'Post'}
+                {#if scheduledAt !== null}
+                  {posting ? 'Scheduling…' : 'Schedule'}
+                {:else}
+                  {posting ? 'Posting…' : 'Post'}
+                {/if}
               </button>
             {/if}
 
@@ -1684,10 +1915,12 @@
   on:create={(e) => {
     pollConfig = e.detail;
     zapPollConfig = null;
+    pollConfiguredAt = nowSeconds();
   }}
   on:createZapPoll={(e) => {
     zapPollConfig = e.detail;
     pollConfig = null;
+    pollConfiguredAt = nowSeconds();
   }}
 />
 
@@ -2200,6 +2433,135 @@
     padding: 0.375rem;
     border-radius: 9999px;
     transition: background 0.15s;
+  }
+
+  /* ── Schedule ── same surface as the send-countdown popover ───── */
+  .schedule-wrap {
+    position: relative;
+    display: flex;
+  }
+
+  .schedule-popover {
+    position: absolute;
+    bottom: calc(100% + 0.5rem);
+    left: 0;
+    z-index: 50;
+    width: min(17rem, calc(100vw - 2rem));
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.75rem;
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-input-border);
+    border-radius: 0.75rem;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  }
+
+  .schedule-popover-label {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--color-text-primary);
+  }
+
+  .schedule-input {
+    width: 100%;
+    padding: 0.4375rem 0.5rem;
+    font-size: 1rem; /* 16px: no zoom-on-focus on iOS */
+    color: var(--color-text-primary);
+    background: var(--color-input-bg);
+    border: 1px solid var(--color-input-border);
+    border-radius: 0.5rem;
+    color-scheme: light dark;
+  }
+
+  .schedule-input:focus {
+    outline: none;
+    border-color: var(--color-primary);
+  }
+
+  .schedule-popover-hint {
+    font-size: 0.75rem;
+    color: var(--color-caption);
+  }
+
+  .schedule-popover-error {
+    font-size: 0.75rem;
+    color: #ef4444;
+  }
+
+  .schedule-popover-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+  }
+
+  .schedule-popover-clear,
+  .schedule-popover-set {
+    padding: 0.375rem 0.875rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    border-radius: 9999px;
+  }
+
+  .schedule-popover-clear {
+    color: var(--color-text-secondary);
+  }
+
+  .schedule-popover-clear:hover {
+    background: var(--color-hover-bg);
+    color: var(--color-text-primary);
+  }
+
+  .schedule-popover-set {
+    color: #fff;
+    background: var(--color-action);
+  }
+
+  .schedule-popover-set:hover {
+    background: var(--color-action-hover);
+  }
+
+  .schedule-chip {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    align-self: flex-start;
+    max-width: 100%;
+    padding: 0.25rem 0.375rem 0.25rem 0.625rem;
+    font-size: 0.8125rem;
+    color: var(--color-primary);
+    background: var(--color-input-bg);
+    border: 1px solid var(--color-input-border);
+    border-radius: 9999px;
+  }
+
+  .schedule-chip-time {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+    color: var(--color-text-primary);
+  }
+
+  .schedule-chip-time:hover:not(:disabled) {
+    text-decoration: underline;
+  }
+
+  .schedule-chip-clear {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    flex-shrink: 0;
+    border-radius: 9999px;
+    color: var(--color-text-secondary);
+  }
+
+  .schedule-chip-clear:hover:not(:disabled) {
+    color: var(--color-text-primary);
+    background: var(--color-hover-bg);
   }
 
   .tool-btn:hover:not(:disabled) {
