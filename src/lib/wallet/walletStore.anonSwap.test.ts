@@ -16,7 +16,9 @@ import fixture from '../../test/fixtures/vault-v1.json';
 vi.mock('$app/environment', () => ({ browser: true }));
 vi.mock('$lib/sessionCleanup', () => ({
   clearAccountData: vi.fn().mockResolvedValue(undefined),
-  clearAccountLocalStorage: vi.fn()
+  clearAccountLocalStorage: vi.fn(),
+  clearAccountDataForUserChange: vi.fn(() => false),
+  onAccountDataReset: vi.fn(() => () => {})
 }));
 vi.mock('./nip89', () => ({ addClientTagToEvent: vi.fn() }));
 vi.mock('$lib/nip89', () => ({ addClientTagToEvent: vi.fn() }));

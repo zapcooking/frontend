@@ -16,6 +16,14 @@ import fixture from '../test/fixtures/vault-v1.json';
 
 vi.mock('$app/environment', () => ({ browser: true }));
 
+// The signup pubkey is always "new" to the device, so the user-change
+// guard fires and its IndexedDB step would pull the real queue/cache
+// modules (and their timers) into this unit test. Stub them like
+// authManager.passkey.test.ts does.
+vi.mock('$lib/groupCacheStorage', () => ({ groupCache: { clearAll: vi.fn() } }));
+vi.mock('$lib/publishQueue', () => ({ publishQueue: { clearQueue: vi.fn() } }));
+vi.mock('$lib/offlineStorage', () => ({ offlineStorage: { clearAll: vi.fn() } }));
+
 vi.mock('./passkeySync', async (importOriginal: () => Promise<unknown>) => {
   const real = (await importOriginal()) as Record<string, unknown>;
   return { ...real, PASSKEY_SYNC_ENABLED: true, PASSKEY_SIGNUP_ENABLED: true };

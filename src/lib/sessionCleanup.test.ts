@@ -19,8 +19,10 @@ vi.mock('$lib/offlineStorage', () => ({ offlineStorage }));
 
 import {
   clearAccountData,
+  clearAccountDataForUserChange,
   clearAccountLocalStorage,
-  clearStartSectionCookie
+  clearStartSectionCookie,
+  onAccountDataReset
 } from './sessionCleanup';
 
 let store: Map<string, string>;
@@ -73,6 +75,7 @@ function seedAccountData() {
   store.set('zapcooking_cached_balance_2', '9000');
   store.set('spark_wallet_aaaa', 'ciphertext-a');
   store.set('spark_wallet_bbbb', 'ciphertext-b');
+  store.set('spark_lightning_address', 'old@zap.cooking');
   // Must survive: the vault is removed by an explicit settings action.
   store.set('nostrcooking_vault_v1', 'vault-record');
   store.set('unrelated_key', 'keep-me');
@@ -92,6 +95,7 @@ describe('clearAccountLocalStorage', () => {
     expect(store.has('zapcooking_cached_balance_2')).toBe(false);
     expect(store.has('spark_wallet_aaaa')).toBe(false);
     expect(store.has('spark_wallet_bbbb')).toBe(false);
+    expect(store.has('spark_lightning_address')).toBe(false);
   });
 
   it('leaves the passkey vault record and unrelated keys alone', () => {
@@ -150,5 +154,118 @@ describe('clearStartSectionCookie', () => {
 
     expect(cookieWrites).toHaveLength(1);
     expect(expiresStartSectionCookie(cookieWrites[0])).toBe(true);
+  });
+});
+
+describe('onAccountDataReset', () => {
+  it('runs registered handlers when account data is wiped', () => {
+    const reset = vi.fn();
+    const unsubscribe = onAccountDataReset(reset);
+
+    clearAccountLocalStorage();
+
+    expect(reset).toHaveBeenCalledTimes(1);
+    unsubscribe();
+  });
+
+  it('keeps going when a handler throws', () => {
+    const first = vi.fn(() => {
+      throw new Error('store stuck');
+    });
+    const second = vi.fn();
+    onAccountDataReset(first);
+    onAccountDataReset(second);
+
+    expect(() => clearAccountLocalStorage()).not.toThrow();
+    expect(second).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops calling a handler after unsubscribe', () => {
+    const reset = vi.fn();
+    const unsubscribe = onAccountDataReset(reset);
+    unsubscribe();
+
+    clearAccountLocalStorage();
+
+    expect(reset).not.toHaveBeenCalled();
+  });
+});
+
+describe('clearAccountDataForUserChange', () => {
+  const OLD = 'a'.repeat(64);
+  const NEW = 'b'.repeat(64);
+
+  /** Let the fire-and-forget IndexedDB clears run. */
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it('wipes account data when a different pubkey authenticates', async () => {
+    seedAccountData();
+
+    expect(clearAccountDataForUserChange(NEW)).toBe(true);
+
+    expect(store.has('zapcooking_wallets')).toBe(false);
+    expect(store.has('spark_wallet_aaaa')).toBe(false);
+    expect(store.has('spark_lightning_address')).toBe(false);
+    expect(store.get('nostrcooking_lastUserPubkey')).toBe(NEW);
+    // The wipe is the same one logout runs — databases included.
+    await flush();
+    expect(groupCache.clearAll).toHaveBeenCalledTimes(1);
+    expect(publishQueue.clearQueue).toHaveBeenCalledTimes(1);
+    expect(offlineStorage.clearAll).toHaveBeenCalledTimes(1);
+  });
+
+  it('does nothing when the same pubkey re-authenticates', () => {
+    seedAccountData();
+    store.set('nostrcooking_lastUserPubkey', OLD);
+
+    expect(clearAccountDataForUserChange(OLD)).toBe(false);
+
+    expect(store.get('zapcooking_wallets')).toBe('[{"id":1}]');
+    expect(groupCache.clearAll).not.toHaveBeenCalled();
+  });
+
+  it('adopts the stored session without wiping when no record exists', () => {
+    // Upgrade path: every client that predates the record has account
+    // data and a stored session but no last-user name. The first auth
+    // after the update IS that same user — wiping here would destroy
+    // their wallets on a routine page load.
+    seedAccountData();
+    store.set('nostrcooking_loggedInPublicKey', OLD);
+
+    expect(clearAccountDataForUserChange(OLD)).toBe(false);
+
+    expect(store.get('zapcooking_wallets')).toBe('[{"id":1}]');
+    expect(store.get('spark_wallet_aaaa')).toBe('ciphertext-a');
+    expect(store.get('nostrcooking_lastUserPubkey')).toBe(OLD);
+  });
+
+  it('wipes on the very first sign-in (no record, no stored session)', async () => {
+    seedAccountData();
+
+    expect(clearAccountDataForUserChange(NEW)).toBe(true);
+
+    expect(store.has('zapcooking_wallets')).toBe(false);
+    await flush();
+    expect(groupCache.clearAll).toHaveBeenCalledTimes(1);
+  });
+
+  it('never fires without a pubkey', () => {
+    seedAccountData();
+
+    expect(clearAccountDataForUserChange('')).toBe(false);
+    expect(store.has('zapcooking_wallets')).toBe(true);
+  });
+
+  it('the last-user record survives logout', async () => {
+    store.set('nostrcooking_lastUserPubkey', OLD);
+    seedAccountData();
+
+    await clearAccountData();
+
+    // Same-user re-login must not re-clear, and a different user signing
+    // in next must still be detectable.
+    expect(store.get('nostrcooking_lastUserPubkey')).toBe(OLD);
+    expect(clearAccountDataForUserChange(OLD)).toBe(false);
+    expect(clearAccountDataForUserChange(NEW)).toBe(true);
   });
 });

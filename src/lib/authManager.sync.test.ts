@@ -9,6 +9,14 @@ import fixture from '../test/fixtures/vault-v1.json';
 
 vi.mock('$app/environment', () => ({ browser: true }));
 
+// The user-change guard wipes account data when this suite signs in a
+// different account; its IndexedDB step would pull the real queue/cache
+// modules (which this file's partial NDK mock cannot evaluate) into a
+// unit test. Stub them like authManager.passkey.test.ts does.
+vi.mock('$lib/groupCacheStorage', () => ({ groupCache: { clearAll: vi.fn() } }));
+vi.mock('$lib/publishQueue', () => ({ publishQueue: { clearQueue: vi.fn() } }));
+vi.mock('$lib/offlineStorage', () => ({ offlineStorage: { clearAll: vi.fn() } }));
+
 vi.mock('./passkeySync', async (importOriginal: () => Promise<unknown>) => {
   const real = (await importOriginal()) as Record<string, unknown>;
   return { ...real, PASSKEY_SYNC_ENABLED: true };
