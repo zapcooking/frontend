@@ -1,5 +1,6 @@
 import { writable } from 'svelte/store';
 import type { NDKEvent } from '@nostr-dev-kit/ndk';
+import type { ComposerRestore } from './scheduledList';
 
 export const postComposerOpen = writable(false);
 
@@ -26,6 +27,19 @@ export const composerPrefillText = writable<string | null>(null);
 
 export function openComposerWithText(text: string) {
   composerPrefillText.set(text);
+  postComposerOpen.set(true);
+}
+
+/**
+ * A scheduled post on its way back into the composer (Reschedule, in My
+ * Kitchen › Scheduled). The text and attachments travel as the
+ * composer's stored draft; this carries the rest: the poll, the relay
+ * mode and the time. The composer takes it once on open and clears it.
+ */
+export const composerRestore = writable<ComposerRestore | null>(null);
+
+export function openComposerRestored(restore: ComposerRestore) {
+  composerRestore.set(restore);
   postComposerOpen.set(true);
 }
 

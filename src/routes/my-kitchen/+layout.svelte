@@ -11,6 +11,7 @@
   import CalendarBlankIcon from 'phosphor-svelte/lib/CalendarBlank';
   import BasketIcon from 'phosphor-svelte/lib/Basket';
   import LeafIcon from 'phosphor-svelte/lib/Leaf';
+  import ClockCountdownIcon from 'phosphor-svelte/lib/ClockCountdown';
 
   const sections = [
     {
@@ -45,6 +46,12 @@
       label: 'Nourish',
       icon: LeafIcon,
       match: (p: string) => p.startsWith('/my-kitchen/nourish')
+    },
+    {
+      href: '/my-kitchen/scheduled',
+      label: 'Scheduled',
+      icon: ClockCountdownIcon,
+      match: (p: string) => p.startsWith('/my-kitchen/scheduled')
     }
   ];
 </script>

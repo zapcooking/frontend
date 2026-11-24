@@ -30,7 +30,7 @@
     toggleHashtag
   } from '$lib/hashtagPills';
   import type { NDKEvent as NDKEventType } from '@nostr-dev-kit/ndk';
-  import { clearQuotedNote, composerPrefillText, postComposerOpen } from '$lib/postComposerStore';
+  import { clearQuotedNote, composerPrefillText, composerRestore, postComposerOpen } from '$lib/postComposerStore';
   import { appendPrefill } from '$lib/live/share';
   import { requireAuth, signedIn } from '$lib/auth/requireAuth';
   import { publishQueue, publishQueueState } from '$lib/publishQueue';
@@ -619,6 +619,19 @@
         content = appendPrefill(content, prefill);
         composerPrefillText.set(null);
       }
+      // A scheduled post reopened from My Kitchen › Scheduled. Its text and
+      // attachments arrived as the stored draft restored above; this is the
+      // rest. The old time is kept only if it is still far enough off, and
+      // the picker opens either way: picking a time is why they are here.
+      const restore = get(composerRestore);
+      if (restore) {
+        composerRestore.set(null);
+        pollConfig = restore.poll;
+        zapPollConfig = restore.zapPoll;
+        pollConfiguredAt = nowSeconds();
+        scheduledAt = pickedTimeProblem(restore.publishAt, nowSeconds()) ? null : restore.publishAt;
+        if (restore.openPicker) openSchedulePicker();
+      }
       focusComposer();
     }
   });
@@ -1046,8 +1059,11 @@
           showToast(
             'success',
             `Scheduled for ${formatScheduleTime(outcome.publishAt, nowSeconds())}`,
-            12000
+            12000,
+            { label: 'View scheduled', href: '/my-kitchen/scheduled' }
           );
+          // The Scheduled list, if it is on screen, refetches.
+          window.dispatchEvent(new CustomEvent('zc:scheduled-changed'));
           // Same clearing as a published note: the stored draft goes too.
           resetComposerState();
           isComposerOpen = false;
