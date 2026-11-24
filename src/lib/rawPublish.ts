@@ -25,6 +25,15 @@
  * - per-relay timeout (default 10 s) keeps the worst case well inside
  *   the sweep's 25 s tick budget;
  * - the socket is closed in every path.
+ *
+ * EARLY SETTLE (opt-in, publishEventRaw only): by default the set
+ * resolves when every relay has settled, so one relay that never
+ * answers costs the full per-relay timeout. A caller publishing many
+ * events against a deadline (the sweep) can pass `graceAfterFirstOkMs`
+ * and/or `hardCapMs` to stop waiting sooner. Relays still pending at
+ * that point are abandoned: their sockets are closed and they are not
+ * counted. An abandoned relay that had already been sent the EVENT may
+ * still store it — abandoning stops the wait, it cannot unsend.
  */
 
 export const PER_RELAY_TIMEOUT_MS = 10_000;
@@ -47,6 +56,24 @@ export interface PublishOptions {
   timeoutMs?: number;
   /** Tests inject a scripted fake; production uses `new WebSocket(url)`. */
   wsFactory?: WebSocketFactory;
+  /**
+   * Early settle: once the first relay answers OK true, wait at most
+   * this long for the others, then stop. Unset (the default) waits for
+   * every relay. An OK false never starts the grace period.
+   */
+  graceAfterFirstOkMs?: number;
+  /**
+   * Early settle: stop this long after the publish started, whatever
+   * has or has not answered. Unset (the default) means no cap beyond
+   * the per-relay timeout.
+   */
+  hardCapMs?: number;
+}
+
+/** Minimal AbortSignal surface publishToRelay needs. */
+export interface AbortSignalLike {
+  readonly aborted: boolean;
+  addEventListener(type: 'abort', listener: () => void): void;
 }
 
 /**
@@ -54,14 +81,22 @@ export interface PublishOptions {
  * message's reason field (usually '') on OK true; rejects with the
  * relay's verbatim reason on OK false, or a descriptive error on
  * timeout / connection failure.
+ *
+ * `signal` lets the caller give up on this relay: on abort the socket
+ * is closed and the promise rejects, unless it has already settled.
  */
 export function publishToRelay(
   url: string,
   event: SignedEventLike,
   timeoutMs: number,
-  wsFactory: WebSocketFactory
+  wsFactory: WebSocketFactory,
+  signal?: AbortSignalLike
 ): Promise<string> {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error(`abandoned before OK (${url})`));
+      return;
+    }
     let ws: WebSocketLike;
     try {
       ws = wsFactory(url);
@@ -85,6 +120,10 @@ export function publishToRelay(
       }
       settle();
     };
+
+    signal?.addEventListener('abort', () => {
+      finish(() => reject(new Error(`abandoned before OK (${url})`)));
+    });
 
     ws.addEventListener('open', () => {
       try {
@@ -121,11 +160,23 @@ export function publishToRelay(
   });
 }
 
+/** A usable early-settle duration: a finite number of milliseconds, zero or more. */
+function durationOrUndefined(ms: number | undefined): number | undefined {
+  return typeof ms === 'number' && Number.isFinite(ms) && ms >= 0 ? ms : undefined;
+}
+
 /**
  * Publish to a relay set concurrently. Resolves with the number of
- * relays that accepted (≥1 — the sweep's "sent" criterion). When ALL
- * relays fail, throws with the first relay's verbatim failure reason,
- * which the sweep stores as last_error.
+ * relays that accepted (≥1 — the sweep's "sent" criterion). When no
+ * relay accepted, throws with the first relay's verbatim failure
+ * reason, which the sweep stores as last_error.
+ *
+ * Settles when every relay has settled, or — only if the caller opts
+ * in — `graceAfterFirstOkMs` after the first OK true, or `hardCapMs`
+ * after the start, whichever comes first. Relays still pending are
+ * then abandoned (socket closed, not counted). When nothing accepted,
+ * a reason a relay actually gave is preferred over an abandonment, so
+ * an OK false is never hidden behind a relay that did not answer.
  */
 export async function publishEventRaw(
   event: SignedEventLike,
@@ -134,17 +185,60 @@ export async function publishEventRaw(
 ): Promise<number> {
   const timeoutMs = opts.timeoutMs ?? PER_RELAY_TIMEOUT_MS;
   const wsFactory = opts.wsFactory ?? ((url: string) => new WebSocket(url) as WebSocketLike);
+  const graceMs = durationOrUndefined(opts.graceAfterFirstOkMs);
+  const capMs = durationOrUndefined(opts.hardCapMs);
 
-  const results = await Promise.allSettled(
-    relays.map((url) => publishToRelay(url, event, timeoutMs, wsFactory))
+  type Outcome = { ok: true } | { ok: false; reason: unknown };
+  const outcomes: (Outcome | undefined)[] = relays.map(() => undefined);
+  const controller = new AbortController();
+  let stopped = false;
+  let stop: () => void = () => {};
+  const stopEarly = new Promise<void>((resolve) => {
+    stop = resolve;
+  });
+  let graceTimer: ReturnType<typeof setTimeout> | undefined;
+  let capTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const allSettled = Promise.all(
+    relays.map((url, i) =>
+      publishToRelay(url, event, timeoutMs, wsFactory, controller.signal).then(
+        () => {
+          if (stopped) return;
+          outcomes[i] = { ok: true };
+          if (graceMs !== undefined && graceTimer === undefined) {
+            graceTimer = setTimeout(stop, graceMs);
+          }
+        },
+        (reason: unknown) => {
+          // After the stop, rejections are our own abandonments.
+          if (stopped) return;
+          outcomes[i] = { ok: false, reason };
+        }
+      )
+    )
   );
-  const okCount = results.filter((r) => r.status === 'fulfilled').length;
+  if (capMs !== undefined) capTimer = setTimeout(stop, capMs);
+
+  await Promise.race([allSettled, stopEarly]);
+  stopped = true;
+  clearTimeout(graceTimer);
+  clearTimeout(capTimer);
+  // Closes every socket still open. A no-op for relays that settled.
+  controller.abort();
+
+  const okCount = outcomes.filter((o) => o?.ok === true).length;
   if (okCount === 0) {
-    const first = results.find((r) => r.status === 'rejected') as
-      | PromiseRejectedResult
+    const first = outcomes.find((o) => o !== undefined && !o.ok) as
+      | { ok: false; reason: unknown }
       | undefined;
-    const reason =
-      first?.reason instanceof Error ? first.reason.message : String(first?.reason ?? 'no relay accepted');
+    const abandoned = outcomes.filter((o) => o === undefined).length;
+    const reason = first
+      ? first.reason instanceof Error
+        ? first.reason.message
+        : String(first.reason ?? 'no relay accepted')
+      : abandoned > 0
+        ? `no relay answered before the publish was abandoned (${abandoned} pending)`
+        : 'no relay accepted';
     throw new Error(reason.slice(0, 500));
   }
   return okCount;
