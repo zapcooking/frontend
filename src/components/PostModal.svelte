@@ -2,12 +2,16 @@
   import Modal from './Modal.svelte';
   import PostComposer from './PostComposer.svelte';
   import CloseIcon from 'phosphor-svelte/lib/XCircle';
-  import { quotedNoteStore, clearQuotedNote, noteDraftDocked } from '$lib/postComposerStore';
+  import { quotedNoteStore, clearQuotedNote, noteDraftDocked, composerRestore } from '$lib/postComposerStore';
 
   export let open = false;
 
   type RelaySelection = 'all' | 'pantry';
   let selectedRelay: RelaySelection = 'all';
+
+  // A rescheduled post comes back with the relay mode it was scheduled
+  // with. Read here, before the composer mounts and clears the store.
+  $: if ($composerRestore) selectedRelay = $composerRestore.relayMode;
 
   let composer: PostComposer;
   let isPosting = false;
