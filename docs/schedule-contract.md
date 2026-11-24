@@ -257,6 +257,18 @@ would be scheduled twice.
   runs, which would move the post to "now". Turn mining off whenever a publish time is set.
 - Sign once. The stored event is the one that will be published, byte for byte.
 
+## Known limitations
+
+- **Tagged people's inbox relays are not used.** A scheduled quote, reply or mention is broadcast
+  only to the two fixed relays plus the author's own `relays`. It is **not** sent to the NIP-65
+  inbox (read) relays of the people it tags, which a client posting immediately would normally
+  add. The quoted or mentioned person is notified only if they read one of the relays the post
+  did reach. Clients must not assume inbox delivery for scheduled posts, and should not spend the
+  four `relays` places on recipients' inbox relays unless they mean to: the author's own write
+  relays come first.
+- **The quoted note may be gone by publish time.** The server does not check that an event a
+  scheduled post refers to still exists when it goes out.
+
 ## Privacy
 
 The event is stored encrypted at rest (AES-256-GCM) until it is published and is returned only to
