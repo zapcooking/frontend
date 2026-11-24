@@ -297,12 +297,11 @@ export async function signForSchedule(
     // A fresh event with copies of the tag arrays: signing fills in
     // pubkey, id and sig and may add tags, all on the copy. Nothing is
     // carried over from an earlier signature of the original.
-    const copy = new NDKEvent(event.ndk, {
-      kind: event.kind,
-      content: event.content,
-      tags: event.tags.map((tag) => [...tag]),
-      created_at: publishAt
-    });
+    const copy = new NDKEvent(event.ndk);
+    copy.kind = event.kind;
+    copy.content = event.content;
+    copy.tags = event.tags.map((tag) => [...tag]);
+    copy.created_at = publishAt;
     await copy.sign();
     raw = copy.rawEvent() as NostrEvent;
   } catch (err) {
