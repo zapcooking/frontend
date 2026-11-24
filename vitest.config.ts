@@ -31,7 +31,7 @@ export default defineConfig({
 		}
 	},
 	test: {
-		include: ['src/**/*.test.ts', 'workers/**/*.test.ts'],
+		include: ['src/**/*.test.ts', 'workers/**/*.test.ts', 'scripts/**/*.test.ts'],
 		exclude: ['src/lib/clientTag.test.ts', 'src/lib/zapAmount.test.ts', 'node_modules/**']
 	}
 });
