@@ -1,0 +1,21 @@
+-- Migration 0012 — Scheduled Posts: the client's own relays, per row.
+--
+-- Additive only: one new nullable column on scheduled_events. Existing
+-- rows read NULL, which means "no client relays" (the sweep's floor
+-- relays only). Nothing existing is altered.
+--
+-- Database: zapcooking-scheduler (D1), binding SCHEDULER_DB. Apply by
+-- hand, preview first — see APPLIED.md. Apply this BEFORE the code that
+-- uses it is live: POST /api/schedule writes the column and GET reads
+-- it, so both answer 500 `internal` while it is missing, and the cron
+-- sweep's due-row SELECT fails the same way.
+--
+-- scheduled_events.relays: a JSON array of up to 4 relay URLs the
+-- client asked the event to be broadcast to (wss:// only, public
+-- hostnames, normalized, no duplicates), or NULL for none. Validated
+-- before it is stored (src/lib/scheduleRelays.ts). Used only when
+-- relay_mode is 'all', where the sweep publishes to these in addition
+-- to its floor relays; always NULL for 'pantry' rows. The URLs are the
+-- author's own choice of relays and are returned only to the author.
+
+ALTER TABLE scheduled_events ADD COLUMN relays TEXT;

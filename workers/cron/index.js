@@ -12,7 +12,7 @@
  * trigger and for manual `wrangler triggers` invocations.
  */
 
-import { sweepDueEvents } from './sweep';
+import { sweepDueEvents, SWEEP_PUBLISH_OPTIONS } from './sweep';
 import { publishEventRaw } from './publisher';
 import { runDeletionDigest } from './deletionDigest';
 import { ADMIN_PUBKEY } from '../../src/lib/adminAuth';
@@ -56,7 +56,11 @@ async function deletionDigest(env) {
   }
 }
 
-async function runSweepTick(env) {
+/**
+ * `publishImpl` is injectable so a test can see exactly what the sweep
+ * hands the publisher; production always uses publishEventRaw.
+ */
+export async function runSweepTick(env, publishImpl = publishEventRaw) {
   if (!env.SCHEDULER_DB || !env.SCHEDULE_ENC_KEY) {
     console.error('[Sweep] SCHEDULER_DB / SCHEDULE_ENC_KEY not configured — skipping tick');
     return;
@@ -70,10 +74,15 @@ async function runSweepTick(env) {
   // sockets in every path, and throws the first relay's verbatim
   // failure reason when nothing accepts — which sweep.ts records as
   // last_error.
+  //
+  // SWEEP_PUBLISH_OPTIONS (sweep.ts) makes each row settle early: a
+  // grace period after the first OK true, or a hard cap, instead of
+  // waiting out a silent relay. The deletion digest above does not opt
+  // in and still waits for every relay.
   const summary = await sweepDueEvents({
     db: env.SCHEDULER_DB,
     encKeyHex: env.SCHEDULE_ENC_KEY,
-    publish: (event, relays) => publishEventRaw(event, relays)
+    publish: (event, relays) => publishImpl(event, relays, SWEEP_PUBLISH_OPTIONS)
   });
   if (summary.due > 0) console.log('[Sweep]', JSON.stringify(summary));
 }
