@@ -8,7 +8,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import NDK, { NDKEvent, NDKPrivateKeySigner, type NDKSigner, type NostrEvent as NDKRawEvent } from '@nostr-dev-kit/ndk';
-import { finalizeEvent, generateSecretKey, getPublicKey, verifyEvent, type Event } from 'nostr-tools';
+import { finalizeEvent, generateSecretKey, getPublicKey, nip19, verifyEvent, type Event } from 'nostr-tools';
 import {
   signForSchedule,
   scheduleEvent,
@@ -186,14 +186,100 @@ describe('signForSchedule', () => {
     expect(Object.keys(result.event).sort()).toEqual(['content', 'created_at', 'id', 'kind', 'pubkey', 'sig', 'tags']);
   });
 
-  it('overrides a created_at the event already had', async () => {
+  it('signs with the publish time even when the event already had a created_at', async () => {
     const event = draft(new NDKPrivateKeySigner(sk));
     event.created_at = NOW - 500;
     const result = await signForSchedule(event, publishAt, signDeps());
     expect(result.ok && result.event.created_at).toBe(publishAt);
+    expect(event.created_at).toBe(NOW - 500);
   });
 
-  it('re-signing for a new time replaces the old id and signature', async () => {
+  /** Everything a later "publish now" would send or sign over. */
+  const snapshot = (e: NDKEvent) =>
+    JSON.parse(
+      JSON.stringify({
+        created_at: e.created_at ?? null,
+        id: e.id ?? null,
+        sig: e.sig ?? null,
+        pubkey: e.pubkey ?? null,
+        kind: e.kind,
+        content: e.content,
+        tags: e.tags
+      })
+    );
+
+  // A `for` loop, not it.each: the each helpers don't typecheck under this repo's svelte-check.
+  for (const [outcome, makeSigner, extra] of [
+    ['success', () => new NDKPrivateKeySigner(sk), {}],
+    ['sign_failed (signer refuses)', () => new RefusingSigner(sk), {}],
+    ['signer_changed_event', () => new RedatingSigner(sk), {}],
+    [
+      'sign_failed (waking the signer throws)',
+      () => new NDKPrivateKeySigner(sk),
+      {
+        prepareSigner: async () => {
+          throw new Error('bunker unreachable');
+        }
+      }
+    ]
+  ] as [string, () => NDKSigner, Partial<ScheduleClientDeps>][]) {
+    it(`the input event is unchanged after ${outcome}`, async () => {
+      const event = draft(makeSigner());
+      const tagsRef = event.tags;
+      const firstTagRef = event.tags[0];
+      const before = snapshot(event);
+      expect(before.created_at).toBeNull(); // an ordinary unsigned draft
+
+      const result = await signForSchedule(event, publishAt, signDeps(extra));
+      expect(result.ok).toBe(outcome === 'success');
+
+      expect(snapshot(event)).toEqual(before);
+      expect(event.created_at).toBeUndefined();
+      expect(event.sig).toBeUndefined();
+      // Not even the tag arrays are shared with what was signed.
+      expect(event.tags).toBe(tagsRef);
+      expect(event.tags[0]).toBe(firstTagRef);
+      expect(event.tags).toEqual([['t', 'foodstr']]);
+    });
+  }
+
+  it('after a rejected schedule attempt, publishing the same event now signs the current time, not the future one', async () => {
+    const event = draft(new RedatingSigner(sk));
+    expect(await signForSchedule(event, publishAt, signDeps())).toEqual({ ok: false, code: 'signer_changed_event' });
+
+    // "Publish now" with an honest signer: NDK stamps the time itself
+    // because created_at is still unset.
+    event.ndk!.signer = new NDKPrivateKeySigner(sk);
+    const before = Math.floor(Date.now() / 1000);
+    await event.sign();
+    expect(event.created_at).toBeGreaterThanOrEqual(before);
+    expect(event.created_at).toBeLessThanOrEqual(before + 5);
+    expect(event.created_at).not.toBe(publishAt);
+    expect(verifyEvent({ ...(event.rawEvent() as Event) })).toBe(true);
+  });
+
+  it('tags NDK adds while signing (mentions, hashtags) land on the copy only', async () => {
+    const content = `thanks nostr:${nip19.npubEncode(PUBKEY)} #dinner`;
+    const event = draft(new NDKPrivateKeySigner(sk), { content, tags: [['t', 'foodstr']] });
+    const result = await signForSchedule(event, publishAt, signDeps());
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.event.tags.length).toBeGreaterThan(1); // NDK derived at least one tag
+    expect(event.tags).toEqual([['t', 'foodstr']]);
+    expect(event.content).toBe(content);
+  });
+
+  it('an input that was already signed keeps its own id and signature', async () => {
+    const event = draft(new NDKPrivateKeySigner(sk));
+    await event.sign();
+    const before = snapshot(event);
+    const result = await signForSchedule(event, publishAt, signDeps());
+    expect(result.ok).toBe(true);
+    expect(snapshot(event)).toEqual(before);
+    if (result.ok) expect(result.event.id).not.toBe(before.id);
+  });
+
+  it('signing the same draft for a new time gives a different event', async () => {
     const event = draft(new NDKPrivateKeySigner(sk));
     const first = await signForSchedule(event, publishAt, signDeps());
     const second = await signForSchedule(event, publishAt + 600, signDeps());

@@ -22,7 +22,7 @@
  */
 
 import { verifyEvent, type Event as NostrEvent } from 'nostr-tools';
-import type { NDKEvent } from '@nostr-dev-kit/ndk';
+import { NDKEvent } from '@nostr-dev-kit/ndk';
 import { isPublicRelayUrl, ENDED_HOST_RELAYS_NEVER } from './live/endedEvent';
 import {
   MAX_SCHEDULE_RELAYS,
@@ -258,6 +258,12 @@ const SERVER_MAX_LEAD_SECONDS = 90 * 86400;
  * created_at to that time, sign once with the session signer, and hand
  * back the plain signed event for scheduleEvent().
  *
+ * THE INPUT IS NEVER MODIFIED. A copy is signed; `event` keeps whatever
+ * created_at, id and sig it had (normally none), on success and on
+ * every failure. That matters when the person gives up on scheduling
+ * and publishes now instead: the same draft event must not go out
+ * carrying a future time left behind by a failed attempt here.
+ *
  * The result is checked before it is returned: created_at must still
  * be `publishAt` and the id and signature must verify. A signer that
  * re-dates what it signs (some extensions and remote signers stamp the
@@ -288,12 +294,17 @@ export async function signForSchedule(
   try {
     const deps = await resolveDeps(depsOverride);
     await deps.prepareSigner();
-    event.created_at = publishAt;
-    // A stale signature or id from an earlier attempt must not survive.
-    event.sig = undefined;
-    event.id = '';
-    await event.sign();
-    raw = event.rawEvent() as NostrEvent;
+    // A fresh event with copies of the tag arrays: signing fills in
+    // pubkey, id and sig and may add tags, all on the copy. Nothing is
+    // carried over from an earlier signature of the original.
+    const copy = new NDKEvent(event.ndk, {
+      kind: event.kind,
+      content: event.content,
+      tags: event.tags.map((tag) => [...tag]),
+      created_at: publishAt
+    });
+    await copy.sign();
+    raw = copy.rawEvent() as NostrEvent;
   } catch (err) {
     console.warn('[Schedule] signing failed:', err);
     return { ok: false, code: 'sign_failed' };
