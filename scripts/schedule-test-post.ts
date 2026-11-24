@@ -21,9 +21,20 @@
  * https://zap.cooking (production) — FULL PIPELINE
  *   Schedules a kind 1 from a throwaway key 180 s out in 'pantry' mode,
  *   polls until the sweep reports `sent`, reads the note back from
- *   wss://pantry.zap.cooking (authenticated as the throwaway key, filter
- *   authors:[self]), deletes it with a kind 5 from the same key, and
+ *   wss://pantry.zap.cooking (as the throwaway key, filter authors:[self],
+ *   answering NIP-42 auth whenever the relay asks), deletes it with a kind 5 from the same key, and
  *   confirms it is gone. Takes about 4 to 6 minutes.
+ *
+ * CLEANUP (after a failed production run left a note behind)
+ *
+ *   read -s SCHEDULE_TEST_CLEANUP_KEY && export SCHEDULE_TEST_CLEANUP_KEY
+ *   npx tsx scripts/schedule-test-post.ts cleanup <event-id>
+ *   unset SCHEDULE_TEST_CLEANUP_KEY
+ *
+ *   Deletes that one note from pantry as its author and confirms it is
+ *   gone. The key (nsec or hex) comes only from the environment
+ *   variable: never an argument, never printed, never written to disk.
+ *   `read -s` keeps it out of the shell history too.
  *
  * Nothing is ever sent to a public relay: the only relay_mode used for
  * an event that can be published is 'pantry'. The throwaway key lives in
@@ -243,20 +254,34 @@ async function runApiCheck(baseUrl: string): Promise<void> {
 
 type Frame = unknown[];
 
+const isAuthRequired = (reason: unknown) => /^auth-required\b/i.test(String(reason ?? ''));
+
 /**
  * One connection to a relay that requires NIP-42 auth to read (pantry).
- * Exported so the read / delete / confirm-gone sequence can be exercised
- * against a local relay without touching production.
+ *
+ * Auth is answered whenever the relay asks for it, not assumed up
+ * front: a relay may challenge on connect, or only once a REQ or EVENT
+ * needs it (the deployed pantry does the latter), or not at all. So
+ * every request is sent first and whatever comes back is handled: a
+ * direct answer, an AUTH challenge, or a CLOSED / OK false whose reason
+ * starts "auth-required:". After authenticating, the request is resent
+ * once.
+ *
+ * Exported so the read / delete / confirm-gone sequence can be tested
+ * against a local relay (scripts/schedule-test-post.test.ts).
  */
 export class RelaySession {
   private ws!: WebSocket;
   private frames: Frame[] = [];
   private waiters: (() => void)[] = [];
   private closed = false;
+  /** True once the relay has accepted our AUTH event on this connection. */
+  authenticated = false;
 
   constructor(
     private url: string,
-    private sk: Uint8Array
+    private sk: Uint8Array,
+    private stepTimeoutMs = RELAY_STEP_TIMEOUT_MS
   ) {}
 
   async open(): Promise<void> {
@@ -275,7 +300,7 @@ export class RelaySession {
       this.wake();
     });
     await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new StepError(`could not connect to ${this.url}`)), RELAY_STEP_TIMEOUT_MS);
+      const timer = setTimeout(() => reject(new StepError(`could not connect to ${this.url}`)), this.stepTimeoutMs);
       this.ws.addEventListener('open', () => (clearTimeout(timer), resolve()));
       this.ws.addEventListener('error', () => (clearTimeout(timer), reject(new StepError(`connection error (${this.url})`))));
     });
@@ -286,7 +311,7 @@ export class RelaySession {
   }
 
   /** Wait for (and consume) the first frame matching `match`, or null on timeout. */
-  private async take(match: (f: Frame) => boolean, timeoutMs = RELAY_STEP_TIMEOUT_MS): Promise<Frame | null> {
+  private async take(match: (f: Frame) => boolean, timeoutMs = this.stepTimeoutMs): Promise<Frame | null> {
     const deadline = Date.now() + timeoutMs;
     for (;;) {
       const i = this.frames.findIndex(match);
@@ -300,10 +325,18 @@ export class RelaySession {
     }
   }
 
-  /** Answer the relay's NIP-42 challenge as the throwaway key. */
-  async authenticate(): Promise<void> {
-    const challenge = await this.take((f) => f[0] === 'AUTH' && typeof f[1] === 'string', 5_000);
-    check(challenge, `${this.url} sent no AUTH challenge within 5 s`);
+  private static isChallenge = (f: Frame) => f[0] === 'AUTH' && typeof f[1] === 'string';
+
+  /**
+   * Answer the newest NIP-42 challenge the relay has sent, waiting up
+   * to `waitMs` for one to arrive. Returns false if the relay never
+   * sent one. Throws if the relay refuses the AUTH event.
+   */
+  private async authenticate(waitMs: number): Promise<boolean> {
+    let challenge = await this.take(RelaySession.isChallenge, waitMs);
+    if (!challenge) return false;
+    // Only the newest challenge is valid; drop any older ones.
+    for (let next; (next = await this.take(RelaySession.isChallenge, 0)); ) challenge = next;
     const auth = finalizeEvent(
       {
         kind: 22242,
@@ -320,30 +353,67 @@ export class RelaySession {
     const ok = await this.take((f) => f[0] === 'OK' && f[1] === auth.id);
     check(ok, `${this.url} did not answer the AUTH event`);
     check(ok[2] === true, `${this.url} refused AUTH: ${String(ok[3] ?? '')}`);
+    this.authenticated = true;
+    return true;
   }
 
-  /** Events matching `filter`, up to EOSE. Throws if the relay refuses the REQ. */
+  /** A challenge that is already waiting (sent on connect, say) is answered before asking. */
+  private async answerWaitingChallenge(): Promise<void> {
+    if (!this.authenticated && this.frames.some(RelaySession.isChallenge)) await this.authenticate(0);
+  }
+
+  /**
+   * Events matching `filter`, up to EOSE. If the relay closes the
+   * subscription with "auth-required:", authenticates and asks again,
+   * once. Throws if the relay refuses for any other reason.
+   */
   async query(filter: Record<string, unknown>): Promise<Event[]> {
-    const sub = `acc-${Math.random().toString(36).slice(2, 10)}`;
-    this.ws.send(JSON.stringify(['REQ', sub, filter]));
-    const events: Event[] = [];
-    for (;;) {
-      const frame = await this.take((f) => (f[0] === 'EVENT' || f[0] === 'EOSE' || f[0] === 'CLOSED') && f[1] === sub);
-      check(frame, `${this.url} did not finish the query (no EOSE)`);
-      if (frame[0] === 'EVENT') events.push(frame[2] as Event);
-      else if (frame[0] === 'CLOSED') throw new StepError(`${this.url} refused the read: ${String(frame[2] ?? '')}`);
-      else break;
+    await this.answerWaitingChallenge();
+    for (let attempt = 0; ; attempt++) {
+      const sub = `acc-${Math.random().toString(36).slice(2, 10)}`;
+      this.ws.send(JSON.stringify(['REQ', sub, filter]));
+      const events: Event[] = [];
+      let closedReason: string | null = null;
+      for (;;) {
+        const frame = await this.take((f) => (f[0] === 'EVENT' || f[0] === 'EOSE' || f[0] === 'CLOSED') && f[1] === sub);
+        check(frame, `${this.url} did not finish the query (no EOSE or CLOSED)`);
+        if (frame[0] === 'EVENT') events.push(frame[2] as Event);
+        else if (frame[0] === 'CLOSED') closedReason = String(frame[2] ?? '');
+        if (frame[0] !== 'EVENT') break;
+      }
+      if (closedReason === null) {
+        this.ws.send(JSON.stringify(['CLOSE', sub]));
+        return events;
+      }
+      if (!isAuthRequired(closedReason) || attempt > 0 || this.authenticated) {
+        throw new StepError(`${this.url} refused the read: ${closedReason}`);
+      }
+      // The challenge may arrive just before or just after the CLOSED.
+      const answered = await this.authenticate(5_000);
+      check(answered, `${this.url} asked for auth ("${closedReason}") but sent no AUTH challenge`);
     }
-    this.ws.send(JSON.stringify(['CLOSE', sub]));
-    return events;
   }
 
-  /** Publish an event on this (authenticated) connection; resolves on OK true. */
+  /**
+   * Publish an event; resolves on OK true. If the relay answers OK
+   * false and has a challenge for us that we have not yet answered,
+   * authenticates and sends the event again, once.
+   */
   async publish(event: Event): Promise<void> {
-    this.ws.send(JSON.stringify(['EVENT', event]));
-    const ok = await this.take((f) => f[0] === 'OK' && f[1] === event.id);
-    check(ok, `${this.url} did not answer the kind ${event.kind} event`);
-    check(ok[2] === true, `${this.url} refused the kind ${event.kind} event: ${String(ok[3] ?? '')}`);
+    await this.answerWaitingChallenge();
+    for (let attempt = 0; ; attempt++) {
+      this.ws.send(JSON.stringify(['EVENT', event]));
+      const ok = await this.take((f) => f[0] === 'OK' && f[1] === event.id);
+      check(ok, `${this.url} did not answer the kind ${event.kind} event`);
+      if (ok[2] === true) return;
+      const reason = String(ok[3] ?? '');
+      const refused = `${this.url} refused the kind ${event.kind} event: ${reason}`;
+      if (attempt > 0 || this.authenticated) throw new StepError(refused);
+      // Not authenticated yet: a challenge usually accompanies an
+      // "auth-required:" refusal; wait for it only in that case.
+      const answered = await this.authenticate(isAuthRequired(reason) ? 5_000 : 0);
+      if (!answered) throw new StepError(`${refused} (not authenticated: the relay sent no AUTH challenge)`);
+    }
   }
 
   close() {
@@ -355,56 +425,110 @@ export class RelaySession {
   }
 }
 
+export interface ReadDeleteOptions {
+  onStep?: (stage: string, msg: string) => void;
+  /** Per-step relay timeout; tests shorten it. */
+  stepTimeoutMs?: number;
+  goneCheckIntervalMs?: number;
+  /** Stage labels, so the full pipeline and cleanup mode can number their own steps. */
+  stages?: { read: string; del: string; gone: string };
+}
+
 /**
- * Read the note back as its author, delete it, and confirm it is gone.
- * Returns once the relay no longer serves the event. Exported for the
- * same reason as RelaySession.
+ * As the note's author: read it back, delete it with a kind 5, and
+ * confirm the relay no longer serves it. `expected`, when given, must
+ * match what the relay returns byte for byte.
+ *
+ * The "gone" check is trustworthy because it is the same filter on the
+ * same connection that just returned the note: an empty answer cannot
+ * be the relay hiding it from an unauthenticated reader.
  */
 export async function readDeleteConfirm(
   relayUrl: string,
   sk: Uint8Array,
-  event: Event,
-  onStep: (stage: string, msg: string) => void = log
+  eventId: string,
+  expected: Event | null,
+  opts: ReadDeleteOptions = {}
 ): Promise<void> {
+  const onStep = opts.onStep ?? log;
+  const stages = opts.stages ?? { read: '4/6 read', del: '5/6 delete', gone: '6/6 gone' };
   const pubkey = getPublicKey(sk);
-  const filter = { ids: [event.id], authors: [pubkey] };
-  const session = new RelaySession(relayUrl, sk);
+  const filter = { ids: [eventId], authors: [pubkey] };
+  const session = new RelaySession(relayUrl, sk, opts.stepTimeoutMs);
   try {
     await session.open();
-    await session.authenticate();
     const found = await session.query(filter);
-    check(found.length > 0, `event ${event.id} is not on ${relayUrl} (authenticated read, authors:[self])`);
+    const how = session.authenticated ? 'authenticated as the key, authors:[self]' : 'the relay did not ask for auth';
     check(
-      found[0].id === event.id && found[0].sig === event.sig && found[0].content === event.content,
-      `${relayUrl} returned a different event than the one scheduled`
+      found.length > 0,
+      `event ${eventId} is not on ${relayUrl} for pubkey ${pubkey} (${how}). ` +
+        'It was never there, is already deleted, or belongs to a different key.'
     );
-    onStep('4/6 read', `found on ${relayUrl} (authenticated as the throwaway key, authors:[self]), byte-identical`);
+    const note = found[0];
+    check(note.id === eventId && note.pubkey === pubkey, `${relayUrl} returned an event that is not the one asked for`);
+    if (expected) {
+      check(
+        note.sig === expected.sig && note.content === expected.content,
+        `${relayUrl} returned a different event than the one scheduled`
+      );
+    }
+    onStep(stages.read, `found on ${relayUrl} (${how})${expected ? ', byte-identical' : `, kind ${note.kind}`}`);
 
     const deletion = finalizeEvent(
       {
         kind: 5,
         created_at: nowSec(),
         tags: [
-          ['e', event.id],
-          ['k', String(event.kind)]
+          ['e', eventId],
+          ['k', String(note.kind)]
         ],
         content: 'scheduler acceptance test cleanup'
       },
       sk
     );
     await session.publish(deletion);
-    onStep('5/6 delete', `kind 5 ${deletion.id} accepted by ${relayUrl}`);
+    onStep(stages.del, `kind 5 ${deletion.id} accepted by ${relayUrl}`);
 
     let remaining = 1;
     for (let i = 0; i < GONE_CHECKS && remaining > 0; i++) {
-      if (i > 0) await sleep(GONE_CHECK_INTERVAL_MS);
+      if (i > 0) await sleep(opts.goneCheckIntervalMs ?? GONE_CHECK_INTERVAL_MS);
       remaining = (await session.query(filter)).length;
     }
-    check(remaining === 0, `${relayUrl} accepted the kind 5 but still serves event ${event.id}`);
-    onStep('6/6 gone', `${relayUrl} no longer returns the note`);
+    check(remaining === 0, `${relayUrl} accepted the kind 5 but still serves event ${eventId}`);
+    onStep(stages.gone, `${relayUrl} no longer returns the note`);
   } finally {
     session.close();
   }
+}
+
+// ── cleanup mode: delete one leftover test note from pantry ─────────
+
+export const CLEANUP_KEY_ENV = 'SCHEDULE_TEST_CLEANUP_KEY';
+
+/** nsec1… or 64 hex characters → secret key bytes. Never echoes the input. */
+export function parseSecretKey(raw: string | undefined): Uint8Array {
+  const value = (raw ?? '').trim();
+  check(value, `${CLEANUP_KEY_ENV} is not set`);
+  if (/^[0-9a-f]{64}$/i.test(value)) return Uint8Array.from(Buffer.from(value, 'hex'));
+  try {
+    const decoded = nip19.decode(value);
+    if (decoded.type === 'nsec') return decoded.data;
+  } catch {
+    /* fall through to the same message; never print the value */
+  }
+  throw new StepError(`${CLEANUP_KEY_ENV} is not an nsec or a 64-character hex secret key`);
+}
+
+async function runCleanup(eventId: string): Promise<void> {
+  const sk = parseSecretKey(process.env[CLEANUP_KEY_ENV]);
+  // The key is in memory now; keep it out of anything this process spawns.
+  delete process.env[CLEANUP_KEY_ENV];
+  log('cleanup', `event ${eventId}`);
+  log('cleanup', `key from ${CLEANUP_KEY_ENV} is pubkey ${getPublicKey(sk)}`);
+  await readDeleteConfirm(PANTRY_RELAY, sk, eventId, null, {
+    stages: { read: '1/3 read', del: '2/3 delete', gone: '3/3 gone' }
+  });
+  log('done', `CLEANUP PASSED: ${eventId} was on ${PANTRY_RELAY}, was deleted, and is confirmed gone.`);
 }
 
 // ── full pipeline (production only) ─────────────────────────────────
@@ -459,7 +583,7 @@ async function runFullPipeline(baseUrl: string): Promise<void> {
     check(status === 'sent', `timed out after ${POLL_TIMEOUT_MS / 60_000} min; the row is still '${status}'`);
     log('3/6 poll', 'row is sent: the sweep broadcast it');
 
-    await readDeleteConfirm(PANTRY_RELAY, sk, event);
+    await readDeleteConfirm(PANTRY_RELAY, sk, event.id, event);
     state = 'deleted';
   } catch (err) {
     console.error(`LEFT BEHIND: event ${event.id}, throwaway pubkey ${pubkey}`);
@@ -504,8 +628,9 @@ async function runFullPipeline(baseUrl: string): Promise<void> {
  */
 function printKeyForManualCleanup(sk: Uint8Array) {
   console.error(
-    `  To finish by hand, this throwaway key can delete the note (kind 5 to ${PANTRY_RELAY} after NIP-42 auth) ` +
-      'or cancel the row (DELETE /api/schedule/<id>). It was never written to disk:'
+    `  This throwaway key can still delete the note from ${PANTRY_RELAY} with this script's cleanup mode ` +
+      `(set ${CLEANUP_KEY_ENV} to it, then: npx tsx scripts/schedule-test-post.ts cleanup <event id>), ` +
+      'or cancel a pending row (DELETE /api/schedule/<id>). It was never written to disk:'
   );
   console.error(`  ${nip19.nsecEncode(sk)}`);
 }
@@ -514,20 +639,33 @@ function printKeyForManualCleanup(sk: Uint8Array) {
 
 function usage(problem: string): never {
   console.error(`${problem}\n`);
-  console.error('Usage: npx tsx scripts/schedule-test-post.ts <base-url>');
-  console.error('  <base-url> is required. A preview deployment runs the API check;');
-  console.error(`  ${PRODUCTION_ORIGIN} runs the full pipeline (publishes one note to pantry, then deletes it).`);
+  console.error('Usage:');
+  console.error('  npx tsx scripts/schedule-test-post.ts <base-url>');
+  console.error('      <base-url> is required. A preview deployment runs the API check;');
+  console.error(`      ${PRODUCTION_ORIGIN} runs the full pipeline (publishes one note to pantry, then deletes it).`);
+  console.error('  npx tsx scripts/schedule-test-post.ts cleanup <event-id>');
+  console.error(`      Deletes one leftover test note from ${PANTRY_RELAY} and confirms it is gone.`);
+  console.error(`      The key is read from the ${CLEANUP_KEY_ENV} environment variable (nsec or hex), never an argument.`);
   process.exit(2);
 }
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
+  if (args[0] === 'cleanup') {
+    if (args.length !== 2) usage('cleanup takes exactly one argument: the event id.');
+    if (!/^[0-9a-f]{64}$/.test(args[1])) usage('The event id must be 64 lowercase hex characters.');
+    if (!process.env[CLEANUP_KEY_ENV]) usage(`${CLEANUP_KEY_ENV} is not set.`);
+    log('mode', `CLEANUP on ${PANTRY_RELAY}: delete one note and confirm it is gone`);
+    await runCleanup(args[1]);
+    return;
+  }
   if (args.length !== 1) usage(args.length === 0 ? 'Missing base URL.' : 'Expected exactly one argument.');
+  if (/^(nsec1|[0-9a-f]{64}$)/i.test(args[0])) usage('That looks like a key or an id, not a base URL. Keys are never passed as arguments.');
   let base: URL;
   try {
     base = new URL(args[0]);
   } catch {
-    usage(`Not a URL: ${args[0]}`);
+    usage('The argument is not a URL.');
   }
   if (base.protocol !== 'https:' && base.hostname !== 'localhost' && base.hostname !== '127.0.0.1') {
     usage(`The base URL must be https: ${args[0]}`);
