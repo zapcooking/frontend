@@ -118,11 +118,14 @@ describe('local days', () => {
   });
 });
 
-describe('how far the views go', () => {
-  const now = at(2026, 11, 24, 15, 30);
-  const bounds = calendarBounds(now);
+// Built inside each test, never at describe level: the zone is only
+// pinned while a test runs, and a time built before that is in the
+// machine's own zone (UTC on CI).
+const NOW = () => at(2026, 11, 24, 15, 30);
 
+describe('how far the views go', () => {
   it('30 days back and 90 ahead, in calendar days', () => {
+    const bounds = calendarBounds(NOW());
     expect(dayKey(bounds.today)).toBe('2026-11-24');
     expect(dayKey(bounds.min)).toBe('2026-10-25');
     expect(dayKey(bounds.max)).toBe('2027-02-22');
@@ -135,6 +138,7 @@ describe('how far the views go', () => {
   });
 
   it('a week or month is reachable while any of its days is inside', () => {
+    const bounds = calendarBounds(NOW());
     expect(canShowWeek(weekStart(bounds.min), bounds)).toBe(true); // Oct 19–25: only the 25th is in
     expect(canShowWeek(new Date(2026, 9, 12), bounds)).toBe(false);
     expect(canShowWeek(weekStart(bounds.max), bounds)).toBe(true);
@@ -147,9 +151,9 @@ describe('how far the views go', () => {
 });
 
 describe('what the calendar shows', () => {
-  const now = at(2026, 11, 24, 15, 30);
 
   it('pending, publishing and failed posts at their publish time; sent posts when they went out', () => {
+    const now = NOW();
     const pending = item('pending', at(2026, 11, 26, 9));
     const publishing = item('publishing', at(2026, 11, 24, 15, 29));
     const failed = item('failed', at(2026, 11, 20, 8));
@@ -164,6 +168,7 @@ describe('what the calendar shows', () => {
   });
 
   it('leaves out cancelled posts, sent posts older than 30 days, and anything outside the bounds', () => {
+    const now = NOW();
     const entries = calendarEntries(
       [
         item('cancelled', at(2026, 11, 26, 9)),
@@ -177,16 +182,19 @@ describe('what the calendar shows', () => {
   });
 
   it('shows all of the last 30 days of sent posts, not just ten', () => {
+    const now = NOW();
     const sent = Array.from({ length: 25 }, (_, i) => item('sent', at(2026, 11, 1 + (i % 20), 9), { sentAt: at(2026, 11, 1 + (i % 20), 9) }));
     expect(calendarEntries(sent, now)).toHaveLength(25);
   });
 
   it('a pending post whose time has just passed (waiting for the sweep or a retry) stays on its day', () => {
+    const now = NOW();
     const late = item('pending', now - 120);
     expect(calendarEntries([late], now)[0].day).toBe('2026-11-24');
   });
 
   it('buckets by day in time order and counts by tone', () => {
+    const now = NOW();
     const a = item('pending', at(2026, 11, 26, 18));
     const b = item('pending', at(2026, 11, 26, 9));
     const c = item('failed', at(2026, 11, 26, 7));
