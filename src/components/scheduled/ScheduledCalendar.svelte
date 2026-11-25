@@ -179,6 +179,16 @@
     openId = null;
   }
 
+  /**
+   * Reschedule and "Edit and post again" open the composer, which is a
+   * dialog of its own. This one closes first: two stacked dialogs fight
+   * over focus and Escape, and the composer must not open underneath.
+   */
+  function handOff(action: 'reschedule' | 'postAgain', item: ScheduledItem) {
+    closeDetail();
+    dispatch(action, item);
+  }
+
   // ── wording ─────────────────────────────────────────────────────────
 
   const WEEKDAY = (d: Date, width: 'short' | 'long') => d.toLocaleDateString(undefined, { weekday: width });
@@ -366,8 +376,8 @@
       busy={busy[openItem.id]}
       notice={notices[openItem.id] ?? ''}
       on:cancel={(e) => dispatch('cancel', e.detail)}
-      on:reschedule={(e) => dispatch('reschedule', e.detail)}
-      on:postAgain={(e) => dispatch('postAgain', e.detail)}
+      on:reschedule={(e) => handOff('reschedule', e.detail)}
+      on:postAgain={(e) => handOff('postAgain', e.detail)}
     />
   {/if}
 </Modal>
