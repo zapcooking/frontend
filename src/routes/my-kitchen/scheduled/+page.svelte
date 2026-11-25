@@ -308,9 +308,9 @@
     <div class="flex flex-col gap-5">
       <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
         <div class="min-w-[12rem] flex-1">
-          <h1 class="text-xl font-bold">Scheduled</h1>
-          <p class="text-caption text-sm">
-            Posts go out within a minute of their time.
+          <!-- The count sits beside the title, so it never wraps onto a line of its own. -->
+          <div class="flex items-center gap-2">
+            <h1 class="text-xl font-bold">Scheduled</h1>
             {#if loaded}
               <span
                 class="in-use"
@@ -318,10 +318,11 @@
                 aria-label="{pendingCount} of {MAX_PENDING_SCHEDULED} scheduled posts in use"
                 title="{pendingCount} of {MAX_PENDING_SCHEDULED} scheduled posts in use"
               >
-                {pendingCount}/{MAX_PENDING_SCHEDULED} scheduled
+                {pendingCount}/{MAX_PENDING_SCHEDULED}
               </span>
             {/if}
-          </p>
+          </div>
+          <p class="text-caption text-sm">Posts go out within a minute of their time.</p>
         </div>
         <div class="flex items-center gap-2 flex-shrink-0">
           <div class="view-toggle" role="group" aria-label="Show scheduled posts as">
@@ -448,7 +449,6 @@
 
 <style>
   .in-use {
-    margin-left: 0.25rem;
     padding: 0.0625rem 0.5rem;
     font-size: 0.75rem;
     font-weight: 600;

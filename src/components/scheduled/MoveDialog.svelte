@@ -28,7 +28,7 @@
   } from '$lib/composerSchedule';
   import { previewOf } from '$lib/scheduledList';
   import { firstLine, localDay, type CalendarEntry } from '$lib/scheduledCalendar';
-  import { openSlotsOn, type PostingTimes } from '$lib/postingSlots';
+  import { nextOpenSlots, openSlotsOn, type PostingTimes } from '$lib/postingSlots';
   import Modal from '../Modal.svelte';
   import ArrowRightIcon from 'phosphor-svelte/lib/ArrowRight';
 
@@ -84,6 +84,21 @@
   $: daySlots = item && times && slotDay ? openSlotsOn(slotDay, entries, times, now, item.id) : [];
   const slotTime = (at: number) => new Date(at * 1000).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
   const slotDayName = (day: Date) => day.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+
+  // The next open slots from today on, whatever day they fall on: a post
+  // can be moved by tapping one, with no date to pick (what a drag does
+  // for someone with a mouse). Those already listed for the chosen day
+  // are not repeated.
+  $: upcoming =
+    item && times
+      ? nextOpenSlots(localDay(new Date(now * 1000)), entries, times, now, { ignoreId: item.id, limit: 4 }).filter(
+          (at) => !daySlots.includes(at)
+        )
+      : [];
+  const slotDayTime = (at: number) =>
+    `${new Date(at * 1000).toLocaleDateString(undefined, { weekday: 'short' })} ${slotTime(at)}`;
+  const slotFull = (at: number) =>
+    `${new Date(at * 1000).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })} at ${slotTime(at)}`;
 
   function chooseSlot(at: number) {
     input = toLocalInputValue(at);
@@ -153,6 +168,24 @@
                 on:click={() => chooseSlot(at)}
               >
                 {slotTime(at)}
+              </button>
+            {/each}
+          </div>
+        {/if}
+        {#if upcoming.length > 0}
+          <div class="move-slots" role="group" aria-label="Next open slots">
+            <span class="move-slots-label">Next open slots</span>
+            {#each upcoming as at (at)}
+              <button
+                type="button"
+                class="move-slot"
+                data-next-slot={at}
+                aria-pressed={picked === at}
+                aria-label={slotFull(at)}
+                disabled={busy}
+                on:click={() => chooseSlot(at)}
+              >
+                {slotDayTime(at)}
               </button>
             {/each}
           </div>

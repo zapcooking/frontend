@@ -17,6 +17,7 @@ import {
   localDay,
   monthWeeks,
   sameTimeOn,
+  shortTime,
   parseCalendarMode,
   parseScheduledView,
   weekDays,
@@ -240,6 +241,13 @@ describe('wording and remembered choices', () => {
     expect(weekTitle(new Date(2026, 10, 30), today, 'en-US')).toBe('Nov 30 – Dec 6');
     expect(weekTitle(new Date(2026, 11, 28), today, 'en-US')).toBe('Dec 28, 2026 – Jan 3, 2027');
     expect(weekTitle(new Date(2027, 0, 4), today, 'en-US')).toBe('Jan 4 – 10, 2027');
+  });
+
+  it('short times drop a ":00" and nothing else', () => {
+    expect(shortTime(at(2026, 11, 24, 9, 0), 'en-US')).toBe('9 AM');
+    expect(shortTime(at(2026, 11, 24, 12, 30), 'en-US')).toBe('12:30 PM');
+    expect(shortTime(at(2026, 11, 24, 10, 0), 'en-US')).toBe('10 AM');
+    expect(shortTime(at(2026, 11, 24, 18, 0), 'en-GB')).toBe('18:00');
   });
 
   it('the first non-empty line of a post', () => {

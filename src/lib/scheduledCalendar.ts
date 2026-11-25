@@ -217,6 +217,16 @@ export function entryTime(at: number, locale?: string): string {
   return new Date(at * 1000).toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' });
 }
 
+/**
+ * A time in as few characters as it takes, for a month cell: "9 AM",
+ * "12:30 PM". The full form with its ":00" dropped.
+ */
+export function shortTime(at: number, locale?: string): string {
+  // Only where something follows the minutes (an AM/PM marker): a
+  // 24-hour "18:00" stays whole, since "18" alone is not a time.
+  return entryTime(at, locale).replace(/:00(?=\s*\D)/, '');
+}
+
 /** The first line of a post, for a one-line chip. */
 export function firstLine(text: string): string {
   return (

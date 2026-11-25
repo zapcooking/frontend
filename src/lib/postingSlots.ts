@@ -212,6 +212,29 @@ export function openSlotsOn(
 }
 
 /**
+ * The next few slots a post could go into, from `from` onward, across
+ * days: what the Move dialog offers so a post can be moved in a couple of
+ * taps without picking a date. Looks at most `maxDays` days ahead.
+ */
+export function nextOpenSlots(
+  from: Date,
+  entries: readonly CalendarEntry[],
+  times: PostingTimes,
+  nowSeconds: number,
+  options: { ignoreId?: string; limit?: number; maxDays?: number } = {}
+): number[] {
+  const limit = options.limit ?? 4;
+  const found: number[] = [];
+  for (let i = 0; i < (options.maxDays ?? 14) && found.length < limit; i++) {
+    const day = new Date(from.getFullYear(), from.getMonth(), from.getDate() + i);
+    for (const at of openSlotsOn(day, entries, times, nowSeconds, options.ignoreId)) {
+      if (found.length < limit) found.push(at);
+    }
+  }
+  return found;
+}
+
+/**
  * Where the picker starts when a day's "+" is used (a post at a time of
  * the person's own choosing on that day): noon, or if that cannot be
  * used any more (today, later on), the next quarter hour an hour from
