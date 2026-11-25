@@ -170,7 +170,12 @@ export type ScheduleEventResult =
     >;
 
 export type ListScheduledResult =
-  | { ok: true; items: ScheduledItem[] }
+  | {
+      ok: true;
+      items: ScheduledItem[];
+      /** True when the account has more matching rows than the server returns (its 100-row cap). */
+      truncated: boolean;
+    }
   | ScheduleFailure<CommonFailure | 'bad_status'>;
 
 export type CancelScheduledResult =
@@ -609,7 +614,9 @@ function parseItem(raw: unknown): ScheduledItem | null {
 
 /**
  * The signed-in account's scheduled events, newest publish time first
- * (the server's order), at most 100. `status` narrows to one status.
+ * (the server's order), at most 100. `status` narrows to one status;
+ * without it, every status except cancelled. `truncated` says the cap
+ * cut the result (the oldest publish times are the ones dropped).
  * Rows this client cannot read are skipped rather than failing the list.
  */
 export async function listScheduled(
@@ -622,7 +629,7 @@ export async function listScheduled(
   if (sent.kind === 'failure') return sent.failure;
   if (sent.status === 200 && Array.isArray(sent.data.items)) {
     const items = sent.data.items.map(parseItem).filter((i): i is ScheduledItem => i !== null);
-    return { ok: true, items };
+    return { ok: true, items, truncated: sent.data.truncated === true };
   }
   return failure(serverCode(sent.data), [...COMMON, 'bad_status'] as const);
 }

@@ -626,11 +626,21 @@ describe('listScheduled', () => {
   for (const status of SCHEDULE_STATUSES) {
     it(`status: '${status}' is sent as ?status=${status}, while the auth header still signs the bare URL`, async () => {
       const { deps, calls, authCalls } = harness([{ status: 200, body: { items: [] } }]);
-      expect(await listScheduled({ status }, deps)).toEqual({ ok: true, items: [] });
+      expect(await listScheduled({ status }, deps)).toEqual({ ok: true, items: [], truncated: false });
       expect(calls[0].url).toBe(`${ORIGIN}/api/schedule?status=${status}`);
       expect(authCalls[0].url).toBe(`${ORIGIN}/api/schedule`);
     });
   }
+
+  it('truncated is true only when the server says the cap cut the result', async () => {
+    const cut = harness([{ status: 200, body: { items: [], truncated: true } }]);
+    expect(await listScheduled({}, cut.deps)).toEqual({ ok: true, items: [], truncated: true });
+    // Absent (the usual case, and any older server) or anything but true: not truncated.
+    for (const body of [{ items: [] }, { items: [], truncated: 'yes' }, { items: [], truncated: 1 }]) {
+      const { deps } = harness([{ status: 200, body }]);
+      expect(await listScheduled({}, deps)).toEqual({ ok: true, items: [], truncated: false });
+    }
+  });
 
   it('skips rows it cannot read instead of failing the whole list', async () => {
     const good = signed();

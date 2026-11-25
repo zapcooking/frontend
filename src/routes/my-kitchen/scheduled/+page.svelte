@@ -5,6 +5,10 @@
    * recently. One queue serves web, Android and iOS, so posts scheduled
    * in the apps show up here too.
    *
+   * Two views of the same rows: a list, and a calendar
+   * (ScheduledCalendar). The choice is remembered on this device. Both
+   * act through the same cancel / reschedule functions here.
+   *
    * Data comes from $lib/scheduleClient and nothing is cached: the list
    * is fetched on arrival, when the tab regains focus, on a manual
    * refresh, and after the composer schedules something. There is no
@@ -21,31 +25,28 @@
     type ScheduledItem,
     type ScheduleFailure
   } from '$lib/scheduleClient';
-  import {
-    groupScheduled,
-    previewOf,
-    relayModeLabel,
-    failedExplanation,
-    restoreForComposer,
-    hasUnsentDraft,
-    NOTE_DRAFT_KEY
-  } from '$lib/scheduledList';
-  import { formatScheduleTime } from '$lib/composerSchedule';
+  import { groupScheduled, restoreForComposer, hasUnsentDraft, NOTE_DRAFT_KEY } from '$lib/scheduledList';
+  import { SCHEDULED_VIEW_KEY, parseScheduledView, type ScheduledView } from '$lib/scheduledCalendar';
   import { postComposerOpen, openComposerRestored } from '$lib/postComposerStore';
-  import { eventIdPath } from '$lib/utils/eventUrl';
   import { showToast } from '$lib/toast';
   import PanLoader from '../../../components/PanLoader.svelte';
   import PullToRefresh from '../../../components/PullToRefresh.svelte';
+  import ScheduledPostCard from '../../../components/scheduled/ScheduledPostCard.svelte';
+  import ScheduledCalendar from '../../../components/scheduled/ScheduledCalendar.svelte';
   import ClockCountdownIcon from 'phosphor-svelte/lib/ClockCountdown';
   import ArrowsClockwiseIcon from 'phosphor-svelte/lib/ArrowsClockwise';
   import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimple';
-  import VideoIcon from 'phosphor-svelte/lib/Video';
   import WarningIcon from 'phosphor-svelte/lib/Warning';
+  import ListBulletsIcon from 'phosphor-svelte/lib/ListBullets';
+  import CalendarBlankIcon from 'phosphor-svelte/lib/CalendarBlank';
 
   /** Don't refetch more often than this when focus flaps. */
   const FOCUS_REFRESH_MIN_MS = 10_000;
 
   let items: ScheduledItem[] = [];
+  /** The server's 100-row cap cut the result: some older history is missing. */
+  let truncated = false;
+  let view: ScheduledView = 'list';
   let loaded = false;
   let loading = false;
   let loadFailure: ScheduleFailure | null = null;
@@ -85,6 +86,7 @@
     lastLoadedAt = Date.now();
     if (result.ok) {
       items = result.items;
+      truncated = result.truncated;
       loadFailure = null;
     } else {
       // Keep showing what we had; say the refresh failed.
@@ -110,7 +112,21 @@
 
   const onScheduledChanged = () => void load();
 
+  function setView(next: ScheduledView) {
+    view = next;
+    try {
+      localStorage.setItem(SCHEDULED_VIEW_KEY, next);
+    } catch (_) {
+      /* not remembered */
+    }
+  }
+
   onMount(() => {
+    try {
+      view = parseScheduledView(localStorage.getItem(SCHEDULED_VIEW_KEY));
+    } catch (_) {
+      /* storage unavailable: the list */
+    }
     window.addEventListener('focus', refreshOnFocus);
     document.addEventListener('visibilitychange', refreshOnFocus);
     window.addEventListener('zc:scheduled-changed', onScheduledChanged);
@@ -129,6 +145,7 @@
   $: if (browser && $userPublickey && $userPublickey !== loadedFor) {
     loadedFor = $userPublickey;
     items = [];
+    truncated = false;
     loaded = false;
     notices = {};
     void load();
@@ -218,21 +235,38 @@
 {:else}
   <PullToRefresh bind:this={pullToRefreshEl} on:refresh={handlePull}>
     <div class="flex flex-col gap-5">
-      <div class="flex items-center justify-between gap-3">
-        <div class="min-w-0">
+      <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+        <div class="min-w-[12rem] flex-1">
           <h1 class="text-xl font-bold">Scheduled</h1>
           <p class="text-caption text-sm">Posts go out within a minute of their time.</p>
         </div>
-        <button
-          type="button"
-          class="refresh-btn"
-          on:click={() => load()}
-          disabled={loading}
-          aria-label="Refresh scheduled posts"
-          title="Refresh"
-        >
-          <ArrowsClockwiseIcon size={18} class={loading ? 'animate-spin' : ''} />
-        </button>
+        <div class="flex items-center gap-2 flex-shrink-0">
+          <div class="view-toggle" role="group" aria-label="Show scheduled posts as">
+            <button type="button" class="view-btn" aria-pressed={view === 'list'} on:click={() => setView('list')}>
+              <ListBulletsIcon size={16} />
+              List
+            </button>
+            <button
+              type="button"
+              class="view-btn"
+              aria-pressed={view === 'calendar'}
+              on:click={() => setView('calendar')}
+            >
+              <CalendarBlankIcon size={16} />
+              Calendar
+            </button>
+          </div>
+          <button
+            type="button"
+            class="refresh-btn"
+            on:click={() => load()}
+            disabled={loading}
+            aria-label="Refresh scheduled posts"
+            title="Refresh"
+          >
+            <ArrowsClockwiseIcon size={18} class={loading ? 'animate-spin' : ''} />
+          </button>
+        </div>
       </div>
 
       {#if loadFailure}
@@ -261,68 +295,30 @@
             Write a post
           </button>
         </div>
+      {:else if view === 'calendar'}
+        <ScheduledCalendar
+          {items}
+          {now}
+          {truncated}
+          {busy}
+          {notices}
+          on:cancel={(e) => cancel(e.detail)}
+          on:reschedule={(e) => reschedule(e.detail)}
+          on:postAgain={(e) => postAgain(e.detail)}
+        />
       {:else}
         {#if groups.upcoming.length > 0}
           <section class="flex flex-col gap-3" aria-labelledby="scheduled-upcoming">
             <h2 id="scheduled-upcoming" class="section-title">Upcoming</h2>
             {#each groups.upcoming as item (item.id)}
-              {@const preview = previewOf(item.event)}
-              <article class="row-card">
-                <div class="row-head">
-                  <span class="row-time">
-                    <ClockCountdownIcon size={16} class="flex-shrink-0" />
-                    {#if item.status === 'publishing'}
-                      Publishing now…
-                    {:else}
-                      {formatScheduleTime(item.publishAt, now)}
-                    {/if}
-                  </span>
-                  <span class="row-meta">{preview.kind} · {relayModeLabel(item.relayMode)}</span>
-                </div>
-
-                <div class="row-body">
-                  {#if preview.image}
-                    <img class="row-thumb" src={preview.image.url} alt={preview.image.alt} loading="lazy" />
-                  {/if}
-                  <div class="min-w-0 flex-1">
-                    {#if preview.text}
-                      <p class="row-text">{preview.text}</p>
-                    {:else if !preview.image && preview.pollOptions.length === 0}
-                      <p class="row-text text-caption">No text</p>
-                    {/if}
-                    {#if preview.pollOptions.length > 0}
-                      <ul class="poll-options">
-                        {#each preview.pollOptions as option}
-                          <li>{option}</li>
-                        {/each}
-                      </ul>
-                    {/if}
-                    {#if preview.moreMedia > 0}
-                      <p class="row-more">
-                        {#if preview.hasVideo}<VideoIcon size={14} class="inline -mt-0.5" />{/if}
-                        {preview.image ? '+' : ''}{preview.moreMedia}
-                        {preview.image ? 'more' : ''}
-                        {preview.moreMedia === 1 ? 'attachment' : 'attachments'}
-                      </p>
-                    {/if}
-                  </div>
-                </div>
-
-                {#if notices[item.id]}
-                  <p class="row-notice" role="status">{notices[item.id]}</p>
-                {/if}
-
-                {#if item.status === 'pending'}
-                  <div class="row-actions">
-                    <button type="button" class="action-primary" on:click={() => reschedule(item)} disabled={busy[item.id]}>
-                      Reschedule
-                    </button>
-                    <button type="button" class="action-danger" on:click={() => cancel(item)} disabled={busy[item.id]}>
-                      {busy[item.id] ? 'Working…' : 'Cancel'}
-                    </button>
-                  </div>
-                {/if}
-              </article>
+              <ScheduledPostCard
+                {item}
+                {now}
+                busy={busy[item.id]}
+                notice={notices[item.id] ?? ''}
+                on:cancel={(e) => cancel(e.detail)}
+                on:reschedule={(e) => reschedule(e.detail)}
+              />
             {/each}
           </section>
         {/if}
@@ -331,44 +327,7 @@
           <section class="flex flex-col gap-3" aria-labelledby="scheduled-failed">
             <h2 id="scheduled-failed" class="section-title">Not sent</h2>
             {#each groups.failed as item (item.id)}
-              {@const preview = previewOf(item.event)}
-              <article class="row-card row-card--failed">
-                <div class="row-head">
-                  <span class="row-time row-time--failed">
-                    <WarningIcon size={16} class="flex-shrink-0" />
-                    Was due {formatScheduleTime(item.publishAt, now)}
-                  </span>
-                  <span class="row-meta">{preview.kind} · {relayModeLabel(item.relayMode)}</span>
-                </div>
-                <div class="row-body">
-                  {#if preview.image}
-                    <img class="row-thumb" src={preview.image.url} alt={preview.image.alt} loading="lazy" />
-                  {/if}
-                  <div class="min-w-0 flex-1">
-                    {#if preview.text}<p class="row-text">{preview.text}</p>{/if}
-                    {#if preview.pollOptions.length > 0}
-                      <ul class="poll-options">
-                        {#each preview.pollOptions as option}<li>{option}</li>{/each}
-                      </ul>
-                    {/if}
-                  </div>
-                </div>
-                <p class="row-explain">{failedExplanation(item)}</p>
-                {#if item.lastError}
-                  <details class="row-detail">
-                    <summary>Details</summary>
-                    <p>
-                      Last response: <code>{item.lastError}</code>
-                      {#if item.attempts > 0}({item.attempts} {item.attempts === 1 ? 'attempt' : 'attempts'}){/if}
-                    </p>
-                  </details>
-                {/if}
-                <div class="row-actions">
-                  <button type="button" class="action-primary" on:click={() => postAgain(item)}>
-                    Edit and post again
-                  </button>
-                </div>
-              </article>
+              <ScheduledPostCard {item} {now} on:postAgain={(e) => postAgain(e.detail)} />
             {/each}
           </section>
         {/if}
@@ -377,29 +336,7 @@
           <section class="flex flex-col gap-3" aria-labelledby="scheduled-sent">
             <h2 id="scheduled-sent" class="section-title">Recently posted</h2>
             {#each groups.sent as item (item.id)}
-              {@const preview = previewOf(item.event)}
-              <article class="row-card row-card--sent">
-                <div class="row-head">
-                  <span class="row-time row-time--sent">Posted {formatScheduleTime(item.sentAt ?? item.publishAt, now)}</span>
-                  <span class="row-meta">{preview.kind} · {relayModeLabel(item.relayMode)}</span>
-                </div>
-                <div class="row-body">
-                  {#if preview.image}
-                    <img class="row-thumb" src={preview.image.url} alt={preview.image.alt} loading="lazy" />
-                  {/if}
-                  <div class="min-w-0 flex-1">
-                    {#if preview.text}<p class="row-text">{preview.text}</p>{/if}
-                    {#if preview.pollOptions.length > 0}
-                      <ul class="poll-options">
-                        {#each preview.pollOptions as option}<li>{option}</li>{/each}
-                      </ul>
-                    {/if}
-                  </div>
-                </div>
-                <div class="row-actions">
-                  <a class="action-link" href={eventIdPath(item.id)}>View post</a>
-                </div>
-              </article>
+              <ScheduledPostCard {item} {now} />
             {/each}
           </section>
         {/if}
@@ -467,153 +404,34 @@
     opacity: 0.6;
   }
 
+  .view-toggle {
+    display: inline-flex;
+    padding: 0.125rem;
+    border-radius: 9999px;
+    border: 1px solid var(--color-input-border);
+    background: var(--color-input-bg);
+  }
+  .view-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3125rem;
+    padding: 0.3125rem 0.75rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    border-radius: 9999px;
+    color: var(--color-text-secondary);
+  }
+  .view-btn[aria-pressed='true'] {
+    color: var(--color-on-action, #fff);
+    background: var(--color-action);
+  }
+
   .section-title {
     font-size: 0.8125rem;
     font-weight: 700;
     letter-spacing: 0.04em;
     text-transform: uppercase;
     color: var(--color-caption);
-  }
-
-  .row-card {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-    padding: 1rem;
-    border-radius: 0.75rem;
-    background: var(--color-bg-secondary);
-    border: 1px solid var(--color-input-border);
-  }
-  .row-head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.25rem 0.75rem;
-  }
-  .row-time {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.375rem;
-    font-weight: 600;
-    color: var(--color-text-primary);
-  }
-  .row-time :global(svg) {
-    color: var(--color-primary);
-  }
-  .row-time--failed :global(svg) {
-    color: #ef4444;
-  }
-  .row-time--sent {
-    font-weight: 500;
-    color: var(--color-text-secondary);
-  }
-  .row-meta {
-    font-size: 0.8125rem;
-    color: var(--color-caption);
-  }
-  .row-body {
-    display: flex;
-    gap: 0.75rem;
-  }
-  .row-thumb {
-    width: 4.5rem;
-    height: 4.5rem;
-    flex-shrink: 0;
-    border-radius: 0.5rem;
-    object-fit: cover;
-    background: var(--color-input-bg);
-  }
-  .row-text {
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    display: -webkit-box;
-    -webkit-line-clamp: 4;
-    line-clamp: 4;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-    color: var(--color-text-primary);
-  }
-  .poll-options {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    margin-top: 0.5rem;
-  }
-  .poll-options li {
-    padding: 0.25rem 0.625rem;
-    font-size: 0.875rem;
-    border-radius: 0.5rem;
-    border: 1px solid var(--color-input-border);
-    background: var(--color-input-bg);
-    overflow-wrap: anywhere;
-  }
-  .row-more {
-    margin-top: 0.375rem;
-    font-size: 0.8125rem;
-    color: var(--color-caption);
-  }
-  .row-explain {
-    font-size: 0.9375rem;
-    color: var(--color-text-primary);
-  }
-  .row-notice {
-    padding: 0.5rem 0.75rem;
-    font-size: 0.875rem;
-    border-radius: 0.5rem;
-    color: var(--color-text-primary);
-    background: var(--color-input-bg);
-    border: 1px solid var(--color-input-border);
-  }
-  .row-detail {
-    font-size: 0.8125rem;
-    color: var(--color-caption);
-  }
-  .row-detail summary {
-    cursor: pointer;
-  }
-  .row-detail code {
-    overflow-wrap: anywhere;
-  }
-  .row-actions {
-    display: flex;
-    gap: 0.5rem;
-    padding-top: 0.75rem;
-    border-top: 1px solid var(--color-input-border);
-  }
-  .action-primary,
-  .action-danger,
-  .action-link {
-    padding: 0.5rem 0.875rem;
-    font-size: 0.9375rem;
-    font-weight: 600;
-    border-radius: 0.5rem;
-    text-align: center;
-  }
-  .action-primary {
-    flex: 1;
-    color: var(--color-on-action, #fff);
-    background: var(--color-action);
-  }
-  .action-primary:hover:not(:disabled) {
-    background: var(--color-action-hover);
-  }
-  .action-danger {
-    color: #ef4444;
-  }
-  .action-danger:hover:not(:disabled) {
-    background: rgba(239, 68, 68, 0.1);
-  }
-  .action-link {
-    color: var(--color-primary);
-  }
-  .action-link:hover {
-    text-decoration: underline;
-  }
-  .action-primary:disabled,
-  .action-danger:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
   }
 
   .notice {
