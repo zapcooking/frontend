@@ -200,6 +200,7 @@ const clientDeps: ScheduleClientDeps = {
   signAuthHeader: async () => 'Nostr test',
   getWriteRelays: async () => [],
   prepareSigner: async () => {},
+  rawSigner: async () => null,
   now: () => NOW
 };
 
@@ -514,7 +515,7 @@ describe('rescheduling a post that is still scheduled', () => {
 
   it('the notice names the old time and says nothing has changed; the refusal says why and what to do', () => {
     const notice = reschedulingNotice(target, NOW, 'en-US');
-    expect(notice).toContain('Rescheduling a post set for Tomorrow');
+    expect(notice).toContain('Editing a post scheduled for Tomorrow');
     expect(notice).toContain('stays scheduled');
     const refusal = postNowRefusedCopy(target, NOW, 'en-US');
     expect(refusal).toContain('still scheduled for Tomorrow');

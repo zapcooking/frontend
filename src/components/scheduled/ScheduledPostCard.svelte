@@ -4,8 +4,13 @@
    * preview, and what can be done with it. The Scheduled list shows these
    * as its rows and the calendar shows one when a post is opened.
    *
-   * It owns no behaviour: Cancel, Reschedule and "Edit and post again"
+   * It owns no behaviour: Move, Edit, Cancel and "Edit and post again"
    * are events the page handles, so both views act the same way.
+   *
+   * Two ways to change a pending post, named for what they change:
+   *   Move  only the time; the post goes out exactly as written.
+   *   Edit  opens it in the composer, to change the text or the time.
+   *         (The event stays `reschedule`, the name the page gives it.)
    */
   import { createEventDispatcher } from 'svelte';
   import type { ScheduledItem } from '$lib/scheduleClient';
@@ -25,6 +30,7 @@
 
   const dispatch = createEventDispatcher<{
     cancel: ScheduledItem;
+    move: ScheduledItem;
     reschedule: ScheduledItem;
     postAgain: ScheduledItem;
   }>();
@@ -103,16 +109,39 @@
 
   {#if item.status === 'pending'}
     <div class="row-actions">
-      <button type="button" class="action-primary" on:click={() => dispatch('reschedule', item)} disabled={busy}>
-        Reschedule
+      <button
+        type="button"
+        class="action-primary"
+        data-action="move"
+        title="Change only the time. The post stays exactly as written."
+        on:click={() => dispatch('move', item)}
+        disabled={busy}
+      >
+        Move
       </button>
-      <button type="button" class="action-danger" on:click={() => dispatch('cancel', item)} disabled={busy}>
+      <button
+        type="button"
+        class="action-secondary"
+        data-action="edit"
+        title="Open in the composer to change the text or the time."
+        on:click={() => dispatch('reschedule', item)}
+        disabled={busy}
+      >
+        Edit
+      </button>
+      <button
+        type="button"
+        class="action-danger"
+        data-action="cancel"
+        on:click={() => dispatch('cancel', item)}
+        disabled={busy}
+      >
         {busy ? 'Working…' : 'Cancel'}
       </button>
     </div>
   {:else if failed}
     <div class="row-actions">
-      <button type="button" class="action-primary" on:click={() => dispatch('postAgain', item)}>
+      <button type="button" class="action-primary" data-action="post-again" on:click={() => dispatch('postAgain', item)}>
         Edit and post again
       </button>
     </div>
@@ -246,6 +275,22 @@
   }
   .action-primary:hover:not(:disabled) {
     background: var(--color-action-hover);
+  }
+  .action-secondary {
+    padding: 0.5rem 0.875rem;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    border-radius: 0.5rem;
+    text-align: center;
+    color: var(--color-text-primary);
+    border: 1px solid var(--color-input-border);
+  }
+  .action-secondary:hover:not(:disabled) {
+    background: var(--color-hover-bg);
+  }
+  .action-secondary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
   .action-danger {
     color: #ef4444;

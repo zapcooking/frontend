@@ -84,6 +84,19 @@ export function monthWeeks(month: Date): Date[][] {
   return weeks;
 }
 
+/**
+ * The same time of day as `unixSeconds`, on `day`: what dragging a post
+ * to another day means. By wall clock, not by adding days' worth of
+ * seconds, so 9:00 stays 9:00 across a clock change. A time that does
+ * not exist on that day (2:30 AM when the clocks go forward) becomes the
+ * next one that does, as the Date constructor has it.
+ */
+export function sameTimeOn(day: Date, unixSeconds: number): number {
+  const t = new Date(unixSeconds * 1000);
+  const moved = new Date(day.getFullYear(), day.getMonth(), day.getDate(), t.getHours(), t.getMinutes(), t.getSeconds());
+  return Math.floor(moved.getTime() / 1000);
+}
+
 // ── how far the views go ────────────────────────────────────────────
 
 export interface CalendarBounds {

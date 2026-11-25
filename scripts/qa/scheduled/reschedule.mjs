@@ -1,12 +1,13 @@
 /**
- * Standing check: rescheduling a scheduled post from My Kitchen › Scheduled.
+ * Standing check: editing a scheduled post ("Edit", formerly "Reschedule")
+ * from My Kitchen › Scheduled. For "Move", see move.mjs.
  *
- * Reschedule must never cancel up front, and the time picker must take a
+ * Edit must never cancel up front, and the time picker must take a
  * time however it is closed. At 390 px and 1280 px, from the list and (when
  * the page has one) from the calendar's details dialog:
  *
- *   A  Reschedule opens the composer with the post, the picker open and a
- *      "Rescheduling a post set for …" line. A time typed into the picker
+ *   A  Edit opens the composer with the post, the picker open and an
+ *      "Editing a post scheduled for …" line. A time typed into the picker
  *      is kept when the picker is closed by a click outside it (the way a
  *      pick used to be lost) and by Done. Schedule sends ONE request: a
  *      POST with `replaces` = the old id and the old row's relays. No
@@ -182,9 +183,9 @@ async function clickReschedule(page, view) {
     if ((await page.locator('.chip--pending').count()) === 0) await page.locator('.nav-btn').nth(1).click();
     await page.locator('.chip--pending').first().click();
     await page.waitForSelector('dialog .row-card');
-    await page.locator('dialog .row-card .action-primary').click();
+    await page.locator('dialog .row-card [data-action="edit"]').click();
   } else {
-    await page.locator('.row-card .action-primary', { hasText: 'Reschedule' }).first().click();
+    await page.locator('.row-card [data-action="edit"]').first().click();
   }
 }
 
@@ -209,7 +210,7 @@ for (const viewport of VIEWPORTS) {
     check(`${tag}: no confirm is asked when nothing would be lost`, state.dialogs.length === 0, state.dialogs.join(' | '));
     check(`${tag}: nothing is cancelled when Reschedule is pressed`, !state.api.some((c) => c.startsWith('DELETE')), state.api.join(', '));
     const note = (await page.locator('.reschedule-note').innerText().catch(() => '')) || '';
-    check(`${tag}: the composer says what it is rescheduling`, /Rescheduling a post set for Tomorrow, 9:00/.test(note), note);
+    check(`${tag}: the composer says what it is rescheduling`, /Editing a post scheduled for Tomorrow, 9:00/.test(note), note);
     check(`${tag}: the picker's field is reachable`, await reachable(page, '.schedule-input'));
     check(`${tag}: the picker's Done button is reachable`, await reachable(page, '.schedule-popover-set'));
     if (view === 'calendar') {
@@ -343,7 +344,7 @@ for (const viewport of VIEWPORTS) {
   {
     const tag = `${viewport.name} list F`;
     const { ctx, page, state } = await open(viewport);
-    await page.locator('.row-card .action-primary', { hasText: 'Edit and post again' }).click();
+    await page.locator('.row-card [data-action="post-again"]').click();
     await page.waitForSelector('.schedule-popover');
     check(`${tag}: "Edit and post again" is not a reschedule`, (await page.locator('.reschedule-note').count()) === 0);
     const when = at(2, 11, 0);

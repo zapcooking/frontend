@@ -182,7 +182,7 @@ export function parseReschedulingTarget(raw: unknown): ReschedulingTarget | null
 
 /** The line the composer shows while it holds a reschedule. */
 export function reschedulingNotice(target: ReschedulingTarget, nowSeconds: number, locale?: string): string {
-  return `Rescheduling a post set for ${formatScheduleTime(target.publishAt, nowSeconds, locale)}. It stays scheduled as it is until you press Schedule.`;
+  return `Editing a post scheduled for ${formatScheduleTime(target.publishAt, nowSeconds, locale)}. It stays scheduled as it is until you press Schedule.`;
 }
 
 /** Why "post now" is refused while rescheduling, and what to do instead. */
