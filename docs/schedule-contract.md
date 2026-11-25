@@ -126,7 +126,10 @@ does, so the post is never scheduled twice and never lost.
   answer is `429 rate_limited` with `"limit": "moves"`, and nothing is changed.
 - Retrying after a lost response is safe, with the same signed event: the answer is
   `409 already_scheduled` with `"status": "pending"` and `"replaced": "<old event id>"`, which
-  says the swap already happened.
+  says the swap already happened. `replaced` is only present while the replaced post is in fact
+  no longer pending; without it, check the list before assuming the old post is gone.
+- `replaces` must not be the new event's own id (`400 bad_request`): a post cannot replace
+  itself.
 - Afterwards the old row is `cancelled`, exactly as if it had been cancelled by hand. A client
   that never sends `replaces` sees nothing new: one row turned `cancelled` and a new `pending`
   row appeared.
@@ -138,6 +141,21 @@ time needs a decision: a poll's close time (`endsAt`, `closed_at`) should move b
 amount as the post; an `expiration` tag that would pass before the new publish time means the
 post should not be moved; `published_at` should follow the post only where it equalled the old
 `created_at`.
+
+**The same post at the same time again.** An event id is a hash of the author, `created_at`,
+kind, tags and content. Signing the same post for a time it was scheduled for before produces
+the same id as that earlier row, with a new signature. This happens when a post is moved away
+and then back (Monday → Tuesday → Monday), and when a post is cancelled and then scheduled
+again unchanged. If the earlier row is `cancelled`, the server **revives** it: the answer is an
+ordinary `201`, the row is `pending` again with the event, `relay_mode` and `relays` of this
+request, `attempts` is 0 and `last_error` is `null`. With `replaces`, the revival and the cancel
+of the replaced row are still one step. The limits apply as for any create or replace. A client
+needs no special handling: it is a success where there used to be a
+`409 already_scheduled` with `"status": "cancelled"`.
+
+Only `cancelled` rows are revived. A row with that id that `failed` or was `sent` is final and
+still answers `409 already_scheduled` with its status: a sent post is never sent twice. To post
+the same text again after either, change the time by at least a second or the text.
 
 **Also valid: cancel, then create.** `DELETE` the old one and check it returned `200`, then POST
 the new one as a plain create. If the cancel returns `409 not_cancellable` the original is
@@ -264,7 +282,7 @@ codes may be added.
 | Status | `error` | Endpoint | Meaning | What the client should show or do |
 |---|---|---|---|---|
 | 401 | `auth_failed` | all | NIP-98 check failed (`detail` says which part). | "Couldn't verify your account. Check your device's date and time, then try again." Retry once with a freshly signed header. |
-| 400 | `bad_request` | POST | Body is not JSON, `event` / `relay_mode` is missing or the wrong type, or `replaces` is present and not a 64-character lowercase hex event id. | Client bug. Generic "Couldn't schedule this post." |
+| 400 | `bad_request` | POST | Body is not JSON, `event` / `relay_mode` is missing or the wrong type, or `replaces` is present and is not a 64-character lowercase hex event id or is the new event's own id. | Client bug. Generic "Couldn't schedule this post." |
 | 400 | `bad_relay_mode` | POST | `relay_mode` is not `all` or `pantry`. | Client bug. Generic failure. |
 | 400 | `bad_relays` | POST | `relays` is not an array, has an entry that is not an allowed URL, or has more than 4. | Client bug: filter and cap before sending. If it happens, retry once without `relays`, so the post still goes to the fixed relays. |
 | 400 | `bad_signature` | POST | The event's id or signature does not verify. | "Your signer returned a post we couldn't verify. Try again." Usually a signer that changed the event (see "Signing"). |
@@ -274,7 +292,7 @@ codes may be added.
 | 400 | `bad_publish_time` | POST | `created_at` is 120 s or less away, 90 days or more away, or not an integer. | "Pick a time at least 5 minutes from now and within 90 days." The user must pick again and the event must be signed again. |
 | 400 | `too_large` | POST | The event is over 64 KiB. | "This post is too long to schedule." |
 | 400 | `poll_closes_before_publish` | POST | The poll would close before, or within 60 s of, its publish time. | "This poll would close before it's posted. Move the closing time later." |
-| 409 | `already_scheduled` | POST | This exact event is already stored. Body includes `status`: the existing row's current status, and `replaced` (the old event id) when that row was stored by a replace. | **Treat as success** when `status` is `pending`, `publishing` or `sent`: an earlier attempt landed. For `cancelled` or `failed`, tell the user and sign a new event to try again. |
+| 409 | `already_scheduled` | POST | This exact event is already stored and is `pending`, `publishing`, `sent` or `failed`. (A `cancelled` row with this id is revived instead: see "The same post at the same time again".) Body includes `status`: the existing row's current status, and `replaced` (the old event id) when that row was stored by a replace and the row it replaced is no longer pending. | **Treat as success** when `status` is `pending`, `publishing` or `sent`: an earlier attempt landed. For `failed`, tell the user; the same post can be scheduled again only at a different time or with different text. A server from before 2026-11 can also answer `cancelled` here: treat it like `failed`. |
 | 400 | `quota_exceeded` | POST | The account already has 50 pending posts. | "You have 50 posts scheduled, the most allowed. Cancel one, or wait for one to go out." |
 | 429 | `rate_limited` | POST | 30 posts scheduled in the last hour (cancelled ones count), or, with `"limit": "moves"` in the body, 60 replaces in the last hour. | "You've scheduled a lot in the last hour. Try again later." For `"limit": "moves"`: "You've moved a lot of posts in the last hour. Try again later." Do not retry automatically. |
 | 404 | `not_found` | POST with `replaces` | No post with the `replaces` id exists for this account. Nothing was stored. | "This scheduled post no longer exists." Refresh the list. |
