@@ -20,7 +20,7 @@ again.
 | `0010_live_metrics.sql` | 2026-11-15 (#991; 25 objects) | 2026-11-15 (#991), after #994 was live (build 4.2.1114) |
 | `0011_live_ended_event.sql` | 2026-11-18 (#1012; 25 objects, columns only) | 2026-11-18 (#1012), before merge; 25 objects, columns only |
 | `0012_add_scheduled_event_relays.sql` | 2026-11-23 (#1020) | 2026-11-23 (#1020), before merge; verified on production |
-| `0013_add_scheduled_event_replaces.sql` | **not applied** — apply before checking `replaces` on a preview deployment | **not applied** — apply BEFORE the PR that adds `replaces` is merged: every `POST /api/schedule` answers 500 without the column |
+| `0013_add_scheduled_event_replaces.sql` | 2026-11-24 (#1026) | 2026-11-24 (#1026), before merge; verified on production |
 
 ## Applying a new migration
 
