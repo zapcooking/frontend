@@ -153,30 +153,27 @@
   }
 
   /**
-   * Reschedule = cancel, then reopen the composer with the post in it and
-   * the time picker open. The composer only opens if the cancel went
-   * through: otherwise the original is still going out (or already has)
-   * and a second copy would be a duplicate.
+   * Reschedule opens the composer with the post in it and the time picker
+   * open, and cancels NOTHING. The post stays scheduled as it is until the
+   * person presses Schedule there; the new one then takes its place in one
+   * step (`replaces`). Closing the composer leaves the original untouched.
+   * See ReschedulingTarget in $lib/composerSchedule.
+   *
+   * There is something to confirm only when opening the composer loses
+   * something: an unsent draft, or part of the post that does not come
+   * back as it was.
    */
-  async function reschedule(item: ScheduledItem) {
-    const restored = restoreForComposer(item, Math.floor(Date.now() / 1000));
-    const lines = ['Reschedule this post? It will be cancelled and opened in the composer so you can pick a new time.'];
-    lines.push(...restored.notRestored);
+  function reschedule(item: ScheduledItem) {
+    const restored = restoreForComposer(item, Math.floor(Date.now() / 1000), { replace: true });
+    const lines = [...restored.notRestored];
     if (hasUnsentDraft(localStorage.getItem(NOTE_DRAFT_KEY))) {
       lines.push('You have an unsent draft in the composer. It will be replaced by this post.');
     }
-    if (!confirm(lines.join('\n\n'))) return;
-
-    busy = { ...busy, [item.id]: true };
-    const result = await cancelScheduled(item.id);
-    busy = { ...busy, [item.id]: false };
-    if (!result.ok) {
-      setNotice(item.id, scheduleErrorCopy(result));
-      await load();
-      return;
+    if (lines.length > 0) {
+      lines.unshift('Open this post in the composer to pick a new time? It stays scheduled until you press Schedule.');
+      if (!confirm(lines.join('\n\n'))) return;
     }
     openInComposer(restored);
-    await load();
   }
 
   /** A failed post is already final, so there is nothing to cancel first. */
@@ -197,7 +194,7 @@
     try {
       localStorage.setItem(
         NOTE_DRAFT_KEY,
-        JSON.stringify({ content: restored.draft.content, media: restored.draft.media, savedAt: Date.now() })
+        JSON.stringify({ ...restored.draft, savedAt: Date.now() })
       );
     } catch (_) {
       /* storage unavailable: the composer still opens with the poll and time */

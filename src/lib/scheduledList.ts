@@ -11,6 +11,7 @@ import { isImageUrl, isVideoUrl } from './imageUrls';
 import type { PollConfig, ZapPollConfig, PollType } from './polls';
 import { POLL_ENDS_AT_TAG, ZAP_POLL_CLOSED_AT_TAG } from './polls';
 import type { ScheduledItem, ScheduleRelayMode } from './scheduleClient';
+import { parseReschedulingTarget, type ReschedulingTarget } from './composerSchedule';
 
 /** The composer's single note draft in localStorage (PostComposer's DRAFT_KEY). */
 export const NOTE_DRAFT_KEY = 'zapcooking_note_draft';
@@ -194,11 +195,19 @@ export interface ComposerRestore {
   /** The time it was scheduled for; the composer keeps it only if it is still far enough off. */
   publishAt: number;
   openPicker: boolean;
+  /** The pending post this one will replace (Reschedule), or null. */
+  rescheduling: ReschedulingTarget | null;
 }
 
 export interface RestoredPost {
-  /** Goes into the composer's stored draft. */
-  draft: { content: string; media: MediaAttachment[] };
+  /**
+   * Goes into the composer's stored draft. `rescheduling` marks the
+   * stored text as a copy of a post that is still scheduled: if the
+   * composer finds such a draft later without having just been handed
+   * it (a reload, a crash), it discards it instead of offering a second
+   * copy of that post to publish.
+   */
+  draft: { content: string; media: MediaAttachment[]; rescheduling?: ReschedulingTarget };
   restore: ComposerRestore;
   /** Plain sentences about anything that does not come back as it was. Empty when it all does. */
   notRestored: string[];
@@ -226,13 +235,21 @@ function pollType(event: NostrEvent): PollType {
  * `nowSeconds`; the composer counts it from the new publish time when
  * the post is scheduled again.
  *
+ * With `replace` (Reschedule on a pending post), the draft also carries
+ * which post it is rescheduling. Nothing is cancelled here or by the
+ * caller: see ReschedulingTarget in $lib/composerSchedule.
+ *
  * Does not come back as it was: a quoted note. The composer's quote
  * needs the quoted note itself, which a scheduled row does not hold, so
  * the quote returns as its `nostr:nevent…` link at the end of the text.
  * It still shows as a quote in most apps, but the new post no longer
  * carries the `q` tag or tags the quoted author.
  */
-export function restoreForComposer(item: ScheduledItem, nowSeconds: number): RestoredPost {
+export function restoreForComposer(
+  item: ScheduledItem,
+  nowSeconds: number,
+  options: { replace?: boolean } = {}
+): RestoredPost {
   const event = item.event;
   const { text, media, quoteLink } = splitComposedContent(event);
   const notRestored: string[] = [];
@@ -271,16 +288,47 @@ export function restoreForComposer(item: ScheduledItem, nowSeconds: number): Res
     );
   }
 
+  // Reschedule (`replace`): the original is left scheduled and the new
+  // post will take its place. "Edit and post again" on a failed post has
+  // nothing to replace.
+  const rescheduling: ReschedulingTarget | undefined =
+    options.replace && item.status === 'pending'
+      ? { id: item.id, publishAt: item.publishAt, relayMode: item.relayMode, relays: [...item.relays] }
+      : undefined;
+
   return {
-    draft: { content, media },
-    restore: { poll, zapPoll, relayMode: item.relayMode, publishAt: item.publishAt, openPicker: true },
+    draft: { content, media, ...(rescheduling ? { rescheduling } : {}) },
+    restore: {
+      poll,
+      zapPoll,
+      relayMode: item.relayMode,
+      publishAt: item.publishAt,
+      openPicker: true,
+      rescheduling: rescheduling ?? null
+    },
     notRestored
   };
 }
 
-/** Is there an unsent note draft that reopening the composer would replace? */
+/** The post a stored draft is rescheduling, if it is one. */
+export function draftRescheduling(raw: string | null): ReschedulingTarget | null {
+  if (!raw) return null;
+  try {
+    return parseReschedulingTarget((JSON.parse(raw) as { rescheduling?: unknown }).rescheduling);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Is there an unsent note draft that reopening the composer would
+ * replace? A draft left over from a reschedule does not count: it is a
+ * copy of a post that is still scheduled, and the composer throws it
+ * away itself the next time it opens.
+ */
 export function hasUnsentDraft(raw: string | null): boolean {
   if (!raw) return false;
+  if (draftRescheduling(raw)) return false;
   try {
     const draft = JSON.parse(raw) as { content?: unknown; media?: unknown; images?: unknown; videos?: unknown };
     const hasText = typeof draft.content === 'string' && draft.content.trim() !== '';

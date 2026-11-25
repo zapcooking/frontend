@@ -22,6 +22,7 @@ import {
   failedExplanation,
   restoreForComposer,
   hasUnsentDraft,
+  draftRescheduling,
   SENT_HISTORY_LIMIT,
   SENT_HISTORY_DAYS
 } from './scheduledList';
@@ -266,7 +267,8 @@ describe('restoreForComposer', () => {
       zapPoll: null,
       relayMode: 'pantry',
       publishAt: original.created_at,
-      openPicker: true
+      openPicker: true,
+      rescheduling: null
     });
     // What the composer would send from this draft is what was scheduled.
     expect(composeNoteContent(restored.draft.content, restored.draft.media)).toBe(original.content);
@@ -343,5 +345,47 @@ describe('hasUnsentDraft', () => {
     for (const raw of [null, '', '{', 'null', JSON.stringify({}), JSON.stringify({ content: '  \n', media: [] })]) {
       expect(hasUnsentDraft(raw), String(raw)).toBe(false);
     }
+  });
+});
+
+describe('Reschedule does not cancel: the restore says which post is being replaced', () => {
+  it('replace: true on a pending post carries its id, time, relay mode and relays, in the draft and the restore', () => {
+    const original = event({ content: 'move me' });
+    const it0 = item({ event: original, relays: ['wss://a.example.com'] });
+    const { draft, restore } = restoreForComposer(it0, NOW, { replace: true });
+    const target = { id: original.id, publishAt: original.created_at, relayMode: 'all', relays: ['wss://a.example.com'] };
+    expect(restore.rescheduling).toEqual(target);
+    expect(draft.rescheduling).toEqual(target);
+    expect(draft.content).toBe('move me');
+    // A copy, not the row's own array.
+    expect(restore.rescheduling?.relays).not.toBe(it0.relays);
+  });
+
+  it('without replace ("Edit and post again"), nothing is replaced', () => {
+    const { draft, restore } = restoreForComposer(item({ status: 'failed' }), NOW);
+    expect(restore.rescheduling).toBeNull();
+    expect(draft).not.toHaveProperty('rescheduling');
+  });
+
+  it('a post that is not pending is never a replace target, even if asked', () => {
+    for (const status of ['failed', 'sent', 'publishing', 'cancelled'] as const) {
+      const { draft, restore } = restoreForComposer(item({ status }), NOW, { replace: true });
+      expect(restore.rescheduling, status).toBeNull();
+      expect(draft, status).not.toHaveProperty('rescheduling');
+    }
+  });
+
+  it('a stored reschedule draft is recognised, and is not an "unsent draft" to warn about', () => {
+    const { draft } = restoreForComposer(item({ event: event({ content: 'copy of a scheduled post' }) }), NOW, {
+      replace: true
+    });
+    const raw = JSON.stringify({ ...draft, savedAt: 1 });
+    expect(draftRescheduling(raw)?.id).toBe(draft.rescheduling?.id);
+    expect(hasUnsentDraft(raw)).toBe(false);
+    // An ordinary draft still is.
+    expect(draftRescheduling(JSON.stringify({ content: 'mine' }))).toBeNull();
+    expect(hasUnsentDraft(JSON.stringify({ content: 'mine' }))).toBe(true);
+    expect(draftRescheduling('{')).toBeNull();
+    expect(draftRescheduling(null)).toBeNull();
   });
 });
