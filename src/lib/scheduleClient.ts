@@ -827,12 +827,21 @@ export async function scheduleEvent(
         relays,
         status: rowStatus,
         alreadyScheduled: true,
-        // `replaced` on this answer says the earlier attempt's swap happened.
-        ...(options.replaces && data.replaced === options.replaces ? { replacement: 'replaced' as const } : {})
+        // `replaced` on this answer says the swap happened (an earlier
+        // attempt of this same request). Without it, this exact post was
+        // already scheduled some other way and the one it was meant to
+        // replace may well still be: the caller must say so.
+        ...(options.replaces
+          ? {
+              replacement:
+                data.replaced === options.replaces ? ('replaced' as const) : ('original_still_scheduled' as const)
+            }
+          : {})
       };
     }
-    // Cancelled or failed (or a status we do not know): this exact
-    // event will not go out. The caller must sign a new one to retry.
+    // Failed (or a status we do not know, or `cancelled` from a server
+    // that does not yet revive cancelled rows): this exact event will
+    // not go out. The caller must sign a new one to retry.
     return failure(code, SCHEDULE_CODES, rowStatus);
   }
   if (!options.replaces) {
@@ -943,7 +952,8 @@ const COPY: Record<ScheduleErrorCode, string> = {
   bad_publish_time: 'Pick a time at least 5 minutes from now and within 90 days.',
   too_large: 'This post is too long to schedule.',
   poll_closes_before_publish: "This poll would close before it's posted. Move the closing time later.",
-  already_scheduled: "This post was already scheduled and then cancelled or failed, so it won't be sent. Schedule it again to retry.",
+  already_scheduled:
+    "This exact post was scheduled for that time before and didn't go out, so it can't be scheduled for it again. Pick a different time, even by a minute.",
   quota_exceeded: 'You have 50 posts scheduled, the most allowed. Cancel one, or wait for one to go out.',
   rate_limited: "You've scheduled a lot in the last hour. Try again later.",
   bad_status: "Couldn't load your scheduled posts. Please try again.",

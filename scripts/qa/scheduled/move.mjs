@@ -20,6 +20,8 @@
  *      post already going out (409 not_replaceable), and the hourly move
  *      limit (429, limit: moves).
  *   E  "Keep as it is" sends nothing.
+ *   G  Moving a post away and back again (A → B → A) works: the second
+ *      move sends the event id the post had at first, replacing B.
  *   F  1280 px: dragging a post to another day opens the same dialog with
  *      that day and the post's own time of day; nothing is sent until it
  *      is confirmed. A sent post cannot be dragged.
@@ -153,6 +155,8 @@ async function open(viewport, { view = 'list', onPost = null } = {}) {
       if (custom) return json(custom.status, custom.body);
       const old = state.items.find((i) => i.id === body.replaces);
       if (old) old.status = 'cancelled';
+      // As the server does: a cancelled row with this id is revived, not duplicated.
+      state.items = state.items.filter((i) => !(i.id === body.event.id && i.status === 'cancelled'));
       state.items.push(row(body.event, { relay_mode: body.relay_mode, relays: body.relays ?? [] }));
       return json(201, {
         id: body.event.id,
@@ -328,6 +332,34 @@ for (const viewport of VIEWPORTS) {
     check(`${tag}: "Keep as it is" sends nothing`, state.posts.length === 0 && !state.api.some((m) => m !== 'GET'), state.api.join(','));
     await ctx.close();
   }
+}
+
+// ── G: there and back again ──────────────────────────────────────────
+for (const viewport of VIEWPORTS) {
+  const tag = `${viewport.name} list G`;
+  const { ctx, page, state } = await open(viewport);
+  const away = at(4, 14, 15);
+  await openMove(page, 'list', 'Great pan');
+  await page.fill('#move-post-time', localInput(away));
+  await page.locator('.move-confirm').click();
+  await page.getByText(/Moved to/).first().waitFor();
+  await page.waitForSelector('#move-post-time', { state: 'detached' });
+  await page.waitForTimeout(700);
+
+  await openMove(page, 'list', 'Great pan');
+  await page.fill('#move-post-time', localInput(new Date(state.quote.created_at * 1000)));
+  await page.locator('.move-confirm').click();
+  await page.waitForSelector('#move-post-time', { state: 'detached' });
+  await page.waitForTimeout(700);
+  const [first, second] = state.posts;
+  check(`${tag}: two moves, two POSTs, no DELETE`, state.posts.length === 2 && !state.api.includes('DELETE'), state.api.join(','));
+  check(`${tag}: the move back sends the id the post had at first, with a new signature`, second?.event?.id === state.quote.id && second?.event?.sig !== state.quote.sig && verifyEvent({ ...second.event }), String(second?.event?.id));
+  check(`${tag}: it replaces the row from the first move`, second?.replaces === first?.event?.id, String(second?.replaces));
+  check(`${tag}: the tags and text are still the original's`, JSON.stringify(second?.event?.tags) === JSON.stringify(state.quote.tags) && second?.event?.content === state.quote.content);
+  const times = await page.locator('.row-card', { hasText: 'Great pan' }).locator('.row-time').allInnerTexts();
+  check(`${tag}: the post is listed once, back at its first time`, times.length === 1 && times[0].includes('6:30'), times.join(' | '));
+  check(`${tag}: no failure is shown`, (await page.locator('p[role="alert"]').count()) === 0);
+  await ctx.close();
 }
 
 // ── F: drag to another day (desktop) ─────────────────────────────────

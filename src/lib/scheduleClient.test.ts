@@ -873,6 +873,16 @@ describe('scheduleEvent with replaces (reschedule)', () => {
     });
   });
 
+  it('409 already_scheduled WITHOUT replaced: the post is scheduled, but the one to be replaced may still be', async () => {
+    const event = signed();
+    const { deps } = harness([{ status: 409, body: { error: 'already_scheduled', status: 'pending' } }]);
+    expect(await scheduleEvent(event, { relayMode: 'all', relays: [], replaces: OLD }, deps)).toMatchObject({
+      ok: true,
+      alreadyScheduled: true,
+      replacement: 'original_still_scheduled'
+    });
+  });
+
   describe('a server that ignored `replaces` (201 without `replaced`)', () => {
     it('cancels the original itself, so the post is not scheduled twice', async () => {
       const event = signed();
@@ -1225,6 +1235,31 @@ describe('moving a scheduled post', () => {
         if (!result.ok) expect(scheduleErrorCopy(result)).toContain(copy);
       });
     }
+
+    it('moving back to a time the post held before sends the id it had then (A → B → A), and succeeds', async () => {
+      const a0 = POSTS['a web quote'];
+      // A → B
+      const first = harness([created({ relay_mode: 'all', relays: [], replaced: a0.id })]);
+      const toB = await moveScheduled(itemOf(a0, { relays: [] }), NEW_AT, first.deps);
+      if (!toB.ok) throw new Error(toB.code);
+      // B → A: the server revives its cancelled row A and answers 201.
+      const second = harness([created({ relay_mode: 'all', relays: [], replaced: toB.item.id })]);
+      const back = await moveScheduled(toB.item, OLD_AT, second.deps);
+      if (!back.ok) throw new Error(back.code);
+      expect(second.calls[0].body.event.id).toBe(a0.id);
+      expect(second.calls[0].body.event.sig).not.toBe(a0.sig);
+      expect(second.calls[0].body.replaces).toBe(toB.item.id);
+      expect(back.item.id).toBe(a0.id);
+      expect(back.item.event.tags).toEqual(a0.tags);
+      expect(back.replacement).toBe('replaced');
+    });
+
+    it('a server that does not revive yet (409 already_scheduled, cancelled): a failure with copy that says what to do', async () => {
+      const { deps } = harness([{ status: 409, body: { error: 'already_scheduled', status: 'cancelled' } }]);
+      const result = await moveScheduled(itemOf(POSTS['a reply']), NEW_AT, deps);
+      expect(result).toEqual({ ok: false, code: 'already_scheduled', status: 'cancelled' });
+      if (!result.ok) expect(scheduleErrorCopy(result)).toContain('Pick a different time');
+    });
 
     it('offline: network, and the post is where it was (no request got through)', async () => {
       const { deps } = harness([new Error('offline')]);
