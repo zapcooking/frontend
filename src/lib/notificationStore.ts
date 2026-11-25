@@ -14,6 +14,7 @@ import {
 import type { MuteList } from '$lib/muteFilter';
 import { getReplyParentId, getThreadRootId } from '$lib/thread/replyParent';
 import { isHellthread } from '$lib/notificationUtils';
+import { judgeReplies, nspamHiddenAuthors, warmNspam } from '$lib/nspam/spamFilter';
 import { decode as decodeBolt11 } from '@gandlaf21/bolt11-decode';
 import { extractZapAmountSats } from '$lib/zapAmount';
 
@@ -181,16 +182,26 @@ function isNotificationInMutedThread(muteList: MuteList | null, n: Notification)
 export const notificationsLoading = writable(false);
 
 /**
- * Notifications with muted users excluded, and plates that the full mute
- * list or site moderation hides (plates only — $lib/plated/notification).
+ * Notifications with muted users excluded, plates that the full mute list or site
+ * moderation hides (plates only — $lib/plated/notification), and authors the nspam
+ * judge has scored as known spammers (sidecar's method: an author whose bundle of
+ * newest replies the model scores >= 0.9; anyone you follow is never hidden).
  * Components should use this for display; raw `notifications` is for persistence/dedup only.
  */
 export const visibleNotifications = derived(
-  [notifications, mutedPubkeys, muteListStore, readsModerationVersion, platedRecipeLookups],
-  ([$notifications, $mutedPubkeys, $muteState, _moderationVersion, $lookups]) => {
+  [
+    notifications,
+    mutedPubkeys,
+    muteListStore,
+    readsModerationVersion,
+    platedRecipeLookups,
+    nspamHiddenAuthors
+  ],
+  ([$notifications, $mutedPubkeys, $muteState, _moderationVersion, $lookups, $spamHidden]) => {
     const byAuthor = $notifications.filter(
       (n) =>
-        (!n.fromPubkey || !$mutedPubkeys.has(n.fromPubkey)) &&
+        (!n.fromPubkey ||
+          (!$mutedPubkeys.has(n.fromPubkey) && !$spamHidden.has(n.fromPubkey))) &&
         !isNotificationInMutedThread($muteState.muteList, n)
     );
     if (!byAuthor.some((n) => n.plated)) return byAuthor;
@@ -464,6 +475,10 @@ export async function subscribeToNotifications(
     relaySet ?? undefined
   );
 
+  // The reply-spam model loads in the background, the way the trust set warms
+  // in Sidecar's bell: notifications read as they always did until it lands.
+  warmNspam();
+
   // Buffer events received before EOSE so we can insert them in one
   // addBulk() call (one sort + one localStorage write) instead of doing
   // a full sort + localStorage write for every individual event.
@@ -513,6 +528,11 @@ export async function subscribeToNotifications(
     // in a thread must not notify unless it actually replies to, quotes,
     // or mentions us.
     if (event.kind === 1 && !isRelevantKind1(event, userPubkey)) return;
+
+    // Sidecar's second opinion on strangers: this reply joins its author's bundle and
+    // re-scores it. A verdict never blocks THIS event here — hiding happens in
+    // visibleNotifications, reactively, when the bundle crosses the threshold.
+    if (event.kind === 1) judgeReplies([event]);
 
     const notification = parseNotification(event, userPubkey);
     if (!notification) return;
@@ -939,6 +959,8 @@ async function sendLocalNotificationForNostrEvent(notification: Notification): P
   try {
     await muteListStore.load();
     if (isNotificationMuted(notification)) return;
+    // A known spammer doesn't get to buzz your phone either.
+    if (get(nspamHiddenAuthors).has(notification.fromPubkey)) return;
 
     const { checkNotificationPermissions, sendImmediateNotification } = await import(
       '$lib/native/notifications'

@@ -24,8 +24,12 @@ import { profileCacheManager } from '$lib/profileCache';
 import { getMembership } from '$lib/stores/membershipStatus';
 import { SUPPORTED_CURRENCIES, type CurrencyCode } from '$lib/currencyStore';
 
-// NIP-85 Trusted Assertions — service relay for trust rank lookups
-const NIP85_RELAY = 'wss://nip85.nostr.band';
+// NIP-85 Trusted Assertions — Brainstorm is the global default provider.
+// nostr.band's NIP-85 service (nip85.nostr.band) is dead — unreachable, see
+// fetchTrustRanks. Brainstorm's declaration (kind 10040, pubkey below) advertises
+// 30382 rank + followers assertions at wss://scores.brainstorm.world.
+const NIP85_RELAY = 'wss://scores.brainstorm.world';
+const NIP85_GLOBAL_PUBKEY = '7f7e197e115741d021f2cf93666dc368ab97b2da63918daf436b8a4ea42d4e52';
 const NIP85_KIND_USER = 30382;
 const NIP85_KIND_PROVIDER_DECLARATION = 10040;
 
@@ -592,7 +596,7 @@ export interface TrustRankResult {
  * Fetch NIP-85 trust ranks for a list of pubkeys
  * If userPubkey is provided, looks up their Kind 10040 declaration first
  * to fetch personalized scores from their declared provider.
- * Falls back to global wss://nip85.nostr.band if no provider declared.
+ * Falls back to global Brainstorm scores if no provider declared.
  * Returns ranks map + whether the result is personalized.
  */
 export async function fetchTrustRanks(
@@ -605,7 +609,9 @@ export async function fetchTrustRanks(
 
 	let personalized = false;
 	let serviceRelay = NIP85_RELAY;
-	let authorsFilter: string[] | undefined;
+	// Global scores are one provider's, not a mix: unfiltered, the relay answers
+	// with every service's assertions it holds.
+	let authorsFilter: string[] | undefined = [NIP85_GLOBAL_PUBKEY];
 
 	// If user is signed in, try to find their declared trust provider
 	if (userPubkey) {
@@ -626,7 +632,7 @@ export async function fetchTrustRanks(
 	}
 
 	try {
-		const relayUrls = serviceRelay === NIP85_RELAY ? [NIP85_RELAY] : [serviceRelay, NIP85_RELAY];
+		const relayUrls = [serviceRelay];
 		const relaySet = NDKRelaySet.fromRelayUrls(relayUrls, ndk);
 		const filter: NDKFilter = {
 			kinds: [NIP85_KIND_USER] as number[],

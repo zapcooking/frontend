@@ -15,6 +15,7 @@
   import { ndk, userPublickey } from '$lib/nostr';
   import { mutedPubkeys, muteListStore } from '$lib/muteListStore';
   import { isEventMutedBy } from '$lib/muteFilter';
+  import { judgeReplies, nspamHiddenAuthors } from '$lib/nspam/spamFilter';
   import {
     replyDraftsStore,
     replyDraftResumeTarget,
@@ -613,12 +614,16 @@ import { eventPath } from '$lib/utils/eventUrl';
   // Every reply hangs off exactly one parent, resolved in one place, so
   // the ancestors above the note and the tree below it can't disagree.
   // Mutes (author, word, tag, thread, and note-and-replies) apply through
-  // the same position-aware check the feeds use.
+  // the same position-aware check the feeds use. Replies from authors the
+  // nspam judge has scored as known spammers are hidden with them — the
+  // raw events stay in `replies`, so a re-verdict brings a row back.
+  $: judgeReplies(replies);
   $: visibleReplies = replies.filter(
     (r) =>
       r.kind !== 5 &&
       !deletedReplyIds.has(r.id) &&
-      !isEventMutedBy($muteListStore.muteList, r)
+      !isEventMutedBy($muteListStore.muteList, r) &&
+      !(r.pubkey && $nspamHiddenAuthors.has(r.pubkey))
   );
   // Muted ancestors (a muted account inside the parent chain above the
   // focused note) collapse to a one-line placeholder — the reader reveals

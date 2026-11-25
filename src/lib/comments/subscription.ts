@@ -33,6 +33,7 @@ import type { NDKEvent, NDKSubscription } from '@nostr-dev-kit/ndk';
 import { writable, derived, type Readable, type Writable } from 'svelte/store';
 import { mutedPubkeys } from '$lib/muteListStore';
 import { createCommentFilter } from '$lib/commentFilters';
+import { judgeReplies, nspamHiddenAuthors } from '$lib/nspam/spamFilter';
 
 export interface CommentSubscriptionOptions {
   /**
@@ -107,6 +108,9 @@ export function createCommentSubscription(
     flushTimer = null;
     if (pendingEvents.length === 0) return;
     const batch = pendingEvents.splice(0, pendingEvents.length);
+    // The batch joins its authors' bundles in the reply-spam judge; verdicts land
+    // reactively in `events` above, not by holding this flush open.
+    judgeReplies(batch);
     rawEvents.update((list) => sortChronological([...list, ...batch]));
   }
 
@@ -129,14 +133,19 @@ export function createCommentSubscription(
     eosedStore.set(true);
   });
 
-  const events: Readable<NDKEvent[]> = applyMuteFilter
-    ? derived([rawEvents, mutedPubkeys], ([$raw, $muted]) =>
-        $raw.filter((e) => {
-          const authorKey = e.author?.hexpubkey || e.pubkey;
-          return !authorKey || !$muted.has(authorKey);
-        })
-      )
-    : { subscribe: rawEvents.subscribe };
+  // Mutes are opt-in per surface (applyMuteFilter). The nspam verdicts are not:
+  // wherever replies render through this factory, an author the model has scored
+  // as a known spammer stays out of the list, reactively — hiding, not dropping,
+  // since the events remain in rawEvents and a later re-verdict brings them back.
+  const events: Readable<NDKEvent[]> = derived(
+    [rawEvents, mutedPubkeys, nspamHiddenAuthors],
+    ([$raw, $muted, $spamHidden]) =>
+      $raw.filter((e) => {
+        const authorKey = e.author?.hexpubkey || e.pubkey;
+        if (authorKey && $spamHidden.has(authorKey)) return false;
+        return !applyMuteFilter || !authorKey || !$muted.has(authorKey);
+      })
+  );
 
   function addLocal(ev: NDKEvent): void {
     if (!ev.id || processedIds.has(ev.id)) return;

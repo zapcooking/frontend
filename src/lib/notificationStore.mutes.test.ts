@@ -4,6 +4,11 @@ import type NDK from '@nostr-dev-kit/ndk';
 import type { NDKEvent } from '@nostr-dev-kit/ndk';
 
 vi.mock('$app/environment', () => ({ browser: true }));
+// spamFilter (in visibleNotifications' graph) reads the active pubkey from here.
+vi.mock('$lib/nostr', async () => {
+  const { writable } = await import('svelte/store');
+  return { ndk: writable({}), userPublickey: writable('a'.repeat(64)) };
+});
 vi.mock('$lib/muteListStore', async () => {
   const { writable } = await import('svelte/store');
   const state = writable({ muteList: null });

@@ -26,6 +26,9 @@ let loadPromise: Promise<void> | null = null;
 // Store to notify components when cache is updated
 export const followListReady = writable(false);
 export const followListSize = writable(0);
+/** True once the kind:3 contact list itself has been read, so `getFollowedPubkeys()` is
+ *  usable — even while profile metadata is still loading. */
+export const followPubkeysReady = writable(false);
 
 /**
  * Load follow list profiles (only loads once, subsequent calls return cached data)
@@ -74,6 +77,7 @@ async function doLoadFollowList(): Promise<void> {
     
     if (!contactEvent) {
       isLoaded = true;
+      followPubkeysReady.set(true);
       followListReady.set(true);
       return;
     }
@@ -88,6 +92,9 @@ async function doLoadFollowList(): Promise<void> {
     for (const pk of followPubkeys) {
       followPubkeySet.add(pk);
     }
+    // The set is the whole read; profiles below are display data. Flag it before the
+    // (much slower) profile batches so consumers of the set don't wait on them.
+    followPubkeysReady.set(true);
 
     if (followPubkeys.length === 0) {
       isLoaded = true;
@@ -231,6 +238,7 @@ export function resetCache(): void {
   isLoading = false;
   loadPromise = null;
   followListReady.set(false);
+  followPubkeysReady.set(false);
   followListSize.set(0);
 }
 
