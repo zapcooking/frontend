@@ -5,7 +5,7 @@
  * client's reading of it and should change with it.
  *
  *   signForSchedule(event, publishAt)   sign with created_at = publish time
- *   scheduleEvent(signed, { relayMode, relays })
+ *   scheduleEvent(signed, { relayMode, relays, replaces })
  *   listScheduled({ status })
  *   cancelScheduled(id)
  *
@@ -117,9 +117,12 @@ export interface ScheduleFailure<C extends ScheduleErrorCode = ScheduleErrorCode
   code: C;
   /**
    * The row's status, where the server reports one: `already_scheduled`
-   * (the existing row is cancelled or failed) and `not_cancellable`.
+   * (the existing row is cancelled or failed), `not_cancellable` and
+   * `not_replaceable`.
    */
   status?: ScheduleStatus;
+  /** On `rate_limited`: 'moves' when it was the replace limit, not the create limit. */
+  limit?: 'moves';
 }
 
 type CommonFailure = 'auth_failed' | 'not_configured' | 'internal' | 'not_signed_in' | 'network' | 'unknown';
@@ -139,6 +142,13 @@ export type ScheduleEventResult =
       status: ScheduleStatus;
       /** True when an earlier attempt had already stored this exact event. */
       alreadyScheduled: boolean;
+      /**
+       * Only for a call with `replaces`: 'replaced' when the old post is
+       * no longer scheduled, 'original_still_scheduled' in the rare case
+       * where the new post was stored but the old one could not be
+       * cancelled (the caller must tell the person). Absent otherwise.
+       */
+      replacement?: 'replaced' | 'original_still_scheduled';
     }
   | ScheduleFailure<
       | CommonFailure
@@ -155,6 +165,8 @@ export type ScheduleEventResult =
       | 'already_scheduled'
       | 'quota_exceeded'
       | 'rate_limited'
+      | 'not_found'
+      | 'not_replaceable'
     >;
 
 export type ListScheduledResult =
@@ -423,6 +435,14 @@ export interface ScheduleEventOptions {
    * through pickScheduleRelays first.
    */
   relays?: readonly string[];
+  /**
+   * The id of the caller's pending post that this event takes the place
+   * of (a reschedule or an edit). The server stores the new event and
+   * cancels the old one in one step, or does neither: `not_replaceable`
+   * (the old one is already going out, sent, failed or cancelled; see
+   * `status`) or `not_found`. Nothing is stored on those.
+   */
+  replaces?: string;
 }
 
 const SCHEDULE_CODES = [
@@ -439,7 +459,9 @@ const SCHEDULE_CODES = [
   'poll_closes_before_publish',
   'already_scheduled',
   'quota_exceeded',
-  'rate_limited'
+  'rate_limited',
+  'not_found',
+  'not_replaceable'
 ] as const;
 
 /**
@@ -477,7 +499,8 @@ export async function scheduleEvent(
       JSON.stringify({
         event: signedEvent,
         relay_mode: options.relayMode,
-        ...(withRelays.length > 0 ? { relays: withRelays } : {})
+        ...(withRelays.length > 0 ? { relays: withRelays } : {}),
+        ...(options.replaces ? { replaces: options.replaces } : {})
       })
     );
 
@@ -493,15 +516,30 @@ export async function scheduleEvent(
 
   const { status, data } = sent;
   if (status === 201) {
-    return {
-      ok: true,
+    const created = {
+      ok: true as const,
       id: typeof data.id === 'string' ? data.id : signedEvent.id,
       publishAt: typeof data.publish_at === 'number' ? data.publish_at : signedEvent.created_at,
-      relayMode: data.relay_mode === 'pantry' ? 'pantry' : 'all',
+      relayMode: (data.relay_mode === 'pantry' ? 'pantry' : 'all') as ScheduleRelayMode,
       relays: Array.isArray(data.relays) ? data.relays.filter((r): r is string => typeof r === 'string') : [],
       status: asStatus(data.status) ?? 'pending',
       alreadyScheduled: false
     };
+    if (!options.replaces) return created;
+    if (data.replaced === options.replaces) return { ...created, replacement: 'replaced' };
+
+    // Contract: a 201 without `replaced` means the server did not act on
+    // `replaces`, so BOTH posts are scheduled. Cancel the old one now.
+    console.warn('[Schedule] the server ignored `replaces`; cancelling the original by hand');
+    const cancelOld = await cancelScheduled(options.replaces, deps);
+    if (cancelOld.ok || cancelOld.code === 'not_found') return { ...created, replacement: 'replaced' };
+    if (cancelOld.code === 'not_cancellable' && (cancelOld.status === 'publishing' || cancelOld.status === 'sent')) {
+      // The original is going out or has gone out: the new one must not
+      // follow it. Take it back, and report what the atomic path would have.
+      const undo = await cancelScheduled(created.id, deps);
+      if (undo.ok) return { ok: false, code: 'not_replaceable', status: cancelOld.status };
+    }
+    return { ...created, replacement: 'original_still_scheduled' };
   }
 
   const code = serverCode(data);
@@ -516,13 +554,23 @@ export async function scheduleEvent(
         relayMode: options.relayMode,
         relays,
         status: rowStatus,
-        alreadyScheduled: true
+        alreadyScheduled: true,
+        // `replaced` on this answer says the earlier attempt's swap happened.
+        ...(options.replaces && data.replaced === options.replaces ? { replacement: 'replaced' as const } : {})
       };
     }
     // Cancelled or failed (or a status we do not know): this exact
     // event will not go out. The caller must sign a new one to retry.
     return failure(code, SCHEDULE_CODES, rowStatus);
   }
+  if (!options.replaces) {
+    // These two are answers to `replaces` only; on a plain create they
+    // are not something the contract says can happen.
+    if (code === 'not_found' || code === 'not_replaceable') return { ok: false, code: 'unknown' };
+    return failure(code, SCHEDULE_CODES);
+  }
+  if (code === 'not_replaceable') return failure(code, SCHEDULE_CODES, asStatus(data.status));
+  if (code === 'rate_limited' && data.limit === 'moves') return { ok: false, code, limit: 'moves' };
   return failure(code, SCHEDULE_CODES);
 }
 
@@ -644,13 +692,30 @@ const NOT_CANCELLABLE_COPY: Partial<Record<ScheduleStatus, string>> = {
   failed: "This post already failed and won't be sent."
 };
 
+const NOT_REPLACEABLE_COPY: Partial<Record<ScheduleStatus, string>> = {
+  publishing: "This post is being published right now and can't be changed.",
+  sent: 'This post has already been published.',
+  cancelled: 'This post was cancelled.',
+  failed: "This post already failed and won't be sent."
+};
+
 /**
  * Plain wording for a failure, for showing to a person. Total over
  * ScheduleErrorCode, so a new code cannot ship without copy.
  */
-export function scheduleErrorCopy(result: { code: ScheduleErrorCode; status?: ScheduleStatus }): string {
+export function scheduleErrorCopy(result: {
+  code: ScheduleErrorCode;
+  status?: ScheduleStatus;
+  limit?: 'moves';
+}): string {
   if (result.code === 'not_cancellable' && result.status) {
     return NOT_CANCELLABLE_COPY[result.status] ?? COPY.not_cancellable;
+  }
+  if (result.code === 'not_replaceable' && result.status) {
+    return NOT_REPLACEABLE_COPY[result.status] ?? COPY.not_replaceable;
+  }
+  if (result.code === 'rate_limited' && result.limit === 'moves') {
+    return "You've moved a lot of posts in the last hour. Try again later.";
   }
   return COPY[result.code];
 }

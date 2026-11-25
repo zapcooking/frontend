@@ -786,3 +786,106 @@ describe('scheduleErrorCopy', () => {
     expect(scheduleErrorCopy({ code: 'signer_changed_event' })).toContain("can't be scheduled");
   });
 });
+
+describe('scheduleEvent with replaces (reschedule)', () => {
+  const OLD = 'a'.repeat(64);
+  const created = (event: Event, extra: Record<string, unknown> = {}) => ({
+    status: 201,
+    body: { id: event.id, publish_at: event.created_at, relay_mode: 'all', relays: [], status: 'pending', ...extra }
+  });
+
+  it('sends `replaces` in the body and reports the swap when the server echoes it', async () => {
+    const event = signed();
+    const { deps, calls } = harness([created(event, { replaced: OLD })]);
+    const result = await scheduleEvent(event, { relayMode: 'all', relays: ['wss://a.example.com'], replaces: OLD }, deps);
+    expect(result).toMatchObject({ ok: true, id: event.id, replacement: 'replaced' });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].method).toBe('POST');
+    expect(calls[0].body).toEqual({ event, relay_mode: 'all', relays: ['wss://a.example.com'], replaces: OLD });
+  });
+
+  it('a plain schedule sends no `replaces` and reports no replacement', async () => {
+    const event = signed();
+    const { deps, calls } = harness([created(event)]);
+    const result = await scheduleEvent(event, { relayMode: 'all', relays: [] }, deps);
+    expect(result).toMatchObject({ ok: true });
+    expect(result).not.toHaveProperty('replacement');
+    expect(calls[0].body).not.toHaveProperty('replaces');
+  });
+
+  for (const status of ['publishing', 'sent', 'cancelled', 'failed'] as const) {
+    it(`409 not_replaceable (${status}) comes back with the status and its own copy; nothing else is called`, async () => {
+      const event = signed();
+      const { deps, calls } = harness([{ status: 409, body: { error: 'not_replaceable', status } }]);
+      const result = await scheduleEvent(event, { relayMode: 'all', relays: [], replaces: OLD }, deps);
+      expect(result).toEqual({ ok: false, code: 'not_replaceable', status });
+      expect(calls).toHaveLength(1);
+      if (!result.ok) {
+        const copy = scheduleErrorCopy(result);
+        expect(copy).not.toBe(scheduleErrorCopy({ code: 'not_replaceable' }));
+        expect(copy).toMatch(/[.]$/);
+      }
+    });
+  }
+
+  it('404 not_found: the original no longer exists', async () => {
+    const { deps } = harness([{ status: 404, body: { error: 'not_found' } }]);
+    expect(await scheduleEvent(signed(), { relayMode: 'all', relays: [], replaces: OLD }, deps)).toEqual({
+      ok: false,
+      code: 'not_found'
+    });
+  });
+
+  it('429 with limit: moves is told apart from the create limit, in the result and in the copy', async () => {
+    const { deps } = harness([{ status: 429, body: { error: 'rate_limited', limit: 'moves' } }]);
+    const result = await scheduleEvent(signed(), { relayMode: 'all', relays: [], replaces: OLD }, deps);
+    expect(result).toEqual({ ok: false, code: 'rate_limited', limit: 'moves' });
+    if (!result.ok) expect(scheduleErrorCopy(result)).toContain('moved a lot');
+    expect(scheduleErrorCopy({ code: 'rate_limited' })).toContain('scheduled a lot');
+  });
+
+  it('a retry that finds its own swap already done (409 already_scheduled with replaced) is a success', async () => {
+    const event = signed();
+    const { deps } = harness([{ status: 409, body: { error: 'already_scheduled', status: 'pending', replaced: OLD } }]);
+    expect(await scheduleEvent(event, { relayMode: 'all', relays: [], replaces: OLD }, deps)).toMatchObject({
+      ok: true,
+      alreadyScheduled: true,
+      replacement: 'replaced'
+    });
+  });
+
+  describe('a server that ignored `replaces` (201 without `replaced`)', () => {
+    it('cancels the original itself, so the post is not scheduled twice', async () => {
+      const event = signed();
+      const { deps, calls } = harness([created(event), { status: 200, body: { id: OLD, status: 'cancelled' } }]);
+      const result = await scheduleEvent(event, { relayMode: 'all', relays: [], replaces: OLD }, deps);
+      expect(result).toMatchObject({ ok: true, replacement: 'replaced' });
+      expect(calls.map((c) => `${c.method} ${c.url.replace(ORIGIN, '')}`)).toEqual([
+        'POST /api/schedule',
+        `DELETE /api/schedule/${OLD}`
+      ]);
+    });
+
+    it('the original already went out: the new one is taken back and the result is not_replaceable', async () => {
+      const event = signed();
+      const { deps, calls } = harness([
+        created(event),
+        { status: 409, body: { error: 'not_cancellable', status: 'sent' } },
+        { status: 200, body: { id: event.id, status: 'cancelled' } }
+      ]);
+      const result = await scheduleEvent(event, { relayMode: 'all', relays: [], replaces: OLD }, deps);
+      expect(result).toEqual({ ok: false, code: 'not_replaceable', status: 'sent' });
+      expect(calls[2].method).toBe('DELETE');
+      expect(calls[2].url).toBe(`${ORIGIN}/api/schedule/${event.id}`);
+    });
+
+    it('the original could not be cancelled for another reason: success, flagged so the person is told', async () => {
+      const event = signed();
+      const { deps } = harness([created(event), new Error('offline')]);
+      expect(await scheduleEvent(event, { relayMode: 'all', relays: [], replaces: OLD }, deps)).toMatchObject({
+        ok: true,
+        replacement: 'original_still_scheduled'
+      });
+    });
+  });
+});
