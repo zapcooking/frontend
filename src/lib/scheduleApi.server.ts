@@ -46,8 +46,15 @@ export const POLL_CLOSE_MARGIN_SECONDS = 60;
 /** Max pending rows per pubkey. */
 export const MAX_PENDING_PER_PUBKEY = 50;
 
-/** Max creates per pubkey per rolling hour (counted by row created_at). */
+/** Max plain creates per pubkey per rolling hour (counted by row created_at). */
 export const MAX_CREATES_PER_HOUR = 30;
+
+/**
+ * Max replaces (POST with `replaces`) per pubkey per rolling hour. A
+ * replace is not a create: it is counted here and not against
+ * MAX_CREATES_PER_HOUR.
+ */
+export const MAX_MOVES_PER_HOUR = 60;
 
 /** List endpoint row cap. */
 export const LIST_LIMIT = 100;
@@ -69,6 +76,8 @@ export interface ScheduledEventRow {
   iv: string;
   /** JSON array of client relay URLs, or null (migration 0012). */
   relays: string | null;
+  /** Id of the row this one replaced, or null (migration 0013). */
+  replaces: string | null;
   status: ScheduleStatus;
   attempts: number;
   last_error: string | null;

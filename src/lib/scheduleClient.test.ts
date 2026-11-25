@@ -750,7 +750,7 @@ describe('scheduleErrorCopy', () => {
     'auth_failed', 'bad_request', 'bad_relay_mode', 'bad_relays', 'bad_signature', 'pubkey_mismatch',
     'bad_kind', 'kind_not_allowed_for_relay_mode', 'bad_publish_time', 'too_large',
     'poll_closes_before_publish', 'already_scheduled', 'quota_exceeded', 'rate_limited', 'bad_status',
-    'not_found', 'not_cancellable', 'not_configured', 'internal', 'not_signed_in', 'sign_failed',
+    'not_found', 'not_cancellable', 'not_replaceable', 'not_configured', 'internal', 'not_signed_in', 'sign_failed',
     'signer_changed_event', 'network', 'unknown'
   ];
 

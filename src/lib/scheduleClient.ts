@@ -79,6 +79,7 @@ export type ScheduleErrorCode =
   | 'bad_status'
   | 'not_found'
   | 'not_cancellable'
+  | 'not_replaceable'
   | 'not_configured'
   | 'internal'
   // client-side
@@ -106,6 +107,7 @@ const SERVER_CODES: readonly ScheduleErrorCode[] = [
   'bad_status',
   'not_found',
   'not_cancellable',
+  'not_replaceable',
   'not_configured',
   'internal'
 ];
@@ -625,6 +627,7 @@ const COPY: Record<ScheduleErrorCode, string> = {
   bad_status: "Couldn't load your scheduled posts. Please try again.",
   not_found: 'This scheduled post no longer exists.',
   not_cancellable: "This post can't be cancelled any more.",
+  not_replaceable: "This post can't be changed any more.",
   not_configured: 'Scheduling is unavailable right now.',
   internal: 'Something went wrong. Please try again.',
   not_signed_in: 'Sign in to schedule posts.',
