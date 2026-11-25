@@ -16,6 +16,7 @@ import {
   inBounds,
   localDay,
   monthWeeks,
+  sameTimeOn,
   parseCalendarMode,
   parseScheduledView,
   weekDays,
@@ -206,6 +207,29 @@ describe('what the calendar shows', () => {
     expect(countDay(undefined)).toEqual({ upcoming: 0, failed: 0, sent: 0 });
     expect(describeCounts({ upcoming: 2, failed: 1, sent: 0 })).toBe('2 scheduled, 1 not sent');
     expect(describeCounts({ upcoming: 0, failed: 0, sent: 0 })).toBe('');
+  });
+});
+
+describe('dragging a post to another day keeps its time of day', () => {
+  const clock = (u: number) => {
+    const d = new Date(u * 1000);
+    return `${dayKey(d)} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+  };
+
+  it('9:00 stays 9:00 across the spring-forward and the fall-back', () => {
+    expect(clock(sameTimeOn(new Date(2027, 2, 14), at(2027, 3, 13, 9)))).toBe('2027-03-14 9:00');
+    expect(clock(sameTimeOn(new Date(2027, 2, 15), at(2027, 3, 13, 9)))).toBe('2027-03-15 9:00');
+    expect(clock(sameTimeOn(new Date(2026, 10, 2), at(2026, 10, 31, 18, 45)))).toBe('2026-11-02 18:45');
+    // …which is not a whole number of days in seconds.
+    expect(sameTimeOn(new Date(2027, 2, 14), at(2027, 3, 13, 9)) - at(2027, 3, 13, 9)).toBe(86400 - 3600);
+  });
+
+  it('a time that does not exist on the target day becomes the next one that does', () => {
+    expect(clock(sameTimeOn(new Date(2027, 2, 14), at(2027, 3, 10, 2, 30)))).toBe('2027-03-14 3:30');
+  });
+
+  it('moving earlier works the same way', () => {
+    expect(clock(sameTimeOn(new Date(2026, 10, 20), at(2026, 11, 26, 7, 5)))).toBe('2026-11-20 7:05');
   });
 });
 

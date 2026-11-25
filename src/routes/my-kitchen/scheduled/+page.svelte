@@ -22,9 +22,11 @@
     listScheduled,
     cancelScheduled,
     scheduleErrorCopy,
+    type MoveScheduledResult,
     type ScheduledItem,
     type ScheduleFailure
   } from '$lib/scheduleClient';
+  import { formatScheduleTime } from '$lib/composerSchedule';
   import { groupScheduled, restoreForComposer, hasUnsentDraft, NOTE_DRAFT_KEY } from '$lib/scheduledList';
   import { SCHEDULED_VIEW_KEY, parseScheduledView, type ScheduledView } from '$lib/scheduledCalendar';
   import { postComposerOpen, openComposerRestored } from '$lib/postComposerStore';
@@ -33,6 +35,7 @@
   import PullToRefresh from '../../../components/PullToRefresh.svelte';
   import ScheduledPostCard from '../../../components/scheduled/ScheduledPostCard.svelte';
   import ScheduledCalendar from '../../../components/scheduled/ScheduledCalendar.svelte';
+  import MoveDialog from '../../../components/scheduled/MoveDialog.svelte';
   import ClockCountdownIcon from 'phosphor-svelte/lib/ClockCountdown';
   import ArrowsClockwiseIcon from 'phosphor-svelte/lib/ArrowsClockwise';
   import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimple';
@@ -193,6 +196,39 @@
     openInComposer(restored);
   }
 
+  // ── Move: only the time changes ────────────────────────────────────
+  // MoveDialog shows the old and new time and asks before anything is
+  // signed. `to` is a time already chosen by a drag, or null.
+  let moveOpen = false;
+  let moveItem: ScheduledItem | null = null;
+  let moveTo: number | null = null;
+
+  function askToMove(item: ScheduledItem, to: number | null = null) {
+    moveItem = item;
+    moveTo = to;
+    moveOpen = true;
+  }
+
+  /**
+   * The move went through. The answer already holds the new row, so the
+   * view is updated from it: no refetch, which would cost a third
+   * signature on top of the two a move needs.
+   */
+  function onMoved(result: Extract<MoveScheduledResult, { ok: true }>) {
+    now = Math.floor(Date.now() / 1000);
+    items = [...items.filter((i) => i.id !== result.replacedId && i.id !== result.item.id), result.item];
+    if (result.replacement === 'original_still_scheduled') {
+      showToast(
+        'error',
+        `Scheduled for ${formatScheduleTime(result.item.publishAt, now)}, but the original is still scheduled too. Cancel it so it isn't posted twice.`,
+        20000
+      );
+      void load();
+      return;
+    }
+    showToast('success', `Moved to ${formatScheduleTime(result.item.publishAt, now)}`);
+  }
+
   /** A failed post is already final, so there is nothing to cancel first. */
   function postAgain(item: ScheduledItem) {
     const restored = restoreForComposer(item, Math.floor(Date.now() / 1000));
@@ -303,6 +339,7 @@
           {busy}
           {notices}
           on:cancel={(e) => cancel(e.detail)}
+          on:move={(e) => askToMove(e.detail.item, e.detail.to)}
           on:reschedule={(e) => reschedule(e.detail)}
           on:postAgain={(e) => postAgain(e.detail)}
         />
@@ -317,6 +354,7 @@
                 busy={busy[item.id]}
                 notice={notices[item.id] ?? ''}
                 on:cancel={(e) => cancel(e.detail)}
+                on:move={(e) => askToMove(e.detail)}
                 on:reschedule={(e) => reschedule(e.detail)}
               />
             {/each}
@@ -344,6 +382,14 @@
     </div>
   </PullToRefresh>
 {/if}
+
+<MoveDialog
+  bind:open={moveOpen}
+  item={moveItem}
+  to={moveTo}
+  on:moved={(e) => onMoved(e.detail)}
+  on:stale={() => void load()}
+/>
 
 <style>
   .state-card {

@@ -16,6 +16,7 @@
   import { addDays, addMonths, startOfMonth } from 'date-fns';
   import type { ScheduledItem } from '$lib/scheduleClient';
   import { previewOf } from '$lib/scheduledList';
+  import { pickedTimeProblem } from '$lib/composerSchedule';
   import {
     SCHEDULED_CALENDAR_MODE_KEY,
     bucketByDay,
@@ -32,6 +33,7 @@
     monthTitle,
     monthWeeks,
     parseCalendarMode,
+    sameTimeOn,
     weekDays,
     weekStart,
     weekTitle,
@@ -57,6 +59,8 @@
     cancel: ScheduledItem;
     reschedule: ScheduledItem;
     postAgain: ScheduledItem;
+    /** Ask to move a post: `to` is a time already chosen (a drag), or null to pick one. Nothing is moved yet. */
+    move: { item: ScheduledItem; to: number | null };
   }>();
 
   let mode: CalendarMode = 'week';
@@ -189,6 +193,58 @@
     dispatch(action, item);
   }
 
+  function handOffMove(item: ScheduledItem) {
+    closeDetail();
+    dispatch('move', { item, to: null });
+  }
+
+  // ── dragging a post to another day (desktop) ────────────────────────
+  // A drag only ASKS for a move: dropping opens the same confirmation as
+  // "Move" in a post's details, with the new time filled in, and nothing
+  // is signed until that is confirmed. "Move" is always there for anyone
+  // not using a mouse.
+
+  let dragged: CalendarEntry | null = null;
+  let dropDay: string | null = null;
+
+  /** Where a dragged post would land on `day`, or null if it cannot go there. */
+  function dropTarget(entry: CalendarEntry | null, day: Date): number | null {
+    if (!entry || entry.day === dayKey(day) || !inBounds(day, bounds)) return null;
+    const to = sameTimeOn(day, entry.at);
+    return pickedTimeProblem(to, Math.floor(Date.now() / 1000)) ? null : to;
+  }
+
+  function onDragStart(event: DragEvent, entry: CalendarEntry) {
+    if (entry.tone !== 'pending' || !event.dataTransfer) {
+      event.preventDefault();
+      return;
+    }
+    dragged = entry;
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', entry.item.id);
+  }
+
+  function onDragOver(event: DragEvent, day: Date) {
+    if (dropTarget(dragged, day) === null) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+    dropDay = dayKey(day);
+  }
+
+  function onDrop(event: DragEvent, day: Date) {
+    const to = dropTarget(dragged, day);
+    const entry = dragged;
+    endDrag();
+    if (to === null || !entry) return;
+    event.preventDefault();
+    dispatch('move', { item: entry.item, to });
+  }
+
+  function endDrag() {
+    dragged = null;
+    dropDay = null;
+  }
+
   // ── wording ─────────────────────────────────────────────────────────
 
   const WEEKDAY = (d: Date, width: 'short' | 'long') => d.toLocaleDateString(undefined, { weekday: width });
@@ -251,7 +307,18 @@
         {@const dayEntries = buckets.get(key) ?? []}
         {@const isToday = key === todayKey}
         {@const outside = !inBounds(day, bounds)}
-        <section class="day" class:day--today={isToday} class:day--outside={outside} aria-labelledby="cal-day-{key}">
+        <section
+          class="day"
+          class:day--today={isToday}
+          class:day--outside={outside}
+          class:day--drop={dropDay === key}
+          aria-labelledby="cal-day-{key}"
+          on:dragover={(e) => onDragOver(e, day)}
+          on:dragleave={() => {
+            if (dropDay === key) dropDay = null;
+          }}
+          on:drop={(e) => onDrop(e, day)}
+        >
           <h3 id="cal-day-{key}" class="day-head" tabindex="-1" data-day-heading={key}>
             <span class="day-name">
               <span class="lg:hidden">{WEEKDAY(day, 'long')}</span>
@@ -270,6 +337,10 @@
                   <button
                     type="button"
                     class="chip chip--{entry.tone}"
+                    class:chip--dragging={dragged?.item.id === entry.item.id}
+                    draggable={entry.tone === 'pending'}
+                    on:dragstart={(e) => onDragStart(e, entry)}
+                    on:dragend={endDrag}
                     on:click={() => openDetail(entry)}
                     aria-label="{chipStatus(entry)}, {entryTime(entry.at)}: {chipText(entry)}. Open details"
                   >
@@ -345,6 +416,8 @@
     </div>
   {/if}
 
+  <p class="sr-only">To move a post to another time, open it and choose Move.</p>
+
   <ul class="legend" aria-label="Key">
     <li><span class="dot dot--upcoming"></span>Scheduled</li>
     <li><WarningIcon size={13} weight="fill" class="legend-failed" />Not sent</li>
@@ -376,6 +449,7 @@
       busy={busy[openItem.id]}
       notice={notices[openItem.id] ?? ''}
       on:cancel={(e) => dispatch('cancel', e.detail)}
+      on:move={(e) => handOffMove(e.detail)}
       on:reschedule={(e) => handOff('reschedule', e.detail)}
       on:postAgain={(e) => handOff('postAgain', e.detail)}
     />
@@ -477,6 +551,16 @@
   }
   .day--outside {
     opacity: 0.45;
+  }
+  .day--drop {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 2px var(--color-primary);
+  }
+  .chip[draggable='true'] {
+    cursor: grab;
+  }
+  .chip--dragging {
+    opacity: 0.4;
   }
   .day-head {
     display: flex;
