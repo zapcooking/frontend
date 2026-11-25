@@ -9,6 +9,7 @@ import {
   isWeekend,
   layoutDay,
   normalizeTimes,
+  nextOpenSlots,
   openSlotsOn,
   parsePostingTimes,
   pickerStartFor,
@@ -229,6 +230,30 @@ describe('which empty slots can be used', () => {
     // Today: only what is still ahead.
     expect(openSlotsOn(new Date(2026, 10, 24), all, TIMES, now).map(clock)).toEqual(['12:30', '18:00']);
     expect(openSlotsOn(new Date(2026, 10, 23), all, TIMES, now)).toEqual([]);
+  });
+});
+
+describe('the next open slots, across days', () => {
+  it('the first few empty, usable slots from a day onward, skipping what is taken or passed', () => {
+    const now = at(2026, 11, 24, 12, 0); // a Tuesday, at noon
+    const taken = entry(at(2026, 11, 24, 18, 0));
+    const tomorrow9 = entry(at(2026, 11, 25, 9, 0));
+    const next = nextOpenSlots(new Date(2026, 10, 24), [taken, tomorrow9], TIMES, now);
+    expect(next.map((u) => `${dayKey(new Date(u * 1000))} ${clock(u)}`)).toEqual([
+      '2026-11-24 12:30',
+      '2026-11-25 12:30',
+      '2026-11-25 18:00',
+      '2026-11-26 9:00'
+    ]);
+  });
+
+  it('the post being moved does not hold its own slot; the limit and the look-ahead are respected', () => {
+    const now = at(2026, 11, 24, 12, 0);
+    const moving = entry(at(2026, 11, 24, 18, 0));
+    const next = nextOpenSlots(new Date(2026, 10, 24), [moving], TIMES, now, { ignoreId: moving.item.id, limit: 2 });
+    expect(next.map(clock)).toEqual(['12:30', '18:00']);
+    expect(nextOpenSlots(new Date(2026, 10, 24), [], { weekdays: [], weekends: [] }, now)).toEqual([]);
+    expect(nextOpenSlots(new Date(2026, 10, 24), [], TIMES, now, { limit: 99, maxDays: 1 }).map(clock)).toEqual(['12:30', '18:00']);
   });
 });
 

@@ -374,12 +374,12 @@ for (const viewport of VIEWPORTS) {
     await page.locator('dialog .row-card [data-action="move"]').click();
     await page.waitForSelector('#move-post-time');
     await page.waitForTimeout(400);
-    const own = await page.locator('.move-slot').allInnerTexts();
+    const own = await page.locator('.move-slot:not([data-next-slot])').allInnerTexts();
     check(`${v} H: on its own day the other open slots are offered, and its own slot too`, JSON.stringify(own) === JSON.stringify(['9:00 AM', '12:30 PM', '6:00 PM']), own.join(' | '));
     await page.fill('#move-post-time', localInput(dayOf(1, 8, 0)));
-    const tue = await page.locator('.move-slot').allInnerTexts();
+    const tue = await page.locator('.move-slot:not([data-next-slot])').allInnerTexts();
     check(`${v} H: on another day, only the slots nothing else holds`, JSON.stringify(tue) === JSON.stringify(['9:00 AM', '6:00 PM']), tue.join(' | '));
-    await page.locator('.move-slot', { hasText: '6:00 PM' }).click();
+    await page.locator('.move-slot:not([data-next-slot])', { hasText: '6:00 PM' }).click();
     const value = await page.inputValue('#move-post-time');
     check(`${v} H: one tap sets the time`, value === localInput(dayOf(1, 18, 0)) && !(await page.locator('.move-confirm').isDisabled()), value);
     await shot(page, `slots-${v}-move-dialog`, false);

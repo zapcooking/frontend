@@ -17,7 +17,7 @@
   import type { ScheduledItem } from '$lib/scheduleClient';
   import { previewOf } from '$lib/scheduledList';
   import { pickedTimeProblem } from '$lib/composerSchedule';
-  import { layoutDay, pickerStartFor, type PostingTimes } from '$lib/postingSlots';
+  import { layoutDay, pickerStartFor, type DayRow, type PostingTimes } from '$lib/postingSlots';
   import {
     SCHEDULED_CALENDAR_MODE_KEY,
     bucketByDay,
@@ -35,6 +35,7 @@
     monthWeeks,
     parseCalendarMode,
     sameTimeOn,
+    shortTime,
     weekDays,
     weekStart,
     weekTitle,
@@ -86,6 +87,12 @@
   let mode: CalendarMode = 'week';
   let rootEl: HTMLElement;
 
+  /** In a month cell: how many posts are listed before "+N more", and how many marks a phone cell shows. */
+  const MONTH_LINES = 3;
+  const MONTH_MARKS = 6;
+  const isPostRow = (row: DayRow): row is Extract<DayRow, { type: 'post' }> => row.type === 'post';
+  const isOpenRow = (row: DayRow): row is Extract<DayRow, { type: 'open' }> => row.type === 'open';
+
   $: bounds = calendarBounds(now);
   $: todayKey = dayKey(bounds.today);
   $: entries = calendarEntries(items, now);
@@ -114,7 +121,35 @@
     } catch {
       /* storage unavailable: week */
     }
+    void bringTodayIntoView();
   });
+
+  const isAgenda = () => typeof window !== 'undefined' && !window.matchMedia('(min-width: 1024px)').matches;
+
+  /**
+   * On arrival in the phone agenda, today can be several days down the
+   * week, below the fold behind days that are over. Bring it up once.
+   * Only then: at desktop width the whole week is on screen, and after
+   * arrival the page is left where the person put it.
+   */
+  async function bringTodayIntoView() {
+    await tick();
+    if (mode !== 'week' || !isAgenda()) return;
+    const today = rootEl?.querySelector<HTMLElement>('.day--today');
+    if (!today) return;
+    const top = today.getBoundingClientRect().top;
+    if (top > window.innerHeight * 0.45) today.scrollIntoView({ block: 'start' });
+  }
+
+  /**
+   * After paging, if the calendar's own controls have scrolled off the
+   * top, bring them back: otherwise a phone shows the middle of the new
+   * week (or month) with nothing to say which one it is.
+   */
+  async function keepBarInView() {
+    await tick();
+    if (rootEl && rootEl.getBoundingClientRect().top < 0) rootEl.scrollIntoView({ block: 'start' });
+  }
 
   function setMode(next: CalendarMode) {
     if (next === 'month') shownMonth = startOfMonth(shownWeek < bounds.min ? bounds.min : shownWeek);
@@ -134,6 +169,7 @@
       const next = addMonths(shownMonth, direction);
       if (canShowMonth(next, bounds)) shownMonth = next;
     }
+    void keepBarInView();
   }
 
   function goToday() {
@@ -331,13 +367,18 @@
       <button type="button" class="nav-btn" on:click={() => page(1)} disabled={!canNext} aria-label="Next {step}">
         <CaretRightIcon size={18} weight="bold" />
       </button>
+      <!-- Only once paged away: on the current week or month it would do nothing. -->
+      {#if !onToday}
+        <button type="button" class="today-btn" on:click={goToday}>
+          {mode === 'week' ? 'This week' : 'This month'}
+        </button>
+      {/if}
     </div>
     <div class="cal-tools">
       <button type="button" class="times-btn" on:click={() => dispatch('editTimes')} title="Edit posting times">
         <ClockIcon size={16} />
         <span>Posting times</span>
       </button>
-      <button type="button" class="today-btn" on:click={goToday} disabled={onToday}>Today</button>
       <div class="seg" role="group" aria-label="Calendar view">
         <button type="button" class="seg-btn" aria-pressed={mode === 'week'} on:click={() => setMode('week')}>
           Week
@@ -361,6 +402,7 @@
         {@const rows = layoutDay(day, dayEntries, times, now, { emptySlots: !outside && key >= todayKey })}
         <section
           class="day"
+          class:day--dense={rows.length > 4}
           class:day--today={isToday}
           class:day--outside={outside}
           class:day--drop={dropDay === key}
@@ -403,6 +445,7 @@
                     <button
                       type="button"
                       class="chip chip--{entry.tone}"
+                      class:chip--own={row.slot === null}
                       class:chip--dragging={dragged?.item.id === entry.item.id}
                       draggable={entry.tone === 'pending'}
                       on:dragstart={(e) => onDragStart(e, entry)}
@@ -464,6 +507,17 @@
       {/each}
     </div>
   {:else}
+    <!--
+      The month, for planning. One cell per day:
+        - the day number is a button (opens that day's week) and is the
+          cell the arrow keys move between;
+        - at desktop width the day's posts are listed as short lines, then
+          "+N more", then its empty slots as faint markers;
+        - on a phone there is no room for text, so the button carries one
+          mark per slot and post instead (see the key under the grid).
+      Lines and markers of the day that holds the grid's tab stop are in
+      the tab order, so Tab goes from a day into what is on it.
+    -->
     <div class="month" role="grid" aria-label={title}>
       <div class="month-row" role="row">
         {#each weeks[0] as day}
@@ -476,36 +530,124 @@
         <div class="month-row" role="row">
           {#each week as day (dayKey(day))}
             {@const key = dayKey(day)}
-            {@const counts = countDay(buckets.get(key))}
+            {@const dayEntries = buckets.get(key) ?? []}
+            {@const counts = countDay(dayEntries)}
             {@const summary = describeCounts(counts)}
             {@const isToday = key === todayKey}
             {@const outside = !inBounds(day, bounds)}
-            <div role="gridcell" class="month-cell">
+            {@const rows = outside ? [] : layoutDay(day, dayEntries, times, now, { emptySlots: key >= todayKey })}
+            {@const posts = rows.filter(isPostRow)}
+            {@const openSlots = rows.filter(isOpenRow).filter((r) => r.usable)}
+            {@const inTabOrder = key === monthFocus ? 0 : -1}
+            <!-- svelte-ignore a11y-interactive-supports-focus -->
+            <div
+              role="gridcell"
+              class="month-cell"
+              class:month-cell--today={isToday}
+              class:month-cell--other={day.getMonth() !== shownMonth.getMonth()}
+              class:month-cell--outside={outside}
+              class:month-cell--drop={dropDay === key}
+              on:dragover={(e) => onDragOver(e, day)}
+              on:dragleave={() => {
+                if (dropDay === key) dropDay = null;
+              }}
+              on:drop={(e) => onDrop(e, day)}
+            >
               <button
                 type="button"
                 class="month-day"
-                class:month-day--today={isToday}
-                class:month-day--other={day.getMonth() !== shownMonth.getMonth()}
                 disabled={outside}
                 tabindex={key === monthFocus ? 0 : -1}
                 data-month-day={key}
-                aria-label="{FULL_DATE(day)}{isToday ? ', today' : ''}{summary ? `, ${summary}` : ', nothing scheduled'}"
+                aria-label="{FULL_DATE(day)}{isToday ? ', today' : ''}{summary ? `, ${summary}` : ', nothing scheduled'}{openSlots.length
+                  ? `, ${openSlots.length} open ${openSlots.length === 1 ? 'slot' : 'slots'}`
+                  : ''}. Open this day"
                 aria-current={isToday ? 'date' : undefined}
                 on:click={() => openDay(day)}
                 on:keydown={(e) => onMonthKey(e, day)}
                 on:focus={() => (monthFocus = key)}
               >
                 <span class="month-num">{day.getDate()}</span>
-                <span class="month-counts" aria-hidden="true">
-                  {#if counts.upcoming > 0}<span class="count count--upcoming">{counts.upcoming}</span>{/if}
-                  {#if counts.failed > 0}
-                    <span class="count count--failed"><WarningIcon size={11} weight="fill" />{counts.failed}</span>
-                  {/if}
-                  {#if counts.sent > 0}
-                    <span class="count count--sent"><CheckIcon size={11} weight="bold" />{counts.sent}</span>
-                  {/if}
+                <span class="month-marks" aria-hidden="true">
+                  {#each rows.slice(0, MONTH_MARKS) as row}
+                    {#if row.type === 'open'}
+                      {#if row.usable}<span class="mark mark--open"></span>{/if}
+                    {:else if row.entry.tone === 'failed'}
+                      <span class="mark mark--failed"><WarningIcon size={9} weight="fill" /></span>
+                    {:else}
+                      <span
+                        class="mark mark--post"
+                        class:mark--own={row.slot === null}
+                        class:mark--sent={row.entry.tone === 'sent'}
+                      ></span>
+                    {/if}
+                  {/each}
+                  {#if rows.length > MONTH_MARKS}<span class="mark-more">+</span>{/if}
                 </span>
               </button>
+
+              {#if posts.length > 0 || openSlots.length > 0}
+                <ul class="month-lines">
+                  {#each posts.slice(0, MONTH_LINES) as row (row.entry.item.id)}
+                    {@const entry = row.entry}
+                    <li>
+                      <button
+                        type="button"
+                        class="mline mline--{entry.tone}"
+                        class:mline--own={row.slot === null}
+                        class:chip--dragging={dragged?.item.id === entry.item.id}
+                        tabindex={inTabOrder}
+                        draggable={entry.tone === 'pending'}
+                        on:dragstart={(e) => onDragStart(e, entry)}
+                        on:dragend={endDrag}
+                        on:click={() => openDetail(entry)}
+                        aria-label="{chipStatus(entry)}, {entryTime(entry.at)}: {chipText(entry)}. Open details"
+                      >
+                        {#if entry.tone === 'failed'}
+                          <WarningIcon size={11} weight="fill" class="flex-shrink-0" />
+                        {:else if entry.tone === 'sent'}
+                          <CheckIcon size={11} weight="bold" class="flex-shrink-0" />
+                        {/if}
+                        <span class="mline-time">{shortTime(entry.at)}</span>
+                        <span class="mline-text">{chipText(entry)}</span>
+                      </button>
+                    </li>
+                  {/each}
+                  {#if posts.length > MONTH_LINES}
+                    <li>
+                      <button type="button" class="month-more" tabindex={inTabOrder} on:click={() => openDay(day)}>
+                        +{posts.length - MONTH_LINES} more
+                      </button>
+                    </li>
+                  {/if}
+                  {#if openSlots.length > 0}
+                    <li class="mslots">
+                      {#each openSlots as row (row.at)}
+                        <button
+                          type="button"
+                          class="mslot"
+                          class:slot--drop={dropSlot === row.at}
+                          disabled={full}
+                          tabindex={inTabOrder}
+                          data-slot={row.at}
+                          on:click={() => dispatch('create', { publishAt: row.at, pickerAt: null })}
+                          on:dragover={(e) => onSlotDragOver(e, row.at, row.usable)}
+                          on:dragleave={() => {
+                            if (dropSlot === row.at) dropSlot = null;
+                          }}
+                          on:drop={(e) => onSlotDrop(e, row.at, row.usable)}
+                          aria-label={full
+                            ? `Empty slot, ${entryTime(row.at)}. ${FULL_COPY}`
+                            : `Empty slot, ${entryTime(row.at)} on ${FULL_DATE(day)}. Schedule a post`}
+                          title={full ? FULL_COPY : `Schedule a post for ${entryTime(row.at)}`}
+                        >
+                          {shortTime(row.at)}
+                        </button>
+                      {/each}
+                    </li>
+                  {/if}
+                </ul>
+              {/if}
             </div>
           {/each}
         </div>
@@ -520,6 +662,7 @@
 
   <ul class="legend" aria-label="Key">
     <li><span class="dot dot--upcoming"></span>Scheduled</li>
+    <li><span class="dot dot--upcoming dot--own"></span>At a time of its own</li>
     <li><span class="dot dot--slot"></span>Empty slot</li>
     <li><WarningIcon size={13} weight="fill" class="legend-failed" />Not sent</li>
     <li><CheckIcon size={13} weight="bold" />Posted, last 30 days</li>
@@ -562,6 +705,9 @@
     display: flex;
     flex-direction: column;
     gap: 0.875rem;
+    scroll-margin-top: 5rem;
+    /* Room to scroll the last rows clear of the floating compose button. */
+    padding-bottom: 5rem;
   }
   .cal-bar {
     display: flex;
@@ -594,8 +740,7 @@
   .nav-btn:hover:not(:disabled) {
     background: var(--color-hover-bg);
   }
-  .nav-btn:disabled,
-  .today-btn:disabled {
+  .nav-btn:disabled {
     opacity: 0.35;
     cursor: default;
   }
@@ -724,6 +869,14 @@
     font-weight: 600;
     white-space: nowrap;
   }
+  /* Phone: the label follows the time, on the left, clear of the
+     floating compose button at the right edge. */
+  @media (max-width: 1023px) {
+    .slot {
+      justify-content: flex-start;
+      gap: 0.875rem;
+    }
+  }
   .slot-add {
     display: inline-flex;
     align-items: center;
@@ -824,6 +977,10 @@
     font-size: 0.875rem;
     color: var(--color-text-primary);
   }
+  /* A post at a time of its own, not in a slot: a dotted edge. */
+  .chip--own {
+    border-left-style: dotted;
+  }
   .chip--failed {
     border-left-color: #ef4444;
   }
@@ -870,6 +1027,24 @@
     }
   }
 
+  @media (min-width: 1024px) {
+    .cal {
+      padding-bottom: 0;
+    }
+    /* A long day: one line of text per post, and tighter rows, so the
+       column stays readable instead of running off the screen. */
+    .day--dense .chip {
+      padding: 0.25rem 0.5rem;
+    }
+    .day--dense .chip-text {
+      -webkit-line-clamp: 1;
+      line-clamp: 1;
+    }
+    .day--dense .chips {
+      gap: 0.25rem;
+    }
+  }
+
   /* ── month ── */
   .month {
     display: flex;
@@ -889,86 +1064,204 @@
     color: var(--color-caption);
   }
   .month-cell {
-    min-width: 0;
-  }
-  .month-day {
     display: flex;
     flex-direction: column;
-    align-items: center;
-    gap: 0.125rem;
-    width: 100%;
+    gap: 0.25rem;
+    min-width: 0;
     min-height: 3.5rem;
-    padding: 0.3125rem 0.125rem;
     border-radius: 0.625rem;
     background: var(--color-input-bg);
     border: 1px solid var(--color-input-border);
-    color: var(--color-text-primary);
   }
-  .month-day:hover:not(:disabled) {
-    border-color: var(--color-primary);
-  }
-  .month-day:disabled {
-    opacity: 0.35;
-    cursor: default;
-  }
-  .month-day--other .month-num {
-    color: var(--color-caption);
-  }
-  .month-day--today {
+  .month-cell--today {
     border-color: rgb(249 115 22 / 0.6);
     box-shadow: 0 0 0 1px rgb(249 115 22 / 0.35);
   }
-  .month-day--today .month-num {
-    font-weight: 700;
-    color: var(--color-primary);
+  .month-cell--outside {
+    opacity: 0.35;
+  }
+  .month-cell--drop {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 2px var(--color-primary);
+  }
+  /* Phone: the day button is the whole cell. */
+  .month-day {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.1875rem;
+    width: 100%;
+    padding: 0.3125rem 0.125rem;
+    border-radius: 0.625rem;
+    color: var(--color-text-primary);
+  }
+  .month-day:disabled {
+    cursor: default;
   }
   .month-num {
     font-size: 0.8125rem;
     font-weight: 600;
     line-height: 1.1;
   }
-  .month-counts {
+  .month-cell--other .month-num {
+    color: var(--color-caption);
+  }
+  .month-cell--today .month-num {
+    font-weight: 700;
+    color: var(--color-primary);
+  }
+  .month-marks {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     justify-content: center;
-    gap: 0.125rem 0.25rem;
+    gap: 0.1875rem;
+    max-width: 2.75rem;
   }
-  .count {
+  .mark {
     display: inline-flex;
     align-items: center;
-    gap: 0.0625rem;
-    font-size: 0.6875rem;
-    font-weight: 700;
-    line-height: 1;
-  }
-  .count--upcoming {
-    min-width: 1.125rem;
     justify-content: center;
-    padding: 0.1875rem 0.3125rem;
+    width: 0.4375rem;
+    height: 0.4375rem;
     border-radius: 9999px;
-    color: var(--color-on-action, #fff);
+  }
+  .mark--post {
     background: var(--color-action);
   }
-  .count--failed {
+  /* A post at a time of its own: a diamond. */
+  .mark--own {
+    border-radius: 1px;
+    transform: rotate(45deg) scale(0.9);
+  }
+  .mark--sent {
+    background: var(--color-caption);
+    opacity: 0.7;
+  }
+  .mark--open {
+    border: 1px solid var(--color-caption);
+  }
+  .mark--failed {
+    width: 0.5625rem;
+    height: 0.5625rem;
     color: #ef4444;
   }
-  .count--sent {
-    font-weight: 600;
+  .mark-more {
+    font-size: 0.625rem;
+    font-weight: 700;
+    line-height: 1;
     color: var(--color-caption);
   }
+  .month-lines {
+    display: none;
+  }
   @media (min-width: 1024px) {
+    .month-cell {
+      min-height: 7.25rem;
+      padding: 0.25rem;
+    }
     .month-day {
-      min-height: 4.75rem;
+      flex: none;
       align-items: flex-start;
-      padding: 0.5rem 0.625rem;
+      width: auto;
+      align-self: flex-start;
+      padding: 0.125rem 0.375rem;
+      border-radius: 0.375rem;
     }
-    .month-counts {
-      justify-content: flex-start;
-      gap: 0.25rem 0.5rem;
+    .month-day:hover:not(:disabled) {
+      background: var(--color-hover-bg);
     }
-    .count {
+    /* The lines say it all at this width. */
+    .month-marks {
+      display: none;
+    }
+    .month-lines {
+      display: flex;
+      flex-direction: column;
+      gap: 0.125rem;
+      min-width: 0;
+    }
+    .mline {
+      display: flex;
+      align-items: center;
+      gap: 0.25rem;
+      width: 100%;
+      min-width: 0;
+      padding: 0.125rem 0.3125rem;
+      text-align: left;
       font-size: 0.75rem;
+      line-height: 1.25;
+      border-radius: 0.3125rem;
+      color: var(--color-text-primary);
+      background: var(--color-bg-primary);
+      border-left: 3px solid var(--color-primary);
+    }
+    .mline:hover {
+      outline: 1px solid var(--color-primary);
+    }
+    .mline[draggable='true'] {
+      cursor: grab;
+    }
+    .mline-time {
+      flex-shrink: 0;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    .mline-text {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .mline--own {
+      border-left-style: dotted;
+    }
+    .mline--failed {
+      border-left-color: #ef4444;
+      color: #ef4444;
+    }
+    .mline--failed .mline-text {
+      color: var(--color-text-primary);
+    }
+    .mline--sent {
+      border-left-color: var(--color-input-border);
+      background: transparent;
+      color: var(--color-caption);
+    }
+    .month-more {
+      padding: 0 0.3125rem;
+      font-size: 0.6875rem;
+      font-weight: 600;
+      color: var(--color-primary);
+    }
+    .month-more:hover {
+      text-decoration: underline;
+    }
+    .mslots {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.1875rem;
+      margin-top: 0.0625rem;
+    }
+    .mslot {
+      padding: 0.0625rem 0.3125rem;
+      font-size: 0.6875rem;
+      font-weight: 600;
+      line-height: 1.3;
+      white-space: nowrap;
+      border-radius: 0.3125rem;
+      color: var(--color-caption);
+      border: 1px dashed var(--color-input-border);
+    }
+    .mslot:hover:not(:disabled) {
+      color: var(--color-primary);
+      border-color: var(--color-primary);
+      background: var(--color-bg-primary);
+    }
+    .mslot:disabled {
+      opacity: 0.45;
+      cursor: default;
     }
   }
 
@@ -996,7 +1289,11 @@
     background: var(--color-action);
   }
   .dot--slot {
-    border: 1px dashed var(--color-caption);
+    border: 1px solid var(--color-caption);
+  }
+  .dot--own {
+    border-radius: 1px;
+    transform: rotate(45deg) scale(0.85);
   }
   .cal-note {
     padding: 0.5rem 0.75rem;
