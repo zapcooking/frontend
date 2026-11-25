@@ -22,20 +22,33 @@
     listScheduled,
     cancelScheduled,
     scheduleErrorCopy,
+    MAX_PENDING_SCHEDULED,
     type MoveScheduledResult,
     type ScheduledItem,
     type ScheduleFailure
   } from '$lib/scheduleClient';
   import { formatScheduleTime } from '$lib/composerSchedule';
   import { groupScheduled, restoreForComposer, hasUnsentDraft, NOTE_DRAFT_KEY } from '$lib/scheduledList';
-  import { SCHEDULED_VIEW_KEY, parseScheduledView, type ScheduledView } from '$lib/scheduledCalendar';
-  import { postComposerOpen, openComposerRestored } from '$lib/postComposerStore';
+  import {
+    SCHEDULED_VIEW_KEY,
+    calendarEntries,
+    parseScheduledView,
+    type ScheduledView
+  } from '$lib/scheduledCalendar';
+  import {
+    POSTING_TIMES_KEY,
+    parsePostingTimes,
+    serializePostingTimes,
+    type PostingTimes
+  } from '$lib/postingSlots';
+  import { postComposerOpen, openComposerRestored, openComposerAt } from '$lib/postComposerStore';
   import { showToast } from '$lib/toast';
   import PanLoader from '../../../components/PanLoader.svelte';
   import PullToRefresh from '../../../components/PullToRefresh.svelte';
   import ScheduledPostCard from '../../../components/scheduled/ScheduledPostCard.svelte';
   import ScheduledCalendar from '../../../components/scheduled/ScheduledCalendar.svelte';
   import MoveDialog from '../../../components/scheduled/MoveDialog.svelte';
+  import PostingTimesDialog from '../../../components/scheduled/PostingTimesDialog.svelte';
   import ClockCountdownIcon from 'phosphor-svelte/lib/ClockCountdown';
   import ArrowsClockwiseIcon from 'phosphor-svelte/lib/ArrowsClockwise';
   import PencilSimpleIcon from 'phosphor-svelte/lib/PencilSimple';
@@ -62,6 +75,27 @@
   let pullToRefreshEl: PullToRefresh;
 
   $: groups = groupScheduled(items, now);
+
+  // How much of the account's limit is in use. Only pending posts count
+  // toward it (the server's rule); the list always holds all of them.
+  $: pendingCount = items.filter((i) => i.status === 'pending').length;
+  $: full = pendingCount >= MAX_PENDING_SCHEDULED;
+
+  // Posting times: the slots each day of the calendar offers. Kept on
+  // this device.
+  let times: PostingTimes = parsePostingTimes(null);
+  let timesOpen = false;
+  $: entries = calendarEntries(items, now);
+
+  function saveTimes(next: PostingTimes) {
+    times = next;
+    try {
+      localStorage.setItem(POSTING_TIMES_KEY, serializePostingTimes(next));
+    } catch (_) {
+      /* not remembered */
+    }
+    showToast('success', 'Posting times saved');
+  }
   $: isEmpty = groups.upcoming.length === 0 && groups.failed.length === 0 && groups.sent.length === 0;
 
   /**
@@ -127,8 +161,9 @@
   onMount(() => {
     try {
       view = parseScheduledView(localStorage.getItem(SCHEDULED_VIEW_KEY));
+      times = parsePostingTimes(localStorage.getItem(POSTING_TIMES_KEY));
     } catch (_) {
-      /* storage unavailable: the list */
+      /* storage unavailable: the list, and the default times */
     }
     window.addEventListener('focus', refreshOnFocus);
     document.addEventListener('visibilitychange', refreshOnFocus);
@@ -274,7 +309,19 @@
       <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
         <div class="min-w-[12rem] flex-1">
           <h1 class="text-xl font-bold">Scheduled</h1>
-          <p class="text-caption text-sm">Posts go out within a minute of their time.</p>
+          <p class="text-caption text-sm">
+            Posts go out within a minute of their time.
+            {#if loaded}
+              <span
+                class="in-use"
+                class:in-use--full={full}
+                aria-label="{pendingCount} of {MAX_PENDING_SCHEDULED} scheduled posts in use"
+                title="{pendingCount} of {MAX_PENDING_SCHEDULED} scheduled posts in use"
+              >
+                {pendingCount}/{MAX_PENDING_SCHEDULED} scheduled
+              </span>
+            {/if}
+          </p>
         </div>
         <div class="flex items-center gap-2 flex-shrink-0">
           <div class="view-toggle" role="group" aria-label="Show scheduled posts as">
@@ -317,7 +364,7 @@
         <div class="flex justify-center py-10" aria-label="Loading scheduled posts">
           <PanLoader size="sm" />
         </div>
-      {:else if isEmpty && !loadFailure}
+      {:else if isEmpty && !loadFailure && view === 'list'}
         <div class="state-card">
           <ClockCountdownIcon size={28} class="state-icon" />
           <p class="state-title">Nothing scheduled</p>
@@ -336,8 +383,12 @@
           {items}
           {now}
           {truncated}
+          {times}
+          {full}
           {busy}
           {notices}
+          on:create={(e) => openComposerAt(e.detail)}
+          on:editTimes={() => (timesOpen = true)}
           on:cancel={(e) => cancel(e.detail)}
           on:move={(e) => askToMove(e.detail.item, e.detail.to)}
           on:reschedule={(e) => reschedule(e.detail)}
@@ -387,11 +438,30 @@
   bind:open={moveOpen}
   item={moveItem}
   to={moveTo}
+  {entries}
+  {times}
   on:moved={(e) => onMoved(e.detail)}
   on:stale={() => void load()}
 />
 
+<PostingTimesDialog bind:open={timesOpen} {times} on:save={(e) => saveTimes(e.detail)} />
+
 <style>
+  .in-use {
+    margin-left: 0.25rem;
+    padding: 0.0625rem 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    white-space: nowrap;
+    border-radius: 9999px;
+    color: var(--color-text-secondary);
+    border: 1px solid var(--color-input-border);
+  }
+  .in-use--full {
+    color: #ef4444;
+    border-color: #ef4444;
+  }
+
   .state-card {
     display: flex;
     flex-direction: column;

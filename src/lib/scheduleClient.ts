@@ -36,6 +36,9 @@ import {
 
 // ── types ───────────────────────────────────────────────────────────
 
+/** Contract: at most this many posts pending per account. */
+export const MAX_PENDING_SCHEDULED = 50;
+
 export type ScheduleRelayMode = 'all' | 'pantry';
 export type ScheduleStatus = 'pending' | 'publishing' | 'sent' | 'failed' | 'cancelled';
 export const SCHEDULE_STATUSES: readonly ScheduleStatus[] = [

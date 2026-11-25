@@ -30,7 +30,13 @@
     toggleHashtag
   } from '$lib/hashtagPills';
   import type { NDKEvent as NDKEventType } from '@nostr-dev-kit/ndk';
-  import { clearQuotedNote, composerPrefillText, composerRestore, postComposerOpen } from '$lib/postComposerStore';
+  import {
+    clearQuotedNote,
+    composerPrefillText,
+    composerRestore,
+    composerSchedulePreset,
+    postComposerOpen
+  } from '$lib/postComposerStore';
   import { appendPrefill } from '$lib/live/share';
   import { requireAuth, signedIn } from '$lib/auth/requireAuth';
   import { publishQueue, publishQueueState } from '$lib/publishQueue';
@@ -434,15 +440,24 @@
   // are kept, so clearing the schedule brings them back.
   $: powOn = powActive({ scheduledAt, powBits });
 
-  function openSchedulePicker() {
+  /**
+   * @param startAt A time for the field to show to begin with (unix
+   * seconds), used when it is one the picker would offer. Also the click
+   * handler of two buttons, so anything that is not a number is ignored.
+   */
+  function openSchedulePicker(startAt?: unknown) {
     const now = nowSeconds();
     const { min, max } = pickerBounds(now);
     scheduleMin = toLocalInputValue(min);
     scheduleMax = toLocalInputValue(max);
-    // Start from the time already chosen, or an hour from now on the
-    // next quarter hour.
+    // Start from the time asked for, else the time already chosen, else
+    // an hour from now on the next quarter hour.
     const start =
-      scheduledAt !== null && scheduledAt >= min ? scheduledAt : Math.ceil((now + 3600) / 900) * 900;
+      typeof startAt === 'number' && startAt >= min && startAt <= max
+        ? startAt
+        : scheduledAt !== null && scheduledAt >= min
+          ? scheduledAt
+          : Math.ceil((now + 3600) / 900) * 900;
     scheduleInput = toLocalInputValue(start);
     schedulePickError = '';
     showSchedulePicker = true;
@@ -683,6 +698,16 @@
         scheduledAt = pickedTimeProblem(restore.publishAt, nowSeconds()) ? null : restore.publishAt;
         rescheduling = restore.rescheduling;
         if (restore.openPicker) openSchedulePicker();
+      }
+      // A time chosen in the Scheduled calendar: an empty slot (the time is
+      // set, no picker) or a day's "+" (the picker opens on that day).
+      const preset = get(composerSchedulePreset);
+      if (preset) {
+        composerSchedulePreset.set(null);
+        if (preset.publishAt !== null && !pickedTimeProblem(preset.publishAt, nowSeconds())) {
+          scheduledAt = preset.publishAt;
+        }
+        if (preset.pickerAt !== null) openSchedulePicker(preset.pickerAt);
       }
       focusComposer();
     }

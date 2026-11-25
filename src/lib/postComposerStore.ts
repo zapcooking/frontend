@@ -43,6 +43,30 @@ export function openComposerRestored(restore: ComposerRestore) {
   postComposerOpen.set(true);
 }
 
+/**
+ * A publish time for the composer to open with (the Scheduled calendar):
+ *
+ *   publishAt  the post's time is already set to this (an empty slot was
+ *              chosen): the "Will post …" line shows it and no picker
+ *              step is needed. It can still be changed.
+ *   pickerAt   the time picker opens showing this, and nothing is set
+ *              until the person picks (a day's "+", for a time of their
+ *              own on that day).
+ *
+ * Whatever unsent draft there is stays in the composer: this is only
+ * about when. The composer takes it once on open and clears it.
+ */
+export interface ComposerSchedulePreset {
+  publishAt: number | null;
+  pickerAt: number | null;
+}
+export const composerSchedulePreset = writable<ComposerSchedulePreset | null>(null);
+
+export function openComposerAt(preset: ComposerSchedulePreset) {
+  composerSchedulePreset.set(preset);
+  postComposerOpen.set(true);
+}
+
 // A parked note draft: the composer closed with unsent content and the draft
 // is waiting. The DraftDock shows it as a tab; opening the composer from
 // anywhere clears it (the composer itself restores the draft from

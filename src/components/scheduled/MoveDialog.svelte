@@ -27,7 +27,8 @@
     toLocalInputValue
   } from '$lib/composerSchedule';
   import { previewOf } from '$lib/scheduledList';
-  import { firstLine } from '$lib/scheduledCalendar';
+  import { firstLine, localDay, type CalendarEntry } from '$lib/scheduledCalendar';
+  import { openSlotsOn, type PostingTimes } from '$lib/postingSlots';
   import Modal from '../Modal.svelte';
   import ArrowRightIcon from 'phosphor-svelte/lib/ArrowRight';
 
@@ -35,6 +36,9 @@
   export let item: ScheduledItem | null = null;
   /** A time to start from (a drag's target), unix seconds; null starts from the post's own time. */
   export let to: number | null = null;
+  /** Everything on the calendar and the person's posting times: for offering the chosen day's open slots. */
+  export let entries: CalendarEntry[] = [];
+  export let times: PostingTimes | null = null;
 
   const dispatch = createEventDispatcher<{
     moved: Extract<MoveScheduledResult, { ok: true }>;
@@ -73,6 +77,18 @@
   $: unchanged = !!item && picked === item.publishAt;
   $: plan = item && picked !== null && !unchanged ? planMove(item.event, picked, now) : null;
   $: problem = picked === null ? scheduleErrorCopy({ code: 'bad_publish_time' }) : plan && !plan.ok ? scheduleErrorCopy(plan) : '';
+
+  // The open slots of the day the field is on: one tap sets the time.
+  // The post being moved does not hold its own slot against itself.
+  $: slotDay = item ? localDay(new Date((picked ?? item.publishAt) * 1000)) : null;
+  $: daySlots = item && times && slotDay ? openSlotsOn(slotDay, entries, times, now, item.id) : [];
+  const slotTime = (at: number) => new Date(at * 1000).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  const slotDayName = (day: Date) => day.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+
+  function chooseSlot(at: number) {
+    input = toLocalInputValue(at);
+    onInput();
+  }
 
   function onInput() {
     now = nowSeconds();
@@ -125,6 +141,22 @@
           on:change={onInput}
         />
         <p class="move-hint">Your local time. From 5 minutes to 90 days from now.</p>
+        {#if slotDay && daySlots.length > 0}
+          <div class="move-slots" role="group" aria-label="Open slots on {slotDayName(slotDay)}">
+            <span class="move-slots-label">Open slots that day</span>
+            {#each daySlots as at (at)}
+              <button
+                type="button"
+                class="move-slot"
+                aria-pressed={picked === at}
+                disabled={busy}
+                on:click={() => chooseSlot(at)}
+              >
+                {slotTime(at)}
+              </button>
+            {/each}
+          </div>
+        {/if}
       </div>
 
       <div id="move-post-summary" class="move-summary" role="status">
@@ -225,6 +257,34 @@
   .move-input:focus {
     outline: none;
     border-color: var(--color-primary);
+  }
+  .move-slots {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.375rem;
+    margin-top: 0.25rem;
+  }
+  .move-slots-label {
+    width: 100%;
+    font-size: 0.8125rem;
+    color: var(--color-caption);
+  }
+  .move-slot {
+    padding: 0.3125rem 0.75rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    border-radius: 9999px;
+    color: var(--color-text-primary);
+    border: 1px dashed var(--color-input-border);
+  }
+  .move-slot:hover:not(:disabled) {
+    border-color: var(--color-primary);
+  }
+  .move-slot[aria-pressed='true'] {
+    color: var(--color-on-action, #fff);
+    border: 1px solid var(--color-action);
+    background: var(--color-action);
   }
   .move-hint,
   .move-note {
