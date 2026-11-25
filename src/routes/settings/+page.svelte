@@ -95,10 +95,10 @@
 
   const KNOWN_WOT_PROVIDERS = [
     {
-      name: 'nostr.band',
-      description: 'Most widely used trust scoring service on Nostr',
-      pubkey: '6b37f2775a36575c1afe3e1399eb6b4a44793acca040685ac423e84be3aa0e16',
-      relay: 'wss://nip85.nostr.band'
+      name: 'Brainstorm',
+      description: 'Web-of-trust scores via NIP-85 (brainstorm.world)',
+      pubkey: '7f7e197e115741d021f2cf93666dc368ab97b2da63918daf436b8a4ea42d4e52',
+      relay: 'wss://scores.brainstorm.world'
     }
   ];
 
