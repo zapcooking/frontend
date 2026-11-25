@@ -1361,7 +1361,12 @@ describe('POST /api/schedule — replaces', () => {
 // there as `cancelled`. That row is revived. Real SQLite, as above.
 
 describe('POST /api/schedule — revival of a cancelled row', () => {
-  const T = (days: number) => nowSec() + days * 86400;
+  // One clock reading for the whole block. These tests sign "the same
+  // post for the same time" twice and expect one id; reading the clock on
+  // each call made the two times differ whenever a second ticked over in
+  // between (seen once on CI).
+  const START = nowSec();
+  const T = (days: number) => START + days * 86400;
   /** The post, signed for a time. Signing twice for one time gives one id and two signatures. */
   const at = (when: number) => futureEvent({ content: 'the post', created_at: when });
   const replace = (db: ReturnType<typeof sqliteD1>, event: ReturnType<typeof at>, oldId: string, extra = {}) =>
