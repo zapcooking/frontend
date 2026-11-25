@@ -31,7 +31,8 @@ Request body:
 {
   "event": { "id": "…", "pubkey": "…", "created_at": 1800000000, "kind": 1, "tags": [], "content": "…", "sig": "…" },
   "relay_mode": "all",
-  "relays": ["wss://relay.example.com", "wss://other.example.com"]
+  "relays": ["wss://relay.example.com", "wss://other.example.com"],
+  "replaces": "<id of the pending post this one replaces>"
 }
 ```
 
@@ -40,6 +41,7 @@ Request body:
 | `event` | yes | The complete signed event. `created_at` is the publish time. |
 | `relay_mode` | yes | `"all"` (public relays) or `"pantry"` (the members' relay only). |
 | `relays` | no | Up to 4 of the author's own write relays. See "Relays". |
+| `replaces` | no | Event id of the caller's own pending post that this event takes the place of. See "Editing and rescheduling". Leave it out (or send `null`) for a plain create. |
 
 Success, `201`:
 
@@ -49,10 +51,14 @@ Success, `201`:
 
 `relays` in the response is the list as stored (normalized, duplicates folded), `[]` when none.
 
+A request that carried `replaces` gets one more field on success: `"replaced": "<old event id>"`.
+
 ### `GET /api/schedule` — list the caller's scheduled events
 
 Optional query: `?status=pending` (or `publishing`, `sent`, `failed`, `cancelled`). One value only.
-Without it, rows of every status are returned.
+Without it, rows of every status **except `cancelled`** are returned. Cancelled rows are returned
+only by `?status=cancelled`. (Before 2026-11: the unfiltered list included cancelled rows, which
+could push pending rows out of the 100-row cap for someone who reschedules often.)
 
 Success, `200`:
 
@@ -70,13 +76,16 @@ Success, `200`:
       "sent_at": null,
       "event": { "…the full signed event, exactly as it was sent…" }
     }
-  ]
+  ],
+  "truncated": true
 }
 ```
 
 - Order: newest `publish_at` first. A client showing "next up first" sorts pending rows ascending
   itself.
-- At most 100 rows. There is no paging.
+- At most 100 rows. There is no paging. `truncated` is present, and `true`, only when the caller
+  has more matching rows than the 100 returned; otherwise the field is absent. The rows dropped
+  are always the oldest publish times, so pending posts are the last to go.
 - `event` is the whole event, so the client renders its own preview.
 - `last_error` is the most recent failure, verbatim from a relay where one answered (for example
   `blocked: spam filter`), or one of `no_relay_accepted`, `decrypt_failed`,
@@ -95,10 +104,46 @@ Only a `pending` row can be cancelled. Cancelling is a status change: the row st
 
 ### Editing and rescheduling
 
-There is no update. A different time or different text is a different signed event, so **edit or
-reschedule = cancel the old one, then create the new one.** Cancel first and check it returned
-`200`: if it returns `409 not_cancellable` the original is already going out and the client must
-not create a replacement.
+There is no update. A different time or different text is a different signed event with a
+different id. There are two ways to swap one for the other.
+
+**Preferred: `replaces`.** POST the new signed event with `"replaces": "<old event id>"`. The
+server stores the new event and cancels the old row in one transaction: both happen or neither
+does, so the post is never scheduled twice and never lost.
+
+- The old row must be the caller's own and still `pending`. If it is not, nothing is stored:
+  `404 not_found` (no such post for this account) or `409 not_replaceable` with the old row's
+  `status` (it is already going out, was sent, failed or was cancelled).
+- The new event is validated exactly like any create (time window, kind, size, poll close time).
+  A refused replacement leaves the old post scheduled as it was.
+- The new row takes its `relay_mode` and `relays` from this request, not from the old row. To
+  move a post without changing where it goes, send the old row's `relay_mode` and `relays` again.
+- Success is `201` with `"replaced": "<old event id>"`. **Check for that field.** A `201` without
+  it means the server did not act on `replaces` (an older deployment): the new post is scheduled
+  and the old one still is too, so cancel the old one with `DELETE` straight away.
+- A replace does not need a free slot (it is exempt from the 50-pending limit) and does not count
+  against the 30 creates per hour. It has its own limit: 60 per rolling hour. Over that the
+  answer is `429 rate_limited` with `"limit": "moves"`, and nothing is changed.
+- Retrying after a lost response is safe, with the same signed event: the answer is
+  `409 already_scheduled` with `"status": "pending"` and `"replaced": "<old event id>"`, which
+  says the swap already happened.
+- Afterwards the old row is `cancelled`, exactly as if it had been cancelled by hand. A client
+  that never sends `replaces` sees nothing new: one row turned `cancelled` and a new `pending`
+  row appeared.
+
+When moving a post to a new time, sign the original event's `kind`, `tags` and `content`
+unchanged with only `created_at` set to the new time. Do not rebuild the event from a composer:
+that can drop tags (a quote's `q` tag, reply markers, another app's tags). A tag that holds a
+time needs a decision: a poll's close time (`endsAt`, `closed_at`) should move by the same
+amount as the post; an `expiration` tag that would pass before the new publish time means the
+post should not be moved; `published_at` should follow the post only where it equalled the old
+`created_at`.
+
+**Also valid: cancel, then create.** `DELETE` the old one and check it returned `200`, then POST
+the new one as a plain create. If the cancel returns `409 not_cancellable` the original is
+already going out and the client must not create a replacement. This needs a free slot only
+after the cancel, spends one of the 30 creates per hour, and if the create then fails the post
+is no longer scheduled at all; prefer `replaces`.
 
 ## Status lifecycle
 
@@ -121,10 +166,11 @@ some go out a minute or two later still. A failed attempt is retried on the next
 |---|---|---|
 | Publish time | strictly more than 120 s and strictly less than 90 days from now | `bad_publish_time` |
 | Event size | serialized event at most 64 KiB (65,536 bytes) | `too_large` |
-| Pending events per account | 50 | `quota_exceeded` |
-| Creates per account per rolling hour | 30, counting cancelled ones | `rate_limited` |
+| Pending events per account | 50 (a replace is exempt: it frees the slot it fills) | `quota_exceeded` |
+| Creates per account per rolling hour | 30, counting cancelled ones, not counting replaces | `rate_limited` |
+| Replaces (`replaces`) per account per rolling hour | 60 | `rate_limited` with `"limit": "moves"` |
 | Client relays | at most 4, each under 200 characters | `bad_relays` |
-| List size | 100 rows | (truncated) |
+| List size | 100 rows | none; the response carries `"truncated": true` |
 
 Clients should enforce a minimum of **5 minutes** in their own date pickers. The server's 120 s
 floor is there so a request that was valid when the user tapped is not rejected for the seconds it
@@ -218,7 +264,7 @@ codes may be added.
 | Status | `error` | Endpoint | Meaning | What the client should show or do |
 |---|---|---|---|---|
 | 401 | `auth_failed` | all | NIP-98 check failed (`detail` says which part). | "Couldn't verify your account. Check your device's date and time, then try again." Retry once with a freshly signed header. |
-| 400 | `bad_request` | POST | Body is not JSON, or `event` / `relay_mode` is missing or the wrong type. | Client bug. Generic "Couldn't schedule this post." |
+| 400 | `bad_request` | POST | Body is not JSON, `event` / `relay_mode` is missing or the wrong type, or `replaces` is present and not a 64-character lowercase hex event id. | Client bug. Generic "Couldn't schedule this post." |
 | 400 | `bad_relay_mode` | POST | `relay_mode` is not `all` or `pantry`. | Client bug. Generic failure. |
 | 400 | `bad_relays` | POST | `relays` is not an array, has an entry that is not an allowed URL, or has more than 4. | Client bug: filter and cap before sending. If it happens, retry once without `relays`, so the post still goes to the fixed relays. |
 | 400 | `bad_signature` | POST | The event's id or signature does not verify. | "Your signer returned a post we couldn't verify. Try again." Usually a signer that changed the event (see "Signing"). |
@@ -228,9 +274,11 @@ codes may be added.
 | 400 | `bad_publish_time` | POST | `created_at` is 120 s or less away, 90 days or more away, or not an integer. | "Pick a time at least 5 minutes from now and within 90 days." The user must pick again and the event must be signed again. |
 | 400 | `too_large` | POST | The event is over 64 KiB. | "This post is too long to schedule." |
 | 400 | `poll_closes_before_publish` | POST | The poll would close before, or within 60 s of, its publish time. | "This poll would close before it's posted. Move the closing time later." |
-| 409 | `already_scheduled` | POST | This exact event is already stored. Body includes `status`: the existing row's current status. | **Treat as success** when `status` is `pending`, `publishing` or `sent`: an earlier attempt landed. For `cancelled` or `failed`, tell the user and sign a new event to try again. |
+| 409 | `already_scheduled` | POST | This exact event is already stored. Body includes `status`: the existing row's current status, and `replaced` (the old event id) when that row was stored by a replace. | **Treat as success** when `status` is `pending`, `publishing` or `sent`: an earlier attempt landed. For `cancelled` or `failed`, tell the user and sign a new event to try again. |
 | 400 | `quota_exceeded` | POST | The account already has 50 pending posts. | "You have 50 posts scheduled, the most allowed. Cancel one, or wait for one to go out." |
-| 429 | `rate_limited` | POST | 30 posts scheduled in the last hour (cancelled ones count). | "You've scheduled a lot in the last hour. Try again later." Do not retry automatically. |
+| 429 | `rate_limited` | POST | 30 posts scheduled in the last hour (cancelled ones count), or, with `"limit": "moves"` in the body, 60 replaces in the last hour. | "You've scheduled a lot in the last hour. Try again later." For `"limit": "moves"`: "You've moved a lot of posts in the last hour. Try again later." Do not retry automatically. |
+| 404 | `not_found` | POST with `replaces` | No post with the `replaces` id exists for this account. Nothing was stored. | "This scheduled post no longer exists." Refresh the list. |
+| 409 | `not_replaceable` | POST with `replaces` | The post named by `replaces` is not `pending`. Body includes `status`. Nothing was stored. | Say what happened, by `status`, as for `not_cancellable`: `publishing` "This post is being published right now and can't be changed." / `sent` "This post has already been published." / `cancelled` "This post was cancelled." / `failed` "This post already failed and won't be sent." Refresh the list. |
 | 400 | `bad_status` | GET | `?status=` is not one of the five statuses. | Client bug. Generic failure. |
 | 404 | `not_found` | DELETE | No such scheduled post for this account. | "This scheduled post no longer exists." Refresh the list. |
 | 409 | `not_cancellable` | DELETE | The row is not `pending`. Body includes `status`. | Say what happened, by `status`: `publishing` "This post is being published right now and can't be cancelled." / `sent` "This post has already been published." / `cancelled` treat as done / `failed` "This post already failed and won't be sent." Refresh the list. |
@@ -243,7 +291,8 @@ A POST whose response was lost can be sent again **with the same signed event an
 header**. Either it is created now (`201`) or it already was (`409 already_scheduled`, with the
 status). The `409` check runs before the quota and rate checks, so a retry is never refused for a
 limit its own first attempt reached. Never re-sign to retry: a re-signed event has a new id and
-would be scheduled twice.
+would be scheduled twice. The same holds for a request with `replaces`: resend it unchanged, and
+a `409 already_scheduled` whose `replaced` matches means the swap is done.
 
 ## Signing a future-dated event
 

@@ -1,0 +1,23 @@
+-- Migration 0013 — Scheduled Posts: which row a row replaced.
+--
+-- Additive only: one new nullable column on scheduled_events. Existing
+-- rows read NULL, which means "a plain create". Nothing existing is
+-- altered.
+--
+-- Database: zapcooking-scheduler (D1), binding SCHEDULER_DB. Apply by
+-- hand, preview first — see APPLIED.md. Apply this BEFORE the code that
+-- uses it is live: POST /api/schedule reads the column on every request
+-- (the already-scheduled lookup and the hourly counts), so every create
+-- answers 500 `internal` while it is missing. GET and DELETE do not
+-- touch it. The cron sweep does not read or write it and needs no
+-- redeploy.
+--
+-- scheduled_events.replaces: the id of the caller's pending row that
+-- this row replaced (POST /api/schedule with `replaces`), or NULL. Set
+-- in the same transaction that cancels the old row. Used to count moves
+-- separately from creates in the rolling-hour limits (MAX_MOVES_PER_HOUR
+-- vs MAX_CREATES_PER_HOUR in src/lib/scheduleApi.server.ts) and to tell
+-- a retried replace that its swap already happened. Never returned by
+-- the list.
+
+ALTER TABLE scheduled_events ADD COLUMN replaces TEXT;
