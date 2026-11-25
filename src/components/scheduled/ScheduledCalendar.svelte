@@ -17,6 +17,7 @@
   import type { ScheduledItem } from '$lib/scheduleClient';
   import { previewOf } from '$lib/scheduledList';
   import { pickedTimeProblem } from '$lib/composerSchedule';
+  import { layoutDay, pickerStartFor, type PostingTimes } from '$lib/postingSlots';
   import {
     SCHEDULED_CALENDAR_MODE_KEY,
     bucketByDay,
@@ -46,12 +47,18 @@
   import CaretRightIcon from 'phosphor-svelte/lib/CaretRight';
   import WarningIcon from 'phosphor-svelte/lib/Warning';
   import CheckIcon from 'phosphor-svelte/lib/Check';
+  import PlusIcon from 'phosphor-svelte/lib/Plus';
+  import ClockIcon from 'phosphor-svelte/lib/Clock';
 
   export let items: ScheduledItem[];
   /** Unix seconds. */
   export let now: number;
   /** The server cut the list at its cap: some older history is missing. */
   export let truncated = false;
+  /** The person's posting times: each day offers them as slots. */
+  export let times: PostingTimes;
+  /** No room for another post (the account's limit on pending posts): empty slots cannot be used. */
+  export let full = false;
   export let busy: Record<string, boolean> = {};
   export let notices: Record<string, string> = {};
 
@@ -61,7 +68,20 @@
     postAgain: ScheduledItem;
     /** Ask to move a post: `to` is a time already chosen (a drag), or null to pick one. Nothing is moved yet. */
     move: { item: ScheduledItem; to: number | null };
+    /**
+     * Write a new post: `publishAt` when an empty slot was chosen (the
+     * time is set), `pickerAt` when a day was (the picker opens there).
+     */
+    create: { publishAt: number | null; pickerAt: number | null };
+    editTimes: void;
   }>();
+
+  const FULL_COPY = 'You have the most posts scheduled that you can. Cancel one, or wait for one to go out.';
+
+  /** A day's "+", or its empty space: a post on that day at a time the person picks. */
+  function createOn(day: Date) {
+    dispatch('create', { publishAt: null, pickerAt: pickerStartFor(day, Math.floor(Date.now() / 1000)) });
+  }
 
   let mode: CalendarMode = 'week';
   let rootEl: HTMLElement;
@@ -243,6 +263,32 @@
   function endDrag() {
     dragged = null;
     dropDay = null;
+    dropSlot = null;
+  }
+
+  // Dropped on an EMPTY SLOT, a post goes to that slot's time, on the
+  // same day or another. Dropped anywhere else in a day it keeps its own
+  // time of day (above).
+  let dropSlot: number | null = null;
+
+  const canDropOnSlot = (at: number, usable: boolean) => !!dragged && usable && at !== dragged.at;
+
+  function onSlotDragOver(event: DragEvent, at: number, usable: boolean) {
+    if (!canDropOnSlot(at, usable)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+    dropSlot = at;
+    dropDay = null;
+  }
+
+  function onSlotDrop(event: DragEvent, at: number, usable: boolean) {
+    if (!canDropOnSlot(at, usable)) return;
+    const entry = dragged;
+    event.preventDefault();
+    event.stopPropagation();
+    endDrag();
+    if (entry) dispatch('move', { item: entry.item, to: at });
   }
 
   // ── wording ─────────────────────────────────────────────────────────
@@ -287,6 +333,10 @@
       </button>
     </div>
     <div class="cal-tools">
+      <button type="button" class="times-btn" on:click={() => dispatch('editTimes')} title="Edit posting times">
+        <ClockIcon size={16} />
+        <span>Posting times</span>
+      </button>
       <button type="button" class="today-btn" on:click={goToday} disabled={onToday}>Today</button>
       <div class="seg" role="group" aria-label="Calendar view">
         <button type="button" class="seg-btn" aria-pressed={mode === 'week'} on:click={() => setMode('week')}>
@@ -307,6 +357,8 @@
         {@const dayEntries = buckets.get(key) ?? []}
         {@const isToday = key === todayKey}
         {@const outside = !inBounds(day, bounds)}
+        {@const canAdd = !outside && key >= todayKey && !full}
+        {@const rows = layoutDay(day, dayEntries, times, now, { emptySlots: !outside && key >= todayKey })}
         <section
           class="day"
           class:day--today={isToday}
@@ -330,38 +382,83 @@
             {#if isToday}<span class="day-today">Today</span>{/if}
           </h3>
 
-          {#if dayEntries.length > 0}
+          {#if canAdd}
+            <button
+              type="button"
+              class="day-add"
+              on:click={() => createOn(day)}
+              aria-label="Schedule a post on {FULL_DATE(day)} at a time you pick"
+              title="Schedule a post on this day at another time"
+            >
+              <PlusIcon size={14} weight="bold" />
+            </button>
+          {/if}
+
+          {#if rows.length > 0}
             <ul class="chips">
-              {#each dayEntries as entry (entry.item.id)}
+              {#each rows as row (row.type === 'post' ? row.entry.item.id : `slot-${row.at}`)}
                 <li>
-                  <button
-                    type="button"
-                    class="chip chip--{entry.tone}"
-                    class:chip--dragging={dragged?.item.id === entry.item.id}
-                    draggable={entry.tone === 'pending'}
-                    on:dragstart={(e) => onDragStart(e, entry)}
-                    on:dragend={endDrag}
-                    on:click={() => openDetail(entry)}
-                    aria-label="{chipStatus(entry)}, {entryTime(entry.at)}: {chipText(entry)}. Open details"
-                  >
-                    <span class="chip-time">
-                      {#if entry.tone === 'failed'}
-                        <WarningIcon size={14} weight="fill" class="flex-shrink-0" />
-                      {:else if entry.tone === 'sent'}
-                        <CheckIcon size={14} weight="bold" class="flex-shrink-0" />
+                  {#if row.type === 'post'}
+                    {@const entry = row.entry}
+                    <button
+                      type="button"
+                      class="chip chip--{entry.tone}"
+                      class:chip--dragging={dragged?.item.id === entry.item.id}
+                      draggable={entry.tone === 'pending'}
+                      on:dragstart={(e) => onDragStart(e, entry)}
+                      on:dragend={endDrag}
+                      on:click={() => openDetail(entry)}
+                      aria-label="{chipStatus(entry)}, {entryTime(entry.at)}: {chipText(entry)}. Open details"
+                    >
+                      <span class="chip-time">
+                        {#if entry.tone === 'failed'}
+                          <WarningIcon size={14} weight="fill" class="flex-shrink-0" />
+                        {:else if entry.tone === 'sent'}
+                          <CheckIcon size={14} weight="bold" class="flex-shrink-0" />
+                        {/if}
+                        {entryTime(entry.at)}
+                        {#if entry.tone !== 'pending'}
+                          <span class="chip-status">{chipStatus(entry)}</span>
+                        {/if}
+                      </span>
+                      <span class="chip-text">{chipText(entry)}</span>
+                    </button>
+                  {:else}
+                    {@const usable = row.usable && !full}
+                    <!-- An empty slot: a place to put a post, and a place to drop one. -->
+                    <button
+                      type="button"
+                      class="slot"
+                      class:slot--drop={dropSlot === row.at}
+                      disabled={!usable}
+                      data-slot={row.at}
+                      on:click={() => dispatch('create', { publishAt: row.at, pickerAt: null })}
+                      on:dragover={(e) => onSlotDragOver(e, row.at, row.usable)}
+                      on:dragleave={() => {
+                        if (dropSlot === row.at) dropSlot = null;
+                      }}
+                      on:drop={(e) => onSlotDrop(e, row.at, row.usable)}
+                      aria-label={usable
+                        ? `Empty slot, ${entryTime(row.at)} on ${FULL_DATE(day)}. Schedule a post`
+                        : `Empty slot, ${entryTime(row.at)}. ${full && row.usable ? FULL_COPY : 'This time has passed or is too close'}`}
+                      title={full && row.usable ? FULL_COPY : undefined}
+                    >
+                      <span class="slot-time">{entryTime(row.at)}</span>
+                      {#if usable}
+                        <span class="slot-add"><PlusIcon size={12} weight="bold" /><span class="slot-add-text">Add a post</span></span>
                       {/if}
-                      {entryTime(entry.at)}
-                      {#if entry.tone !== 'pending'}
-                        <span class="chip-status">{chipStatus(entry)}</span>
-                      {/if}
-                    </span>
-                    <span class="chip-text">{chipText(entry)}</span>
-                  </button>
+                    </button>
+                  {/if}
                 </li>
               {/each}
             </ul>
           {:else}
             <p class="day-empty">{outside ? 'Outside the calendar' : 'Nothing scheduled'}</p>
+          {/if}
+          {#if canAdd}
+            <!-- The rest of the day: a mouse shortcut for the "+" above, which is the real control. -->
+            <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
+            <div class="day-space" on:click={() => createOn(day)}></div>
           {/if}
         </section>
       {/each}
@@ -416,10 +513,14 @@
     </div>
   {/if}
 
-  <p class="sr-only">To move a post to another time, open it and choose Move.</p>
+  <p class="sr-only">
+    To move a post to another time, open it and choose Move. To write a post for an empty slot, choose
+    the slot.
+  </p>
 
   <ul class="legend" aria-label="Key">
     <li><span class="dot dot--upcoming"></span>Scheduled</li>
+    <li><span class="dot dot--slot"></span>Empty slot</li>
     <li><WarningIcon size={13} weight="fill" class="legend-failed" />Not sent</li>
     <li><CheckIcon size={13} weight="bold" />Posted, last 30 days</li>
   </ul>
@@ -500,8 +601,23 @@
   }
   .cal-tools {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 0.5rem;
+  }
+  .times-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.375rem 0.75rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    border-radius: 9999px;
+    color: var(--color-text-primary);
+    border: 1px solid var(--color-input-border);
+  }
+  .times-btn:hover {
+    background: var(--color-hover-bg);
   }
   .today-btn {
     padding: 0.375rem 0.75rem;
@@ -544,6 +660,84 @@
     background: var(--color-input-bg);
     border: 1px solid var(--color-input-border);
     scroll-margin-top: 5rem;
+  }
+  .day {
+    position: relative;
+  }
+  .day-add {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: 9999px;
+    color: var(--color-text-secondary);
+    border: 1px solid var(--color-input-border);
+    background: var(--color-bg-primary);
+  }
+  .day-add:hover {
+    color: var(--color-primary);
+    border-color: var(--color-primary);
+  }
+  .day-head {
+    padding-right: 2rem;
+  }
+  .day-space {
+    flex: 1;
+    min-height: 0.5rem;
+    cursor: pointer;
+  }
+  .slot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    width: 100%;
+    min-width: 0;
+    padding: 0.4375rem 0.625rem;
+    text-align: left;
+    border-radius: 0.75rem;
+    color: var(--color-text-secondary);
+    border: 1px dashed var(--color-input-border);
+  }
+  .slot:hover:not(:disabled) {
+    color: var(--color-primary);
+    border-color: var(--color-primary);
+    background: var(--color-bg-primary);
+  }
+  .slot:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+  .slot--drop {
+    color: var(--color-primary);
+    border-style: solid;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 1px var(--color-primary);
+    background: var(--color-bg-primary);
+  }
+  .slot-time {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .slot-add {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+  }
+  @media (min-width: 1024px) {
+    .slot {
+      padding: 0.3125rem 0.5rem;
+    }
+    .slot-add-text {
+      display: none;
+    }
   }
   .day--today {
     border-color: rgb(249 115 22 / 0.6);
@@ -800,6 +994,9 @@
   }
   .dot--upcoming {
     background: var(--color-action);
+  }
+  .dot--slot {
+    border: 1px dashed var(--color-caption);
   }
   .cal-note {
     padding: 0.5rem 0.75rem;

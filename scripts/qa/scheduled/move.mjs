@@ -379,7 +379,8 @@ for (const viewport of VIEWPORTS) {
   if ((await days.nth(targetIndex).getAttribute('aria-labelledby')) === fromDay) targetIndex = count - 2;
   const target = days.nth(targetIndex);
   const targetKey = (await target.getAttribute('aria-labelledby')).replace('cal-day-', '');
-  await chip.dragTo(target);
+  // On the day's heading: not on an empty slot, which would mean that slot's time (see slots.mjs).
+  await chip.dragTo(target.locator('.day-head'));
   await page.waitForSelector('#move-post-time');
   await page.waitForTimeout(500);
   const value = await page.inputValue('#move-post-time');
