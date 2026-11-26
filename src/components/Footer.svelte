@@ -104,11 +104,15 @@
 
 <style>
   /* Compact two-row footer: a de-emphasized links row and a meta row.
-     Both wrap and center, so the footer stays short at every width. */
+     Both wrap and center, so the footer stays short at every width. The
+     element itself is capped to the content column so the footer — its
+     top rule included — never runs wider than the page's content
+     sections. */
   .footer {
     padding-top: 1rem;
     padding-bottom: 1rem;
     border-top: 1px solid var(--color-input-border);
+    max-width: 42rem;
   }
 
   /* Stacked footer: links row, meta row, then a bottom row with the muted
@@ -119,7 +123,6 @@
     flex-direction: column;
     align-items: flex-start;
     gap: 0.625rem;
-    max-width: 42rem;
     padding-left: 1rem;
     padding-right: 1rem;
   }
