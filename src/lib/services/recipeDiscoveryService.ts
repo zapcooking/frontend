@@ -22,6 +22,7 @@ import { extractRecipeDetails, validateMarkdownTemplate } from '$lib/parser';
 import { parseIngredientsFromRecipe } from '$lib/utils/ingredientParser';
 import { cookbookStore, cookbookLists } from '$lib/stores/cookbookStore';
 import { get } from 'svelte/store';
+import { isDiscoveryExcluded } from '$lib/discovery/exclusion';
 import {
   MAX_INGREDIENTS_PER_CANDIDATE,
   MAX_TAGS_PER_CANDIDATE,
@@ -263,6 +264,10 @@ async function fetchExploreRecipeEvents(ndk: NDK, limit = EXPLORE_LIMIT): Promis
     };
     const timeout = setTimeout(finish, EXPLORE_TIMEOUT_MS);
     subscription.on('event', (event: NDKEvent) => {
+      // The public catalog is a recommendation surface: authors held out of
+      // discovery ($lib/discovery/config) aren't offered. A member's own and
+      // saved recipes (the other sources) are their choice and unaffected.
+      if (isDiscoveryExcluded(event.pubkey)) return;
       // Same markdown gate Explore / My Recipes use so Cheffy only
       // sees parseable Zap Cooking recipes, not arbitrary kind:30023.
       if (!hasValidRecipeMarkdown(event.content)) return;

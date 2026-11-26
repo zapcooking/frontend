@@ -10,6 +10,7 @@ import type { NDKEvent } from '@nostr-dev-kit/ndk';
 import { nip19 } from 'nostr-tools';
 import { RECIPE_TAGS, isHiddenRecipeEvent } from '$lib/consts';
 import { buildPoolRelaySet } from '$lib/eventFetch';
+import { isDiscoveryExcluded } from '$lib/discovery/exclusion';
 
 export interface AuthorRailItem {
   naddr: string;
@@ -33,6 +34,10 @@ export async function fetchAuthorContent(
 ): Promise<AuthorContentSplit> {
   const split: AuthorContentSplit = { recipes: [], articles: [] };
   if (!ndk || !pubkey) return split;
+  // The rail recommends more from the same author. For an author held out of
+  // discovery ($lib/discovery/config) the page itself still opens by URL, but
+  // it doesn't lead on to the rest of their catalog.
+  if (isDiscoveryExcluded(pubkey)) return split;
 
   try {
     // Explicit relay set — author-filtered fetches on a cold pool can

@@ -1,5 +1,6 @@
 import { FREE_WINDOW_SECONDS, type RelayEvent } from './relay';
 import { isRecipe, publishedAt } from './posts';
+import { DISCOVERY_EXCLUDED_PUBKEYS, isDiscoveryExcluded } from '$lib/discovery/exclusion';
 
 /**
  * "From the recipe box": older recipes woven into the Fresh feed as one of
@@ -33,10 +34,18 @@ export function isBoxCandidate(e: RelayEvent, now: number): boolean {
   return first < now - FREE_WINDOW_SECONDS;
 }
 
-/** The pool: candidates only, newest version per address. */
-export function buildPool(events: RelayEvent[], now: number): RelayEvent[] {
+/**
+ * The pool: candidates only, newest version per address. Authors held out of
+ * discovery ($lib/discovery/config) are never recommended from it.
+ */
+export function buildPool(
+  events: RelayEvent[],
+  now: number,
+  excluded: ReadonlySet<string> = DISCOVERY_EXCLUDED_PUBKEYS
+): RelayEvent[] {
   const byAddr = new Map<string, RelayEvent>();
   for (const e of events) {
+    if (isDiscoveryExcluded(e.pubkey, excluded)) continue;
     if (!isBoxCandidate(e, now)) continue;
     const a = recipeAddress(e);
     const cur = byAddr.get(a);

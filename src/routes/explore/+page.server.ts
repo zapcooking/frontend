@@ -8,6 +8,7 @@ import { nextEditionHref, selectLandingEdition } from '$lib/landing/editions';
 import { LANDING_CACHE_CONTROL } from '$lib/landing/route';
 import { imageIdentity } from '$lib/landing/imageIdentity';
 import type { LongformCard } from '$lib/landing/content';
+import { isDiscoveryExcluded } from '$lib/discovery/exclusion';
 
 // Public content stays server-rendered with its own aggregate cache. The HTML
 // and route-data responses are not cached across deploys: hydration references
@@ -24,12 +25,19 @@ export const load: PageServerLoad = async ({ platform, setHeaders, url }) => {
   const ctx = platform?.ctx;
   const waitUntil = ctx ? (p: Promise<unknown>) => ctx.waitUntil(p) : undefined;
 
-  const [moderation, paid] = await Promise.all([
+  const [moderation, paidAll] = await Promise.all([
     loadReadsModerationLists(kv as Parameters<typeof loadReadsModerationLists>[0]).catch(
       () => null
     ),
     getLandingPaid(kv)
   ]);
+  // A boost is a homepage recipe slot like any other: an author held out of
+  // discovery ($lib/discovery/config) is held out of it too. The boost itself
+  // is untouched in KV and shows again when the entry is removed.
+  const paid = {
+    ...paidAll,
+    boosts: paidAll.boosts.filter((boost) => !isDiscoveryExcluded(boost.authorPubkey))
+  };
   const pool = await getLandingData({ cache, waitUntil, moderation });
   const variant = url?.searchParams.get('edition');
   // Keep paid placements in their disclosed section, never repeat them in editorial content.
