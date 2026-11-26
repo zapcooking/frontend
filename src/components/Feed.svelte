@@ -28,6 +28,12 @@
   export let hideHide = false;
   export let lists = false;
   export let loaded = false;
+  /**
+   * Optional final ordering of the cards about to render (after validity,
+   * mutes, the images-only setting and `hideHide`), so a page's ordering rule
+   * counts exactly what the reader sees. /recipes passes its author cap here.
+   */
+  export let arrange: ((visible: NDKEvent[]) => NDKEvent[]) | null = null;
 
   // Empty recipe grids greet with a random kitchen emoji (timers, plates,
   // pans) instead of a single static icon. Picked once per instance.
@@ -87,6 +93,12 @@
       .filter(isValidEvent)
       .filter((e) => lists || !$hideImagelessRecipesSetting || hasRecipeImage(e))
   );
+
+  const isHideTagged = (e: NDKEvent) =>
+    e.tags.some((t) => t[0] == 't' && t[1] == 'nostrcooking-hide');
+  $: shownEvents = arrange
+    ? arrange(hideHide == true ? filteredEvents.filter((e) => !isHideTagged(e)) : filteredEvents)
+    : filteredEvents;
 </script>
 
 {#if filteredEvents.length > 0}
@@ -95,8 +107,8 @@
       ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5'
       : 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6'}"
   >
-    {#each filteredEvents as event (event.id)}
-      {#if !(hideHide == true && event.tags.find((t) => t[0] == 't' && t[1] == 'nostrcooking-hide'))}
+    {#each shownEvents as event (event.id)}
+      {#if !(hideHide == true && isHideTagged(event))}
         <RecipeCard list={lists} {event} />
       {/if}
     {/each}

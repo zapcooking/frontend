@@ -10,8 +10,13 @@
   import { feedCacheService } from '$lib/feedCache';
   import { isBlockedFromReads } from '$lib/reads/moderationClient';
   import { hideImagelessRecipesSetting } from '$lib/recipeImageFilterSettings';
+  import { isDiscoveryExcluded } from '$lib/discovery/exclusion';
+  import { arrangeFeed } from '$lib/discovery/authorCap';
 
   function isDisplayableRecipe(event: NDKEvent): boolean {
+    // Accounts held out of discovery ($lib/discovery/config) never enter the
+    // feed, from the network or from this device's cached first page.
+    if (isDiscoveryExcluded(event.pubkey)) return false;
     const dTag = event.tags.find((t) => t[0] === 'd')?.[1];
     if (isHiddenRecipeCoordinate(event.kind, event.pubkey, dTag)) return false;
     if (isBlockedFromReads(event)) return false;
@@ -154,12 +159,65 @@
   // its results into the new state.
   let paginationGeneration = 0;
   let sentinelEl: HTMLDivElement | null = null;
+  // The load-more cursor: the oldest created_at shown, or sent by a relay
+  // on a load-more page whether shown or not. It can't come from the shown
+  // recipes alone: a page made up entirely of recipes this feed doesn't
+  // show (held out of discovery, unparseable) would otherwise be asked for
+  // again and again, or read as the end of the catalog.
+  let oldestFetched = Infinity;
+  const noteFetched = (event: NDKEvent) => {
+    const ts = event.created_at || 0;
+    if (ts && ts < oldestFetched) oldestFetched = ts;
+  };
+  // Pages in a row with nothing to show before one load-more call gives up
+  // (the next scroll tries again from where it stopped).
+  const MAX_HIDDEN_PAGES_PER_LOAD = 6;
   let intersectionObserver: IntersectionObserver | null = null;
 
   // Sort events by created_at descending (most recent first)
   $: sortedEvents = [...events].sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
 
   $: displayEvents = sortedEvents;
+
+  // ─── Author cap on the opening ───────────────────────────────────
+  // No author takes more than RECIPE_FEED_AUTHOR_CAP of the first
+  // RECIPE_FEED_CAP_WINDOW cards ($lib/discovery/config). Feed applies
+  // `arrange` to the cards it is about to render, so the cap counts what
+  // the reader sees (after mutes and "Images only"). Over-cap recipes are
+  // deferred, not dropped: they follow the opening in ranking order.
+  //
+  // When the loaded recipes can't fill the opening, the deferred ones are
+  // held back and older pages are fetched to fill it (the opening must not
+  // depend on where a page boundary fell). They are released when the
+  // relays run out, a fetch fails, or OPENING_FILL_MAX_PAGES is spent, so
+  // a small catalog shows a short opening and then everything else.
+  const OPENING_FILL_MAX_PAGES = 8;
+  let firstPageSettled = false;
+  let openingFillPages = 0;
+  let openingFillFailed = false;
+  let heldCount = 0;
+
+  $: canPaginate = events.length >= MIN_EVENTS_BEFORE_PAGINATION;
+  $: sourceExhausted =
+    exhausted ||
+    openingFillFailed ||
+    openingFillPages >= OPENING_FILL_MAX_PAGES ||
+    (firstPageSettled && !canPaginate);
+
+  function makeArrange(release: boolean) {
+    return (visible: NDKEvent[]) => {
+      const arranged = arrangeFeed(visible, (e) => e.pubkey, { sourceExhausted: release });
+      heldCount = arranged.held;
+      return arranged.visible;
+    };
+  }
+  $: arrangeOpening = makeArrange(sourceExhausted);
+
+  // The sentinel only fires when it scrolls into view, and a short opening
+  // may leave it in view the whole time: keep fetching while cards are held.
+  $: if (heldCount > 0 && firstPageSettled && loaded && !loadingMore && !sourceExhausted) {
+    loadMoreRecipes(true);
+  }
 
   async function loadRecipes(skipCache = false) {
     const perfStart = performance.now();
@@ -177,6 +235,10 @@
     paginationGeneration++;
     loadingMore = false;
     exhausted = false;
+    firstPageSettled = false;
+    oldestFetched = Infinity;
+    openingFillPages = 0;
+    openingFillFailed = false;
 
     // Capture relay generation at start to detect stale data from relay switches
     const startGeneration = getCurrentRelayGeneration();
@@ -194,6 +256,7 @@
       if (!$ndk) {
         console.warn('NDK not available, skipping subscription');
         loaded = true;
+        firstPageSettled = true;
         return;
       }
       
@@ -219,6 +282,7 @@
               // Filter cached events for valid (non-hidden) recipes
               events = cached.filter(isDisplayableRecipe);
               loaded = true;
+              firstPageSettled = true;
               console.log(`⚡ Cache hit: ${events.length} recipes in ${(performance.now() - perfStart).toFixed(0)}ms`);
               return;
             }
@@ -269,6 +333,7 @@
         }
 
         loaded = true;
+        firstPageSettled = true;
         console.log(`📡 Network load complete: ${fetchedEvents.length} recipes in ${(performance.now() - perfStart).toFixed(0)}ms`);
 
         // Cache the fetched events for next time
@@ -296,11 +361,13 @@
           console.warn(`[Recent] Load timeout after 10s with ${fetchedEvents.length} events, forcing loaded=true`);
           loaded = true;
         }
+        firstPageSettled = true;
       }, 10000);
 
     } catch (error) {
       console.error(error);
       loaded = true;
+      firstPageSettled = true;
     }
   }
 
@@ -311,92 +378,99 @@
    * or relay swaps. EOSE with zero new events flips `exhausted` so the
    * sentinel stops firing.
    */
-  async function loadMoreRecipes() {
+  async function loadMoreRecipes(fillingOpening = false) {
     if (!$ndk || loadingMore || exhausted) return;
     if (!loaded) return;
     if (events.length < MIN_EVENTS_BEFORE_PAGINATION) return;
 
-    // Find the oldest created_at currently displayed. `until` is
-    // exclusive in some relay implementations and inclusive in others,
-    // so we subtract 1 to be safe — we'd rather miss a duplicate event
-    // (deduped by id below anyway) than fetch the same recipe twice.
-    let oldest = Infinity;
-    for (const e of events) {
-      const ts = e.created_at || 0;
-      if (ts && ts < oldest) oldest = ts;
-    }
-    if (!isFinite(oldest)) return;
+    // Walk back from the cursor (see `oldestFetched`).
+    // `until` is exclusive in some relay implementations and inclusive in
+    // others, so we subtract 1 to be safe — we'd rather miss a duplicate
+    // event (deduped by id below anyway) than fetch the same recipe twice.
+    for (const e of events) noteFetched(e);
+    if (!isFinite(oldestFetched)) return;
 
     const startGeneration = getCurrentRelayGeneration();
     const localGen = ++paginationGeneration;
     loadingMore = true;
-
-    const filter: NDKFilter = {
-      kinds: [30023],
-      '#t': RECIPE_TAGS,
-      limit: FOLLOWUP_PAGE_SIZE,
-      until: oldest - 1
-    };
+    if (fillingOpening) openingFillPages++;
+    const stale = () =>
+      getCurrentRelayGeneration() !== startGeneration || localGen !== paginationGeneration;
 
     let sub: NDKSubscription | null = null;
     let safetyTimeout: ReturnType<typeof setTimeout> | null = null;
 
     try {
-      // closeOnEose so this subscription self-cleans after EOSE — we
-      // don't need a long-lived sub for a one-off pagination fetch.
-      sub = $ndk.subscribe(filter, { closeOnEose: true });
-      const newEvents: NDKEvent[] = [];
       const seen = new Set(events.map((e) => e.id));
-
-      sub.on('event', (event: NDKEvent) => {
-        if (
-          getCurrentRelayGeneration() !== startGeneration ||
-          localGen !== paginationGeneration
-        ) {
-          return;
-        }
-        if (seen.has(event.id)) return;
-        seen.add(event.id);
-        if (isDisplayableRecipe(event)) {
-          newEvents.push(event);
-        }
-      });
-
-      await new Promise<void>((resolve) => {
-        const finish = () => {
-          if (safetyTimeout) {
-            clearTimeout(safetyTimeout);
-            safetyTimeout = null;
-          }
-          resolve();
+      // A page can come back with recipes but none to show. That is not the
+      // end of the catalog: keep walking, a bounded number of pages per call.
+      for (let page = 0; page < MAX_HIDDEN_PAGES_PER_LOAD; page++) {
+        const until = oldestFetched - 1;
+        const filter: NDKFilter = {
+          kinds: [30023],
+          '#t': RECIPE_TAGS,
+          limit: FOLLOWUP_PAGE_SIZE,
+          until
         };
-        sub!.on('eose', finish);
-        // Safety: some relay sets never EOSE for a small window of
-        // time. Cap the wait so the spinner can't spin forever.
-        safetyTimeout = setTimeout(finish, 8000);
-      });
+        // closeOnEose so this subscription self-cleans after EOSE — we
+        // don't need a long-lived sub for a one-off pagination fetch.
+        sub = $ndk.subscribe(filter, { closeOnEose: true });
+        const newEvents: NDKEvent[] = [];
+        let received = 0;
 
-      if (
-        getCurrentRelayGeneration() !== startGeneration ||
-        localGen !== paginationGeneration
-      ) {
-        return;
-      }
+        sub.on('event', (event: NDKEvent) => {
+          if (stale()) return;
+          if (seen.has(event.id)) return;
+          seen.add(event.id);
+          received++;
+          noteFetched(event);
+          if (isDisplayableRecipe(event)) {
+            newEvents.push(event);
+          }
+        });
 
-      if (newEvents.length === 0) {
-        exhausted = true;
-        console.log('[Recipes] pagination exhausted — no older recipes returned');
-      } else {
-        events = [...events, ...newEvents];
-        // Log the exact `until` we asked the relays for (oldest - 1) so
-        // log lines line up with the actual subscription filter when
-        // debugging "why didn't this older recipe come back?"
-        console.log(
-          `[Recipes] pagination +${newEvents.length} (total ${events.length}, oldest=${oldest}, until=${oldest - 1})`
-        );
+        await new Promise<void>((resolve) => {
+          const finish = () => {
+            if (safetyTimeout) {
+              clearTimeout(safetyTimeout);
+              safetyTimeout = null;
+            }
+            resolve();
+          };
+          sub!.on('eose', finish);
+          // Safety: some relay sets never EOSE for a small window of
+          // time. Cap the wait so the spinner can't spin forever.
+          safetyTimeout = setTimeout(finish, 8000);
+        });
+        try {
+          sub.stop();
+        } catch {
+          // Already stopped from closeOnEose — ignore.
+        }
+
+        if (stale()) return;
+
+        if (received === 0) {
+          exhausted = true;
+          console.log('[Recipes] pagination exhausted — no older recipes returned');
+          break;
+        }
+        if (newEvents.length > 0) {
+          events = [...events, ...newEvents];
+          // Log the exact `until` we asked the relays for so log lines line
+          // up with the actual subscription filter when debugging "why
+          // didn't this older recipe come back?"
+          console.log(
+            `[Recipes] pagination +${newEvents.length} (total ${events.length}, until=${until})`
+          );
+          break;
+        }
+        console.log(`[Recipes] pagination: ${received} older recipes, none to show (until=${until})`);
       }
     } catch (err) {
       console.warn('[Recipes] pagination failed:', err);
+      // Don't keep held recipes waiting on a fetch that can't finish.
+      if (localGen === paginationGeneration) openingFillFailed = true;
     } finally {
       try {
         sub?.stop();
@@ -626,7 +700,7 @@
       </button>
     </div>
 
-    <Feed events={displayEvents} hideHide={true} {loaded} />
+    <Feed events={displayEvents} hideHide={true} {loaded} arrange={arrangeOpening} />
 
     {#if loaded && !exhausted}
       <!-- Sentinel: when this scrolls into view (or within 400px of it)

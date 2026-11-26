@@ -18,6 +18,7 @@ import { isEligibleFoodStory } from './storyEligibility';
 import { DEFAULT_FRESH_TOPICS, FRESH_TOPIC_CANDIDATES, JUST_SERVED_MAX_AGE_SECONDS, freshNote, freshCardAllowed, freshTopicHref, topicPostOverrides } from './fresh';
 import { verifyEvent } from 'nostr-tools/pure';
 import type { ReadsModerationLists } from '$lib/reads/moderationConfig';
+import { DISCOVERY_EXCLUDED_PUBKEYS } from '$lib/discovery/exclusion';
 import { evaluateReadsContent } from '$lib/reads/moderation';
 import {
 	collect,
@@ -79,6 +80,10 @@ export const SINCE_PAD_SECONDS = 60;
 /** Homepage Fresh surfaces photo notes; the full feed keeps its broader kind support. */
 export const FRESH_KINDS = [1];
 export const RECIPE_T_TAGS = ['zapcooking', 'nostrcooking'];
+
+/** Newest recipes asked of the feed relay per build; more while authors are held out of discovery. */
+export const RECIPE_FETCH_LIMIT = 30;
+export const RECIPE_FETCH_LIMIT_WITH_EXCLUSIONS = 120;
 
 /** Fresh enough to serve without a refresh. */
 export const FRESH_FOR_MS = 120_000;
@@ -202,6 +207,11 @@ export interface BuildDeps {
 	verify?: (e: NostrEvent) => boolean;
 	fetchNip11?: (timeoutMs: number) => Promise<unknown>;
 	moderation?: ReadsModerationLists | null;
+	/**
+	 * Authors held out of discovery (canonical hex pubkeys). Defaults to the
+	 * configured list in `$lib/discovery/config`.
+	 */
+	excluded?: ReadonlySet<string>;
 	timeoutMs?: number;
 }
 
@@ -228,6 +238,11 @@ export async function buildLandingData(deps: BuildDeps = {}): Promise<LandingDat
 	const verify = deps.verify ?? ((e: NostrEvent) => verifyEvent(e as Parameters<typeof verifyEvent>[0]));
 	const fetchNip11 = deps.fetchNip11 ?? fetchNip11Default;
 	const lists = deps.moderation ?? null;
+	// Held-out authors leave every candidate list first, before anything is
+	// ranked, capped per author, sliced or used as a fallback, so the slots
+	// they would have taken go to other cooks.
+	const excluded = deps.excluded ?? DISCOVERY_EXCLUDED_PUBKEYS;
+	const discoverable = <E extends { pubkey: string }>(e: E) => !excluded.has(e.pubkey);
 	const timeoutMs = deps.timeoutMs ?? ROUND_TIMEOUT_MS;
 	const t = now();
 	const since = t - FREE_WINDOW_SECONDS + SINCE_PAD_SECONDS;
@@ -245,7 +260,10 @@ export async function buildLandingData(deps: BuildDeps = {}): Promise<LandingDat
 			FEED_RELAY,
 			{
 				fresh: { kinds: FRESH_KINDS, since, limit: 120 },
-				recipes: { kinds: [30023, 35000], '#t': RECIPE_T_TAGS, limit: 30 },
+				// The relay can't filter authors out, so its `limit` slices before
+				// the exclusion does: ask for more when authors are held out, or a
+				// prolific held-out author would leave the recipe sections short.
+				recipes: { kinds: [30023, 35000], '#t': RECIPE_T_TAGS, limit: excluded.size ? RECIPE_FETCH_LIMIT_WITH_EXCLUSIONS : RECIPE_FETCH_LIMIT },
 				// 30023 only can't reach past the window (recipes are public at any
 				// age), so `since` here is just the 90-day reads window, by created_at.
 				articles: { kinds: [30023], since: t - LIMITS.readsWindowDays * 86400, limit: 300 }
@@ -266,7 +284,8 @@ export async function buildLandingData(deps: BuildDeps = {}): Promise<LandingDat
 	// Choose the latest revision before validating references, so an emptied pack
 	// cannot revive an older version still returned by another relay.
 	const packEvents = newestByCoordinate(packSources.flatMap((source) => source.events.packs)
-		.filter((event) => event.kind === PACK_KIND && verify(event)));
+		.filter((event) => event.kind === PACK_KIND && verify(event)))
+		.filter(discoverable);
 	const packRevisions = packEvents.map((event) => ({
 		coordinate: `${PACK_KIND}:${event.pubkey}:${dTag(event)}`, version: event.created_at
 	}));
@@ -279,11 +298,12 @@ export async function buildLandingData(deps: BuildDeps = {}): Promise<LandingDat
 		.slice(0, LIMITS.packs);
 
 	const newRecipesAll = newestByCoordinate(feed.events.recipes)
+		.filter(discoverable)
 		.filter((e) => !lists || !evaluateReadsContent(e, lists).blocked)
 		.map(longformCard)
 		.filter((c): c is LongformCard => c?.type === 'recipe')
 		.sort((a, b) => b.publishedAt - a.publishedAt);
-	const articleEvents = newestByCoordinate(feed.events.articles);
+	const articleEvents = newestByCoordinate(feed.events.articles).filter(discoverable);
 	const fallbackArticles = articleEvents
 		.map((e) => [longformCard(e), e] as const)
 		.filter(([c, e]) => c?.type === 'article' && isEligibleFoodStory(c) && articleAllowed(c, e, lists))
@@ -291,6 +311,7 @@ export async function buildLandingData(deps: BuildDeps = {}): Promise<LandingDat
 		.sort((a, b) => b.publishedAt - a.publishedAt);
 
 	const recentCards = feed.events.fresh
+		.filter(discoverable)
 		.map((event) => freshNote(event, t, lists))
 		.filter((card): card is NoteCard => !!card);
 
@@ -303,10 +324,12 @@ export async function buildLandingData(deps: BuildDeps = {}): Promise<LandingDat
 	];
 	const slugs = [...new Set(requested)].filter((slug) => supported.has(slug) && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) && slug.length <= 64).slice(0, FRESH_TOPIC_CANDIDATES);
 	const topicOverrides = topicPostOverrides(orgLists.topics?.tags ?? []);
-	const heroRefs = orgLists.hero ? listCoordinates(orgLists.hero).slice(0, 20) : [];
-	const readRefs = orgLists.reads ? listCoordinates(orgLists.reads).slice(0, 6) : [];
+	// Curated slots too: an editor's ref to a held-out author is skipped, and
+	// the next approved recipe takes the slot.
+	const heroRefs = orgLists.hero ? listCoordinates(orgLists.hero).filter(discoverable).slice(0, 20) : [];
+	const readRefs = orgLists.reads ? listCoordinates(orgLists.reads).filter(discoverable).slice(0, 6) : [];
 	const allRefs = [...heroRefs, ...readRefs];
-	const cookPubkeys = orgLists.cooks ? listPubkeys(orgLists.cooks) : [];
+	const cookPubkeys = orgLists.cooks ? listPubkeys(orgLists.cooks).filter((pk) => !excluded.has(pk)) : [];
 
 	const round2Feed: Record<string, Filter> = {};
 	slugs.forEach((slug, i) => {
@@ -341,6 +364,7 @@ export async function buildLandingData(deps: BuildDeps = {}): Promise<LandingDat
 		const overrideId = topicOverrides.get(slug);
 		const override = (feed2.events.topicOverrides ?? []).find((event) => event.id === overrideId);
 		const candidates = [...(override ? [override] : []), ...(feed2.events[`t${i}`] ?? [])]
+			.filter(discoverable)
 			.map((event) => freshNote(event, t, lists, event.id === overrideId))
 			.filter((card): card is NoteCard => !!card);
 		topicCandidates.set(slug, candidates);
@@ -426,7 +450,7 @@ export async function buildLandingData(deps: BuildDeps = {}): Promise<LandingDat
 
 	const topics: TopicTile[] = [];
 	slugs.forEach((slug, i) => {
-		const evs = feed2.events[`t${i}`] ?? [];
+		const evs = (feed2.events[`t${i}`] ?? []).filter(discoverable);
 		const image = evs.map((e) => eventImage(e)).find(Boolean);
 		if (!image) return;
 		const n = nip11?.bySlug.get(slug)?.count14d ?? null;
@@ -639,8 +663,49 @@ export function pinCoverPool(data: LandingData, nowSeconds: number): LandingData
 	};
 }
 
+/**
+ * Drop every card by an author held out of discovery. Run on each read of
+ * the cached aggregate (via `moderateLandingData`), so data cached or kept
+ * as "last good" before an entry was added can't keep surfacing the author,
+ * and removing the entry restores them on the next build.
+ */
+export function withoutExcludedAuthors(data: LandingData, excluded: ReadonlySet<string> = DISCOVERY_EXCLUDED_PUBKEYS): LandingData {
+	if (excluded.size === 0) return data;
+	const ok = (c: { author: { pubkey: string } }) => !excluded.has(c.author.pubkey);
+	const cards = <C extends { author: { pubkey: string } }>(list: C[] | undefined) => list?.filter(ok);
+	// The editor's lists as last seen: refs to a held-out author go too, so the
+	// served page data doesn't carry them and the pools stay in step with it.
+	const refs = <L extends { coordinates: string[] }>(list: L): L => ({
+		...list,
+		coordinates: list.coordinates.filter((c) => !excluded.has(parseCoordinate(c)?.pubkey.toLowerCase() ?? ''))
+	});
+	return {
+		...data,
+		...(data.coverList ? { coverList: refs(data.coverList) } : {}),
+		...(data.readList ? { readList: refs(data.readList) } : {}),
+		cover: data.cover && ok(data.cover) ? data.cover : null,
+		picks: data.picks.filter(ok),
+		newRecipes: data.newRecipes.filter(ok),
+		reads: data.reads.filter(ok),
+		fresh: data.fresh.filter(ok),
+		cooks: data.cooks.filter((cook) => !excluded.has(cook.pubkey)),
+		...(data.readPool ? { readPool: cards(data.readPool) } : {}),
+		...(data.coverPool ? { coverPool: cards(data.coverPool) } : {}),
+		...(data.recipePool ? { recipePool: cards(data.recipePool) } : {}),
+		...(data.freshPool ? { freshPool: cards(data.freshPool) } : {}),
+		...(data.packs ? { packs: cards(data.packs) } : {}),
+		...(data.freshTopics ? {
+			freshTopics: data.freshTopics.flatMap((tile) => {
+				const eligible = [tile.post, ...(tile.alternatives ?? [])].filter(ok);
+				return eligible.length ? [{ ...tile, image: eligible[0].image, post: eligible[0], alternatives: eligible.slice(1) }] : [];
+			})
+		} : {})
+	};
+}
+
 /** Recheck cached candidates so last-good data cannot revive a newly blocked recipe. */
-export function moderateLandingData(data: LandingData, lists: ReadsModerationLists | null, nowSeconds = Math.floor(Date.now() / 1000)): LandingData {
+export function moderateLandingData(input: LandingData, lists: ReadsModerationLists | null, nowSeconds = Math.floor(Date.now() / 1000), excluded: ReadonlySet<string> = DISCOVERY_EXCLUDED_PUBKEYS): LandingData {
+	const data = withoutExcludedAuthors(input, excluded);
 	const packs = (data.packs ?? []).map((card) => moderatePackCard(card, lists)).filter((card): card is PackCard => !!card);
 	const freshPool = (data.freshPool?.length ? data.freshPool : data.fresh).filter((card) => freshCardAllowed(card, nowSeconds, lists));
 	const fresh = data.fresh.filter((card) => freshCardAllowed(card, nowSeconds, lists, JUST_SERVED_MAX_AGE_SECONDS));
@@ -748,7 +813,7 @@ function refresh(last: Entry | null, deps: GetDeps): Promise<Entry | null> {
 		}
 		const merged = mergeWithLastGood(next, last?.data ?? null);
 		const stale = merged.stale;
-		const data = moderateLandingData(merged.data, deps.moderation ?? null, Math.floor(clock() / 1000));
+		const data = moderateLandingData(merged.data, deps.moderation ?? null, Math.floor(clock() / 1000), deps.excluded);
 		if (stale.length) console.warn('[landing] serving last good for:', stale.join(', '));
 		// A complete empty response must also clear a cache containing only one
 		// section; otherwise returning `last` would revive the removed content.
@@ -790,14 +855,14 @@ export async function getLandingData(deps: GetDeps = {}): Promise<LandingData> {
 	if (entry) entry = { ...entry, data: pinCoverPool(entry.data, Math.floor(clock() / 1000)) };
 	if (entry && fresh(entry)) {
 		memo = entry;
-		return moderateLandingData(entry.data, deps.moderation ?? null, Math.floor(clock() / 1000));
+		return moderateLandingData(entry.data, deps.moderation ?? null, Math.floor(clock() / 1000), deps.excluded);
 	}
 	if (entry) {
 		memo = entry;
 		const p = refresh(entry, deps);
 		if (deps.waitUntil) deps.waitUntil(p);
-		return moderateLandingData(entry.data, deps.moderation ?? null, Math.floor(clock() / 1000));
+		return moderateLandingData(entry.data, deps.moderation ?? null, Math.floor(clock() / 1000), deps.excluded);
 	}
 	const built = await refresh(null, deps);
-	return moderateLandingData(built?.data ?? emptyLandingData(), deps.moderation ?? null, Math.floor(clock() / 1000));
+	return moderateLandingData(built?.data ?? emptyLandingData(), deps.moderation ?? null, Math.floor(clock() / 1000), deps.excluded);
 }
