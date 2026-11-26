@@ -1,12 +1,14 @@
 <script lang="ts">
   /**
    * The identity end of the account controls: the avatar button that opens
-   * the user side panel, the continue-as chip for a locked vault, or the
-   * Sign in / Join free pair when signed out. The utility icons (Kitchen
-   * help, cooking tools, notifications) live in HeaderActions.
+   * the user side panel with the member tier badge beside it, the
+   * continue-as chip for a locked vault, or the Sign in / Join free pair
+   * when signed out. The utility icons (Kitchen help, cooking tools,
+   * notifications) live in HeaderActions.
    */
   import CustomAvatar from './CustomAvatar.svelte';
   import ContinueAsChip from './ContinueAsChip.svelte';
+  import TierBadge from './TierBadge.svelte';
   import { userPublickey, userProfilePictureOverride } from '$lib/nostr';
   import { openUserSidePanel } from '$lib/stores/userSidePanel';
   import { loginOverlayOpen, openSignup } from '$lib/stores/loginOverlay';
@@ -20,19 +22,22 @@
        localStorage) with no signer behind it. -->
   <ContinueAsChip pubkey={$lockedVaultPubkey} />
 {:else if $userPublickey !== ''}
-  <button
-    class="zh-avatar-btn"
-    on:click={() => openUserSidePanel('right')}
-    aria-label="Open user menu"
-  >
-    <span class="zh-avatar-ring">
-      <CustomAvatar
-        pubkey={$userPublickey}
-        size={32}
-        imageUrl={$userProfilePictureOverride}
-      />
-    </span>
-  </button>
+  <div class="inline-flex items-center gap-1.5 sm:gap-2.5">
+    <button
+      class="zh-avatar-btn"
+      on:click={() => openUserSidePanel('right')}
+      aria-label="Open user menu"
+    >
+      <span class="zh-avatar-ring">
+        <CustomAvatar
+          pubkey={$userPublickey}
+          size={32}
+          imageUrl={$userProfilePictureOverride}
+        />
+      </span>
+    </button>
+    <TierBadge />
+  </div>
 {:else}
   <div class="inline-flex items-center gap-1 sm:gap-2">
     <button
