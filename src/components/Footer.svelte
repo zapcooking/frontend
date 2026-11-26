@@ -105,14 +105,15 @@
 <style>
   /* Compact two-row footer: a de-emphasized links row and a meta row.
      Both wrap and center, so the footer stays short at every width. The
-     element itself is capped to the content column so the footer — its
-     top rule included — never runs wider than the page's content
-     sections. */
+     element spans the page's content bounds so the footer — its top rule
+     included — is exactly as wide as the page's widest section, no wider
+     and no narrower. The layout declares the bound per route
+     (--footer-max); the standard 42rem column is the default. */
   .footer {
     padding-top: 1rem;
     padding-bottom: 1rem;
     border-top: 1px solid var(--color-input-border);
-    max-width: 42rem;
+    max-width: var(--footer-max, 42rem);
   }
 
   /* Stacked footer: links row, meta row, then a bottom row with the muted

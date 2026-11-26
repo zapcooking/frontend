@@ -284,6 +284,17 @@
   // Cheffy’s Table owns its compact HUD; shared authentication stays mounted.
   $: kitchenMode = $page.url.pathname.replace(/\/$/, '') === '/cheffys-table';
 
+  // The footer (its top rule included) must match the page's content bounds —
+  // never wider than the widest section, never stopping short of it. Most
+  // pages live on the standard 42rem column; pages that run wider declare it
+  // here and the footer follows (recipes' card grid is deliberately
+  // full-width; explore's magazine caps at 1280px).
+  const FOOTER_BOUNDS: Record<string, string> = {
+    '/recipes': '100%',
+    '/explore': 'min(1280px, 100%)'
+  };
+  $: footerMaxWidth = FOOTER_BOUNDS[$page.url.pathname] ?? '42rem';
+
   // Skip layout OG tags on pages that set their own (recipe pages, note pages,
   // pack pages). When a page provides custom OG tags AND the layout also
   // emits its generic ones, scrapers see two `og:title` etc. and most pick
@@ -682,6 +693,7 @@
           $page.url.pathname.startsWith('/groups')
             ? ''
             : 'pb-16 lg:pb-8'}"
+          style="--footer-max: {footerMaxWidth};"
         >
           <!-- Grow the page content so the footer is pushed to the bottom on
                short pages instead of floating mid-viewport. -->
