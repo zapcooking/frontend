@@ -91,9 +91,7 @@
 
 {#if filteredEvents.length > 0}
   <div
-    class="grid gap-x-4 gap-y-6 justify-items-center items-start {isProfileView
-      ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5'
-      : 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6'}"
+    class="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-x-4 gap-y-6 justify-items-center items-start"
   >
     {#each filteredEvents as event (event.id)}
       {#if !(hideHide == true && event.tags.find((t) => t[0] == 't' && t[1] == 'nostrcooking-hide'))}
@@ -104,9 +102,7 @@
 {:else if !loaded}
   <!-- Loading skeletons -->
   <div
-    class="grid gap-x-4 gap-y-6 justify-items-center items-start {isProfileView
-      ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5'
-      : 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6'}"
+    class="grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-x-4 gap-y-6 justify-items-center items-start"
   >
     {#each new Array(isProfileView ? 10 : 24) as i}
       <div class="flex flex-col gap-4 w-full max-w-[160px] justify-self-center">
