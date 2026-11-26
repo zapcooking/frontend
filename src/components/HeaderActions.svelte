@@ -1,11 +1,12 @@
 <script lang="ts">
   /**
-   * The header's account cluster: Kitchen help (Intelligence), cooking
-   * tools, notifications, the member tier badge and the avatar/sign-in
-   * controls. Rendered in the fixed header strip below xl, and nested in
-   * the sidebar under the logo at xl+, where the strip is gone.
+   * The header's utility cluster: Kitchen help (Intelligence), cooking
+   * tools and notifications. The member tier badge lives in TierBadge
+   * beside the identity controls, and the avatar/sign-in controls live
+   * in IdentityControl. Rendered in the fixed header strip below xl,
+   * and nested in the sidebar under the logo at xl+, where the strip
+   * is gone.
    */
-  import { onDestroy } from 'svelte';
   import { page } from '$app/stores';
   import { userPublickey } from '$lib/nostr';
   import { lockedVaultPubkey } from '$lib/auth/lockedVault';
@@ -18,12 +19,6 @@
   import { scrollActiveSurfaceToTop } from '$lib/activeScrollSurface';
   import { cookingToolsStore, cookingToolsOpen } from '$lib/stores/cookingToolsWidget';
   import { timerStore } from '$lib/timerStore';
-  import {
-    membershipStatusMap,
-    queueMembershipLookup,
-    type MembershipStatus,
-    type MembershipTier
-  } from '$lib/stores/membershipStatus';
 
   /** Which way the nested panels open: 'right' in the header strip,
       'left' in the sidebar's user bar. */
@@ -60,60 +55,14 @@
     $page.url.pathname.startsWith('/zappy') ||
     $page.url.pathname.startsWith('/nourish');
 
-  // Membership
-  let membershipMap: Record<string, MembershipStatus> = {};
-  const unsubMembership = membershipStatusMap.subscribe((value) => {
-    membershipMap = value;
-  });
-
-  $: if ($userPublickey) {
-    queueMembershipLookup($userPublickey);
-  }
-
   // A locked vault session keeps $userPublickey (seeded from localStorage)
   // but isn't signed in yet: no member icons until it's unlocked. Also leaves
   // the phone header room for the "Continue as" chip.
   $: showMemberChrome = !!$userPublickey && !$lockedVaultPubkey;
 
-  $: userMembershipStatus = $userPublickey
-    ? membershipMap[$userPublickey.trim().toLowerCase()]
-    : undefined;
-  $: isActiveMember = Boolean(userMembershipStatus?.active);
-  $: membershipTier = userMembershipStatus?.tier;
-
-  function getTierLabel(tier: MembershipTier | undefined): string {
-    switch (tier) {
-      case 'cook_plus':
-        return 'COOK+';
-      case 'pro_kitchen':
-        return 'PRO';
-      case 'founders':
-        return 'FOUNDER';
-      default:
-        return '';
-    }
-  }
-
-  function getTierClasses(tier: MembershipTier | undefined): string {
-    switch (tier) {
-      case 'founders':
-        return 'bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-700';
-      case 'pro_kitchen':
-        return 'bg-violet-100 text-violet-700 border-violet-300 dark:bg-violet-900/30 dark:text-violet-300 dark:border-violet-700';
-      case 'cook_plus':
-        return '';
-      default:
-        return '';
-    }
-  }
-
   function toggleCookingTools() {
     cookingToolsStore.toggle();
   }
-
-  onDestroy(() => {
-    unsubMembership();
-  });
 </script>
 
 <div class="flex items-center gap-1.5 sm:gap-2.5 self-center flex-none print:hidden">
@@ -184,18 +133,6 @@
         on:close={closeBell}
       />
     </div>
-  {/if}
-
-  <!-- Tier badge for active members -->
-  {#if showMemberChrome && isActiveMember && getTierLabel(membershipTier)}
-    <a
-      href="/membership"
-      class="hidden sm:inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide border transition-colors hover:opacity-80 {getTierClasses(
-        membershipTier
-      )}"
-    >
-      {getTierLabel(membershipTier)}
-    </a>
   {/if}
 
 </div>

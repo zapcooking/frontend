@@ -10,6 +10,7 @@
   import TagsSearchAutocomplete from './TagsSearchAutocomplete.svelte';
   import HeaderActions from './HeaderActions.svelte';
   import IdentityControl from './IdentityControl.svelte';
+  import TierBadge from './TierBadge.svelte';
   import ContinueAsChip from './ContinueAsChip.svelte';
   import DeviceMobileIcon from 'phosphor-svelte/lib/DeviceMobile';
   import { openSearch, openTag } from '$lib/searchNav';
@@ -244,14 +245,17 @@
       />
       <div class="flex items-center justify-between gap-1 h-12 px-1.5 rounded-xl transition-colors hover:bg-accent-gray cursor-default">
         {#if $userPublickey !== '' && !$lockedVaultPubkey}
-          <button
-            type="button"
-            class="flex items-center h-full px-0.5 rounded-full cursor-pointer hover:bg-accent-gray transition-colors"
-            on:click={() => openUserSidePanel('left')}
-            aria-label="Open user menu"
-          >
-            <CustomAvatar pubkey={$userPublickey} size={34} />
-          </button>
+          <div class="flex items-center gap-1.5 h-full">
+            <button
+              type="button"
+              class="flex items-center h-full px-0.5 rounded-full cursor-pointer hover:bg-accent-gray transition-colors"
+              on:click={() => openUserSidePanel('left')}
+              aria-label="Open user menu"
+            >
+              <CustomAvatar pubkey={$userPublickey} size={34} />
+            </button>
+            <TierBadge />
+          </div>
         {:else if $lockedVaultPubkey}
           <ContinueAsChip pubkey={$lockedVaultPubkey} />
         {:else}
