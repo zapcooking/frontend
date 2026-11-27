@@ -3,6 +3,7 @@
  * which platform this is, what a camera error means, the one-time 18+
  * confirmation, and the session kept across a reload.
  */
+import { LIVE_DEFAULT_TITLE } from '../streamName';
 import type { HostSession } from './hostApi';
 
 export type HostPlatform = 'ios' | 'android' | 'other';
@@ -101,6 +102,25 @@ export function setMicrophoneEnabled(
   return changed;
 }
 
+/**
+ * Which audio tracks are on, from the host's Mute button (`micMuted`) and
+ * the page's automatic rule (`soundOn`: off while a phone is locked, the
+ * page is hidden in camera mode, or the page is closing).
+ *
+ * `mic` is the microphone track; `sent` is the track on the connection.
+ * Without tab audio they are the same track. While sharing with tab audio
+ * the sent track is a mix: Mute silences only the microphone inside it,
+ * so the tab's sound keeps playing, and the automatic rule silences all.
+ */
+export function audioSwitches(o: { mixing: boolean; micMuted: boolean; soundOn: boolean }): {
+  mic: boolean;
+  sent: boolean;
+} {
+  if (o.mixing) return { mic: !o.micMuted, sent: o.soundOn };
+  const on = o.soundOn && !o.micMuted;
+  return { mic: on, sent: on };
+}
+
 export interface MediaHelp {
   title: string;
   /** What to change, one step per entry. Empty when there is nothing to change. */
@@ -168,13 +188,11 @@ export function mediaHelp(problem: MediaProblem, platform: HostPlatform): MediaH
   return { title: 'The camera could not be started', steps: ['Reload this page and try again.'] };
 }
 
-// ── One-time 18+ confirmation ───────────────────────────────────────
+// ── Storage helpers ─────────────────────────────────────────────────
 //
-// Hosts must be 18 or older (Terms). The host confirms once, the first
-// time they go live on a device; the confirmation is remembered on that
-// device, per account. It is a statement by the host, not age verification.
-
-const AGE_KEY_PREFIX = 'zc_live_host_18_confirmed:';
+// (The 18+ confirmation used to be remembered here, per device. It is now
+// the hosting agreement, recorded on the server per account and terms
+// version: $lib/live/terms.server and POST /api/live/terms.)
 
 type KeyValue = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 
@@ -184,24 +202,6 @@ function safely<T>(fn: () => T, fallback: T): T {
   } catch {
     return fallback;
   }
-}
-
-export function hasConfirmedAge(pubkey: string, storage: KeyValue | undefined): boolean {
-  if (!pubkey || !storage) return false;
-  return safely(() => storage.getItem(AGE_KEY_PREFIX + pubkey) !== null, false);
-}
-
-/** Remember the confirmation. Returns false when it could not be stored. */
-export function rememberAgeConfirmed(
-  pubkey: string,
-  storage: KeyValue | undefined,
-  now = Date.now()
-): boolean {
-  if (!pubkey || !storage) return false;
-  return safely(() => {
-    storage.setItem(AGE_KEY_PREFIX + pubkey, new Date(now).toISOString());
-    return true;
-  }, false);
 }
 
 // ── The session, kept across a reload ───────────────────────────────
@@ -256,6 +256,39 @@ export function clearStoredSession(storage: KeyValue | undefined): void {
   safely(() => storage.removeItem(SESSION_KEY), undefined);
 }
 
+// ── The pinned watch-link chat message, kept across a reload ────────
+//
+// The host posts one "Watch live on Zap Cooking: <link>" chat message per
+// announced stream and the announcement pins it by id. The id is kept
+// with the session (same storage, same lifetime) so a reload re-announces
+// with the same pin and never posts a second message.
+
+const PINNED_KEY = 'zc_live_host_pinned';
+
+export function loadPinnedMessage(storage: KeyValue | undefined, sessionId: string): string | null {
+  if (!storage) return null;
+  return safely(() => {
+    const raw = storage.getItem(PINNED_KEY);
+    if (!raw) return null;
+    const v = JSON.parse(raw) as { session?: unknown; id?: unknown };
+    return v.session === sessionId && typeof v.id === 'string' && /^[0-9a-f]{64}$/.test(v.id)
+      ? v.id
+      : null;
+  }, null);
+}
+
+export function storePinnedMessage(
+  storage: KeyValue | undefined,
+  sessionId: string,
+  eventId: string
+): void {
+  if (!storage) return;
+  safely(
+    () => storage.setItem(PINNED_KEY, JSON.stringify({ session: sessionId, id: eventId })),
+    undefined
+  );
+}
+
 /** The address `<kind>:<pubkey>:<d>` and title handed over from a recipe page, if well formed. */
 export function readRecipeHandoff(
   params: URLSearchParams
@@ -263,5 +296,22 @@ export function readRecipeHandoff(
   const a = params.get('a') ?? '';
   if (!/^(30023|35000):[0-9a-f]{64}:.{1,200}$/.test(a)) return null;
   const title = (params.get('title') ?? '').trim().slice(0, 120);
-  return { recipeA: a, title: title || 'Live cook-along' };
+  return { recipeA: a, title: title || LIVE_DEFAULT_TITLE };
+}
+
+/**
+ * "You were live for …" on the host's ended screen. Whole minutes, with
+ * hours once past an hour. Null when there is nothing sensible to say
+ * (never went live, or a clock problem).
+ */
+export function liveDurationLine(seconds: number | null): string | null {
+  if (seconds === null || !Number.isFinite(seconds) || seconds < 0) return null;
+  if (seconds < 60) return 'You were live for less than a minute';
+  const total = Math.floor(seconds / 60);
+  const hours = Math.floor(total / 60);
+  const minutes = total % 60;
+  const m = (n: number) => `${n} minute${n === 1 ? '' : 's'}`;
+  const h = (n: number) => `${n} hour${n === 1 ? '' : 's'}`;
+  if (hours === 0) return `You were live for ${m(minutes)}`;
+  return `You were live for ${h(hours)}${minutes ? ` ${m(minutes)}` : ''}`;
 }

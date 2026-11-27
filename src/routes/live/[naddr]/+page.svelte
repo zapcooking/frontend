@@ -1,24 +1,23 @@
 <script lang="ts">
   /**
-   * Stream page: embedded player, host, zaps, About, and the permanent
-   * NIP-22 comment thread on the announcement. Announcement updates are
-   * re-fetched on an interval while the page is mounted, so status changes
-   * (live → ended) and viewer counts stay current.
+   * Stream page: embedded player, host, zaps, and About. Announcement
+   * updates are re-fetched on an interval while the page is mounted, so
+   * status changes (live → ended) and viewer counts stay current.
    */
   import { onDestroy } from 'svelte';
+  import { goto } from '$app/navigation';
   import { page } from '$app/stores';
+  import { getSiteOrigin } from '$lib/utils/share';
   import { browser } from '$app/environment';
   import type { SimplePool } from 'nostr-tools/pool';
-  import { NDKEvent } from '@nostr-dev-kit/ndk';
-  import CommentThread from '../../../components/comments/CommentThread.svelte';
-  import StreamPlayer from '../../../components/streams/StreamPlayer.svelte';
-  import StreamChat from '../../../components/streams/StreamChat.svelte';
+  import StreamView from '../../../components/streams/StreamView.svelte';
   import StreamPageSkeleton from '../../../components/streams/StreamPageSkeleton.svelte';
-  import { ndk, userPublickey } from '$lib/nostr';
+  import { userPublickey } from '$lib/nostr';
   import { get } from 'svelte/store';
   import { zapReceiptRelayUrls } from '$lib/nip65Routing';
   import { createStreamPool } from '$lib/streams/relayPage';
   import { fetchStreamByNaddr, type ResolvedStream } from '$lib/streams/fetch';
+  import { goLiveSessionFor } from '$lib/streams/goLive';
   import { parseStreamAddress } from '$lib/streams/parse';
   import { DISCOVERY_RELAYS } from '$lib/streams/relays';
   import {
@@ -26,7 +25,7 @@
     scanStreamZapHistory,
     type StreamZapTally
   } from '$lib/streams/streamZaps';
-import { keepHigherTally } from '$lib/streams/tallyDisplay';
+  import { keepHigherTally } from '$lib/streams/tallyDisplay';
 
   const REFRESH_MS = 60000;
   const TALLY_RESCAN_MS = 60000;
@@ -34,12 +33,10 @@ import { keepHigherTally } from '$lib/streams/tallyDisplay';
   let stream: ResolvedStream | null = null;
   let loading = true;
   let notFound = false;
-  let commentsOpen = false;
-  let chatSectionEl: HTMLElement | null = null;
   let pool: SimplePool | null = null;
   let refreshTimer: ReturnType<typeof setInterval> | null = null;
-  // Zap tally, owned here so the player (bolt + total) and the chat (top
-  // zappers strip) share one scan.
+  // Zap tally, owned here so the zap strip (goal bar + total) and the chat
+  // (top zappers strip) share one scan.
   let tally: StreamZapTally | null = null;
   let tallyLoading = false;
   /** The stream the shown tally belongs to. */
@@ -98,6 +95,11 @@ import { keepHigherTally } from '$lib/streams/tallyDisplay';
       loading = false;
       return;
     }
+    // One of our own Go live sessions (the address is its host + its
+    // session id, confirmed by the server): it plays on the session page,
+    // which owns the WebRTC viewer and the moderated chat. Decided from the
+    // address alone, before (and whether or not) the announcement is found.
+    if (first && (await openGoLiveSession(parsed.naddr))) return;
     if (!pool) pool = createStreamPool();
     try {
       const resolved = await fetchStreamByNaddr(pool, DISCOVERY_RELAYS, parsed.naddr);
@@ -127,6 +129,57 @@ import { keepHigherTally } from '$lib/streams/tallyDisplay';
       }
     }, TALLY_RESCAN_MS);
   }
+
+  let redirectedFor: string | null = null;
+  /** Go to the session page when the address is a Go live session of ours. */
+  async function openGoLiveSession(address: {
+    pubkey: string;
+    identifier: string;
+  }): Promise<boolean> {
+    const asked = $page.params.naddr;
+    const id = await goLiveSessionFor(address);
+    // Not ours, or the visitor moved on while the server was asked.
+    if (!id || asked !== $page.params.naddr) return false;
+    if (redirectedFor !== id) {
+      redirectedFor = id;
+      // replaceState: pressing Back must not land back here and redirect
+      // again — that would trap the back button.
+      goto(`/live/s/${id}`, { replaceState: true });
+    }
+    return true;
+  }
+
+  /**
+   * Fallback for announcements the check above could not place (the server
+   * was unreachable, or the session's record is gone): one whose
+   * `streaming` tag is our own join endpoint still opens the session page,
+   * which then says the stream has ended. Only our own origins redirect — a
+   * third-party WHEP URL stays as that stream's playback source. Nothing
+   * depends on this: an announcement without the tag is matched above.
+   */
+  $: {
+    const url = stream?.item?.url;
+    if (url) {
+      try {
+        const u = new URL(url);
+        const own = new URL(getSiteOrigin());
+        const recognized =
+          u.hostname === own.hostname ||
+          u.hostname.endsWith('.zap.cooking') ||
+          u.hostname === 'localhost' ||
+          u.hostname === '127.0.0.1';
+        const id = /^\/api\/live\/([0-9a-f-]+)\/join$/.exec(u.pathname)?.[1];
+        if (recognized && id && redirectedFor !== id) {
+          redirectedFor = id;
+          // replaceState: pressing Back must not land back here and
+          // redirect again — that would trap the back button.
+          goto(`/live/s/${id}`, { replaceState: true });
+        }
+      } catch {
+        // Unparseable URL: it renders as-is, no redirect.
+      }
+    }
+  }
   // SvelteKit reuses this component when only the naddr changes — reload
   // reactively so following another stream link swaps content immediately
   // (with a fresh tally, not first=false's deferred one).
@@ -139,9 +192,6 @@ import { keepHigherTally } from '$lib/streams/tallyDisplay';
     pool = null;
   });
 
-  // The announcement as an NDKEvent, so zaps and comments ride the app's
-  // existing NDK flows.
-  $: ndkEvent = stream && $ndk ? new NDKEvent($ndk, stream.event as never) : null;
   $: item = stream?.item ?? null;
 </script>
 
@@ -152,71 +202,24 @@ import { keepHigherTally } from '$lib/streams/tallyDisplay';
   {/if}
 </svelte:head>
 
-<div class="mx-auto w-full max-w-3xl px-4 py-6">
+<div class="mx-auto w-full max-w-3xl py-4 sm:px-4 sm:py-6 min-[1200px]:max-w-[90rem]">
   {#if loading}
     <!-- Skeleton mirrors the player + host row while the announcement resolves. -->
     <StreamPageSkeleton />
-  {:else if notFound || !item || !ndkEvent || !pool}
+  {:else if notFound || !item || !pool}
     <div class="flex h-64 flex-col items-center justify-center gap-2 text-center">
       <p class="text-sm text-zinc-500">
         This stream could not be found. It may have ended and been removed, or the link is wrong.
       </p>
     </div>
   {:else}
-    <!-- Single column: the video takes the full content width, chat sits
-         under it, comments in the drawer under that. Once the chat reaches
-         the upper viewport while scrolling, the video docks to a corner
-         (see StreamPlayer's shrink logic) and returns on the way back up. -->
-    <div class="flex flex-col gap-6">
-      <div class="min-w-0">
-        <StreamPlayer
-          {item}
-          {pool}
-          chatMarker={chatSectionEl}
-          {tally}
-          {tallyLoading}
-          on:zapComplete={() => tallyLoad(item.key, item.host, item.relays || [])}
-        />
-      </div>
-
-      <section bind:this={chatSectionEl} class="h-[60vh] min-h-80" aria-label="Live chat">
-        <StreamChat {item} {pool} {topZappers} />
-      </section>
-
-      <!-- Permanent NIP-22 comments, tucked under the chat: they are the
-           slow-moving discussion on the announcement itself, not the
-           live conversation, so they stay out of the way until asked for. -->
-      <div class="rounded-xl border border-zinc-200 dark:border-zinc-800">
-        <button
-          type="button"
-          class="flex w-full items-center justify-between px-3 py-2 text-sm font-semibold text-zinc-600 hover:bg-zinc-50 dark:text-zinc-300 dark:hover:bg-zinc-800/50"
-          aria-expanded={commentsOpen}
-          aria-controls="stream-comments-drawer"
-          on:click={() => (commentsOpen = !commentsOpen)}
-        >
-          Comments
-          <svg
-            class="h-4 w-4 transition-transform {commentsOpen ? 'rotate-180' : ''}"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <path d="m6 9 6 6 6-6" />
-          </svg>
-        </button>
-        {#if commentsOpen}
-          <div
-            id="stream-comments-drawer"
-            class="max-h-[60vh] overflow-y-auto border-t border-zinc-200 px-3 py-3 dark:border-zinc-800"
-          >
-            <CommentThread variant="recipe" event={ndkEvent} />
-          </div>
-        {/if}
-      </div>
-    </div>
+    <StreamView
+      {item}
+      {pool}
+      {tally}
+      {tallyLoading}
+      {topZappers}
+      on:zapComplete={() => item && tallyLoad(item.key, item.host, item.relays || [])}
+    />
   {/if}
 </div>

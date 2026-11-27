@@ -365,10 +365,15 @@
     // (the prevFocus at open time) is detached by now and .focus() would
     // no-op, dropping focus to <body>. Fall back to the header's stable
     // Intelligence trigger in that case so keyboard focus is never lost.
+    // The trigger must be VISIBLE to take focus: below xl the sidebar's
+    // copy sits earlier in the DOM but is display:none, so the first match
+    // would no-op and drop focus to <body>.
     const target =
       prevFocus && prevFocus.isConnected
         ? prevFocus
-        : document.querySelector<HTMLElement>('.zh-intelligence-btn');
+        : [...document.querySelectorAll<HTMLElement>('.zh-intelligence-btn')].find(
+            (el) => el.getClientRects().length > 0
+          );
     target?.focus?.();
   }
 

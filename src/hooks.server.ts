@@ -11,11 +11,14 @@ import {
   matchProfileOgRoute,
   resolveProfileOgMeta,
   buildOgTagBlock,
+  shouldHideOg,
   createOgPageTransformer
 } from '$lib/recipeOgHtml.server';
 import type { RecipeOgMeta } from '$lib/recipeOgMeta';
 import { loadReadsModerationLists } from '$lib/reads/moderation.server';
 import { isLandingPath } from '$lib/landing/route';
+import { matchLiveOgRoute, resolveLiveOgMeta } from '$lib/live/liveOg.server';
+import type { LiveDb } from '$lib/live/sessions.server';
 
 /**
  * Log the real server-side error (with stack) instead of letting SvelteKit
@@ -146,6 +149,22 @@ async function resolveOgMeta(
       return {
         meta: await resolveReadsOgMeta(reads.slug, lists),
         canonicalUrl: `${origin}/reads/${reads.slug}`
+      };
+    }
+
+    const live = matchLiveOgRoute(path);
+    if (live) {
+      const lists = await loadReadsModerationLists(event.platform?.env?.GATED_CONTENT ?? null);
+      return {
+        meta: await resolveLiveOgMeta(
+          event.platform?.env?.SCHEDULER_DB as LiveDb | undefined,
+          live.id,
+          {
+            hideRecipe: (naddr, ev) => shouldHideOg(naddr, ev, lists),
+            shareImage: `${origin}/live-share.png`
+          }
+        ),
+        canonicalUrl: `${origin}/live/s/${live.id}`
       };
     }
 

@@ -17,7 +17,7 @@
   import { NDKEvent } from '@nostr-dev-kit/ndk';
   import { ndk, userPublickey } from '$lib/nostr';
   import { requireAuth, signedIn } from '$lib/auth/requireAuth';
-  import { mutedPubkeys } from '$lib/muteListStore';
+  import { muteListStore, mutedPubkeys } from '$lib/muteListStore';
   import { nip19 } from 'nostr-tools';
   import { format as formatDate } from 'timeago.js';
   import Avatar from '../Avatar.svelte';
@@ -197,6 +197,21 @@
     if (await requireAuth({ kind: 'reply', reason: 'Sign in to reply' })) setReplyBox(true);
   }
 
+  // Replies from muted accounts collapse behind a one-line reveal outside
+  // the feed (the feed hides them outright). Reveal is per card, so each
+  // reply is viewable individually on demand.
+  let mutedRevealed = false;
+  // Muted replies render as a reveal placeholder — but only if the mute
+  // list is actually loaded. Comment surfaces render outside the feeds
+  // (a direct thread link), where nothing else kicks the load off, so
+  // the card ensures it itself: deduped, cached, one relay round-trip.
+  onMount(() => {
+    void muteListStore.load();
+  });
+
+  $: authorMuted = $mutedPubkeys.has(event.pubkey);
+  $: mutedHidden = authorMuted && (variant === 'feed' || !mutedRevealed);
+
   function truncateContent(content: string, maxLength: number = 100): string {
     const cleaned = content
       .replace(/https?:\/\/[^\s]+/g, '[link]')
@@ -208,7 +223,20 @@
   }
 </script>
 
-{#if variant !== 'feed' || !$mutedPubkeys.has(event.pubkey)}
+{#if authorMuted && variant !== 'feed' && !mutedRevealed}
+  <div
+    class="comment-card comment-card--{variant}"
+    class:nested={!parentLoading && parentComment !== null}
+  >
+    <button
+      type="button"
+      class="muted-reply-reveal"
+      on:click={() => (mutedRevealed = true)}
+    >
+      Reply from an account you muted · <span class="muted-reply-view">view</span>
+    </button>
+  </div>
+{:else if variant !== 'feed' || !$mutedPubkeys.has(event.pubkey)}
   <!-- tabindex is only ever -1 (a programmatic focus target for the Plated
        gallery's "See in comments"), never a Tab stop. -->
   <!-- svelte-ignore a11y-no-noninteractive-tabindex -->
@@ -260,6 +288,13 @@
           <span class="comment-time">
             {formatDate(new Date((event.created_at || 0) * 1000))}
           </span>
+          {#if authorMuted && mutedRevealed}
+            <button
+              type="button"
+              class="muted-reply-hide"
+              on:click|stopPropagation={() => (mutedRevealed = false)}
+            >Hide</button>
+          {/if}
           {#if showPlated}
             <span class="plated-badge">
               <CookingPotIcon size={14} weight="fill" aria-hidden="true" />
@@ -515,4 +550,41 @@
     outline-offset: 4px;
     border-radius: 0.75rem;
   }
-</style>
+
+  /* Muted-reply placeholder: a quiet one-liner where the reply would be.
+     Revealing it swaps this row for the full card — individually, so
+     reading one reply doesn't surface the rest of the muted account's. */
+  .muted-reply-hide {
+    font-size: 0.75rem;
+    color: var(--color-caption);
+    background: none;
+    border: 0;
+    cursor: pointer;
+    padding: 0.125rem 0.375rem;
+    border-radius: 6px;
+    transition: color 140ms ease;
+  }
+  .muted-reply-hide:hover {
+    color: var(--color-text-primary);
+  }
+  .muted-reply-reveal {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 0.25rem 0;
+    font-size: 0.8125rem;
+    color: var(--color-caption);
+    background: none;
+    border: 0;
+    cursor: pointer;
+    transition: color 140ms ease;
+  }
+  .muted-reply-reveal:hover {
+    color: var(--color-text-primary);
+  }
+  .muted-reply-reveal .muted-reply-view {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  </style>

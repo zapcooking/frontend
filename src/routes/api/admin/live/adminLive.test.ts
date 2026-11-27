@@ -1,35 +1,32 @@
 /**
  * Tests for the Go live admin kill switch and the global off flag.
  *
- * NIP-98 is real. ADMIN_PUBKEY is replaced by a test key, because nobody
- * can sign as the real admin in a test. Sessions go live through the real
+ * NIP-98 is real. The admin keys (primary and backup) are replaced by test
+ * keys, because nobody can sign as the real admins in a test. Sessions go live through the real
  * create and publish routes against a Cloudflare stub.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { finalizeEvent, generateSecretKey, getPublicKey, type EventTemplate } from 'nostr-tools';
 import { normalizeUrl, sha256Hex } from '$lib/nip98';
-import { createLiveDatabase } from '../../../../test/liveDatabase';
+import { approveHosts, createLiveDatabase } from '../../../../test/liveDatabase';
 import { createKvFake } from '../../../../test/liveStreamStub';
 
 const mocks = vi.hoisted(() => ({
   checkMembership: vi.fn(),
-  hosts: [] as string[],
-  admin: ''
+  admin: '',
+  backup: ''
 }));
 vi.mock('$lib/adminAuth', () => ({
   get ADMIN_PUBKEY() {
     return mocks.admin;
   },
-  isAdmin: (pubkey: string | null | undefined) => !!pubkey && pubkey === mocks.admin
+  get ADMIN_PUBKEYS() {
+    return [mocks.admin, mocks.backup];
+  },
+  isAdmin: (pubkey: string | null | undefined) =>
+    !!pubkey && (pubkey === mocks.admin || pubkey === mocks.backup)
 }));
 vi.mock('$lib/membershipApi.server', () => ({ checkMembership: mocks.checkMembership }));
-vi.mock('$lib/live/config', async () => {
-  const actual = (await vi.importActual('$lib/live/config')) as typeof import('$lib/live/config');
-  return {
-    ...actual,
-    isLiveHost: (pubkey: string | null | undefined) => actual.isLiveHost(pubkey, mocks.hosts)
-  };
-});
 
 import { POST as createRoute } from '../../live/+server';
 import { POST as publishRoute } from '../../live/[id]/publish/+server';
@@ -44,6 +41,8 @@ const SDP = 'v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\n';
 
 const adminSk = generateSecretKey();
 mocks.admin = getPublicKey(adminSk);
+const backupSk = generateSecretKey();
+mocks.backup = getPublicKey(backupSk);
 const hostSks = [generateSecretKey(), generateSecretKey(), generateSecretKey()];
 const HOSTS = hostSks.map((sk) => getPublicKey(sk));
 const strangerSk = generateSecretKey();
@@ -187,9 +186,12 @@ async function adminList(sk: Uint8Array | null = adminSk) {
 }
 
 const rowOf = (id: string) => db.raw.prepare('SELECT * FROM live_sessions WHERE id = ?').get(id);
+const rowOfApproved = (pk: string) =>
+  db.raw.prepare('SELECT * FROM live_approved_hosts WHERE pubkey = ?').get(pk);
 
 beforeEach(() => {
   db = createLiveDatabase();
+  approveHosts(db, ...HOSTS);
   kv = createKvFake();
   env = {
     SCHEDULER_DB: db,
@@ -199,7 +201,6 @@ beforeEach(() => {
     CF_STREAM_ACCOUNT_ID: ACCOUNT,
     CF_STREAM_API_TOKEN: 'stream-token'
   };
-  mocks.hosts = [...HOSTS];
   mocks.checkMembership.mockReset().mockResolvedValue({ state: 'active', found: true });
   installCloudflare();
   for (const level of ['log', 'warn', 'error'] as const)
@@ -232,6 +233,27 @@ describe('admin only', () => {
     expect(rowOf(s.id).status).toBe('live');
     expect(cf.inputs.size).toBe(1);
     expect(kv.data.size).toBe(0);
+  });
+
+  it('accepts the backup admin on GET and POST, like the primary', async () => {
+    const s = await createLive(0);
+    const list = await adminList(backupSk);
+    expect(list.res.status).toBe(200);
+    expect(list.data.sessions.map((x: any) => x.id)).toContain(s.id);
+    const { res, data } = await admin({ action: 'end', id: s.id }, { sk: backupSk });
+    expect(res.status).toBe(200);
+    expect(data.logged).toBeUndefined();
+    expect(rowOf(s.id).status).toBe('ended');
+  });
+
+  it("refuses the backup admin's signature for another body, like the primary's", async () => {
+    const s = await createLive(0);
+    const { res } = await admin(
+      { action: 'end', id: s.id },
+      { auth: await nip98(ADMIN_URL, 'POST', '{"action":"off","on":false}', backupSk) }
+    );
+    expect(res.status).toBe(403);
+    expect(rowOf(s.id).status).toBe('live');
   });
 
   it('refuses an oversized body before any signature work', async () => {
@@ -426,5 +448,400 @@ describe('global off flag', () => {
       kv.data.set('live:off', value);
       expect((await join(s.id)).status).toBe(201);
     }
+  });
+});
+
+describe('host block', () => {
+  it('blocks a host: ends its live session, deletes the input, and refuses new creates', async () => {
+    const s = await createLive(0);
+    const other = await createLive(1);
+    const { res, data } = await admin({ action: 'block', pubkey: HOSTS[0].toUpperCase() });
+    expect(res.status).toBe(200);
+    expect(data).toEqual({ pubkey: HOSTS[0], blocked: true, ended: 1, inputs_pending: 0 });
+    expect(rowOf(s.id).status).toBe('ended');
+    expect(rowOf(s.id).end_reason).toBe('admin');
+    expect(rowOf(s.id).cf_input_uid).toBeNull();
+    // Only the blocked host's session ended.
+    expect(rowOf(other.id).status).toBe('live');
+    expect(cf.inputs.size).toBe(1);
+
+    const url = `${ORIGIN}/api/live`;
+    const body = JSON.stringify({ title: 'Again' });
+    const again = await createRoute({
+      request: new Request(url, {
+        method: 'POST',
+        headers: { Authorization: await nip98(url, 'POST', body, hostSks[0]) },
+        body
+      }),
+      platform: { env }
+    } as any);
+    expect(again.status).toBe(403);
+    expect(await again.json()).toEqual({ error: 'blocked' });
+
+    const list = await adminList();
+    expect(list.data.blocked.map((b: { pubkey: string }) => b.pubkey)).toEqual([HOSTS[0]]);
+  });
+
+  it('blocks an account with no session, and is idempotent', async () => {
+    expect((await admin({ action: 'block', pubkey: HOSTS[2] })).data.ended).toBe(0);
+    expect((await admin({ action: 'block', pubkey: HOSTS[2] })).res.status).toBe(200);
+    expect((await adminList()).data.blocked).toHaveLength(1);
+  });
+
+  it('unblocks: the host can go live again, and nothing is restarted', async () => {
+    const s = await createLive(0);
+    await admin({ action: 'block', pubkey: HOSTS[0] });
+    const { res, data } = await admin({ action: 'unblock', pubkey: HOSTS[0] });
+    expect(res.status).toBe(200);
+    expect(data).toEqual({ pubkey: HOSTS[0], blocked: false });
+    expect(rowOf(s.id).status).toBe('ended');
+    expect((await adminList()).data.blocked).toEqual([]);
+    await createLive(0);
+  });
+
+  it('rejects a malformed pubkey, and a non-admin', async () => {
+    for (const pubkey of [undefined, '', 'npub1abc', 'zz'.repeat(32), 'ab'.repeat(31)]) {
+      expect((await admin({ action: 'block', pubkey })).res.status).toBe(400);
+    }
+    expect((await admin({ action: 'block', pubkey: HOSTS[1] }, { sk: hostSks[0] })).res.status).toBe(
+      403
+    );
+    expect((await adminList()).data.blocked).toEqual([]);
+  });
+});
+
+describe('staged rollout', () => {
+  const tryCreate = async (i: number) => {
+    const url = `${ORIGIN}/api/live`;
+    const body = JSON.stringify({ title: 'Try' });
+    return createRoute({
+      request: new Request(url, {
+        method: 'POST',
+        headers: { Authorization: await nip98(url, 'POST', body, hostSks[i]) },
+        body
+      }),
+      platform: { env }
+    } as any);
+  };
+
+  it('approves and removes hosts, and logs both with the admin as actor', async () => {
+    db.raw.prepare('DELETE FROM live_approved_hosts WHERE pubkey = ?').run(HOSTS[1]);
+    expect((await tryCreate(1)).status).toBe(403);
+
+    const added = await admin({ action: 'approve', pubkey: HOSTS[1] });
+    expect(added.data).toEqual({ pubkey: HOSTS[1], approved: true, changed: true });
+    expect((await adminList()).data.approved.map((a: any) => a.pubkey)).toContain(HOSTS[1]);
+    expect(rowOfApproved(HOSTS[1]).added_by).toBe(mocks.admin);
+    expect((await tryCreate(1)).status).toBe(201);
+
+    const removed = await admin({ action: 'unapprove', pubkey: HOSTS[1] });
+    expect(removed.data).toEqual({ pubkey: HOSTS[1], approved: false, changed: true });
+
+    const log = (await adminList()).data.actions;
+    expect(log.map((a: any) => [a.action, a.actor, a.target_pubkey])).toEqual([
+      ['unapprove', mocks.admin, HOSTS[1]],
+      ['approve', mocks.admin, HOSTS[1]]
+    ]);
+  });
+
+  it('removing a host does not end their running stream', async () => {
+    const s = await createLive(0);
+    await admin({ action: 'unapprove', pubkey: HOSTS[0] });
+    expect(rowOf(s.id).status).toBe('live');
+  });
+
+  it('switches the hosting mode without a deploy, and logs old and new', async () => {
+    db.raw.prepare('DELETE FROM live_approved_hosts WHERE pubkey = ?').run(HOSTS[2]);
+    expect((await adminList()).data.mode).toBe('approved');
+    const { data } = await admin({ action: 'mode', mode: 'members' });
+    expect(data).toEqual({ mode: 'members' });
+    expect(kv.data.get('live:hosting_mode')).toBe('members');
+    expect((await tryCreate(2)).status).toBe(201);
+    expect((await adminList()).data.actions[0]).toMatchObject({
+      action: 'mode',
+      actor: mocks.admin,
+      detail: 'approved -> members'
+    });
+    expect((await admin({ action: 'mode', mode: 'everyone' })).res.status).toBe(400);
+  });
+
+  it('says so when the mode cannot be written, and logs nothing', async () => {
+    kv.failWrites = true;
+    const { res } = await admin({ action: 'mode', mode: 'members' });
+    expect(res.status).toBe(503);
+    expect((await adminList()).data.actions).toEqual([]);
+  });
+});
+
+describe('action log', () => {
+  it('logs end, block, unblock and off with time and actor', async () => {
+    const s = await createLive(0);
+    await admin({ action: 'end', id: s.id });
+    await admin({ action: 'block', pubkey: HOSTS[1] });
+    await admin({ action: 'unblock', pubkey: HOSTS[1] });
+    await admin({ action: 'off', on: true });
+    const log = (await adminList()).data.actions;
+    expect(log.map((a: any) => a.action).sort()).toEqual(['block', 'end', 'off', 'unblock']);
+    for (const a of log) {
+      expect(a.actor).toBe(mocks.admin);
+      expect(a.occurred_at).toBeGreaterThan(1_700_000_000);
+    }
+    expect(log.find((a: any) => a.action === 'end')).toMatchObject({
+      session_id: s.id,
+      target_pubkey: HOSTS[0]
+    });
+  });
+
+  it('flags a reply when the log could not be written; the action still happens', async () => {
+    const s = await createLive(0);
+    db.raw.exec('DROP TABLE live_actions');
+    const { res, data } = await admin({ action: 'end', id: s.id });
+    expect(res.status).toBe(200);
+    expect(data.logged).toBe(false);
+    expect(rowOf(s.id).status).toBe('ended');
+  });
+
+  it("records the backup admin's own key as actor, not the primary's", async () => {
+    const s = await createLive(0);
+    db.raw.prepare('DELETE FROM live_approved_hosts WHERE pubkey = ?').run(HOSTS[2]);
+    await admin({ action: 'end', id: s.id }, { sk: backupSk });
+    await admin({ action: 'block', pubkey: HOSTS[1] }, { sk: backupSk });
+    await admin({ action: 'approve', pubkey: HOSTS[2] }, { sk: backupSk });
+    await admin({ action: 'unblock', pubkey: HOSTS[1] });
+    const log = (await adminList(backupSk)).data.actions;
+    expect(log.map((a: any) => [a.action, a.actor])).toEqual([
+      ['unblock', mocks.admin],
+      ['approve', mocks.backup],
+      ['block', mocks.backup],
+      ['end', mocks.backup]
+    ]);
+    expect(rowOfApproved(HOSTS[2]).added_by).toBe(mocks.backup);
+  });
+
+  it('logs nothing for a refused (non-admin) call', async () => {
+    await admin({ action: 'block', pubkey: HOSTS[1] }, { sk: hostSks[0] });
+    expect(db.raw.prepare('SELECT COUNT(*) AS c FROM live_actions').get().c).toBe(0);
+  });
+});
+
+describe('report hold', () => {
+  it('lists a held ended session with its incident, and release clears the hold and is logged', async () => {
+    const s = await createLive(0);
+    await admin({ action: 'end', id: s.id });
+    expect((await adminList()).data.sessions).toEqual([]);
+
+    db.raw
+      .prepare(
+        "INSERT INTO live_reports (id, session_id, reporter_hash, reason, details, created_at) VALUES ('r1', ?, ?, 'nudity', 'saw it', 5)"
+      )
+      .run(s.id, 'f'.repeat(64));
+    db.raw
+      .prepare(
+        "INSERT INTO live_holds (session_id, opened_at, status, snapshot_json) VALUES (?, 5, 'open', ?)"
+      )
+      .run(s.id, JSON.stringify({ title: 'Session 0', host_pubkey: HOSTS[0] }));
+
+    const list = await adminList();
+    expect(list.data.sessions).toHaveLength(1);
+    expect(list.data.sessions[0]).toMatchObject({ id: s.id, hold_status: 'open' });
+    expect(list.data.incidents).toEqual([
+      {
+        session_id: s.id,
+        status: 'open',
+        opened_at: 5,
+        released_at: null,
+        released_by: null,
+        title: 'Session 0',
+        host_pubkey: HOSTS[0],
+        reports: [
+          { reason: 'nudity', details: 'saw it', comment_id: null, comment_pubkey: null, created_at: 5 }
+        ],
+        report_count: 1
+      }
+    ]);
+    // Reporter hashes never leave the server.
+    expect(list.text).not.toContain('f'.repeat(64));
+
+    const { data } = await admin({ action: 'release', id: s.id });
+    expect(data).toEqual({ id: s.id, released: true });
+    const after = await adminList();
+    expect(after.data.incidents[0]).toMatchObject({ status: 'released', released_by: mocks.admin });
+    expect(after.data.actions[0]).toMatchObject({ action: 'release_hold', session_id: s.id });
+    expect((await admin({ action: 'release_hold', id: s.id })).data.released).toBe(false);
+    expect((await admin({ action: 'release', id: 'nope' })).res.status).toBe(400);
+  });
+});
+
+describe('access requests', () => {
+  const insertRequest = (id: string, pubkey: string, note = '') =>
+    db.raw
+      .prepare(
+        "INSERT INTO live_access_requests (id, pubkey, note, status, created_at) VALUES (?, ?, ?, 'pending', 10)"
+      )
+      .run(id, pubkey, note);
+  const ID1 = '11111111-1111-4111-8111-111111111111';
+  const ID2 = '22222222-2222-4222-8222-222222222222';
+  const requestRow = (id: string) =>
+    db.raw.prepare('SELECT status, decided_at FROM live_access_requests WHERE id = ?').get(id);
+
+  it('lists pending requests with note and membership', async () => {
+    db.raw.prepare('DELETE FROM live_approved_hosts WHERE pubkey = ?').run(HOSTS[1]);
+    insertRequest(ID1, HOSTS[1], 'Sunday roasts');
+    mocks.checkMembership.mockResolvedValue({ state: 'inactive', found: true });
+    const { data } = await adminList();
+    expect(data.requests).toEqual([
+      {
+        id: ID1,
+        pubkey: HOSTS[1],
+        note: 'Sunday roasts',
+        status: 'pending',
+        created_at: 10,
+        decided_at: null,
+        membership: 'inactive'
+      }
+    ]);
+  });
+
+  it('approve adds the account to the approved list, and is logged', async () => {
+    db.raw.prepare('DELETE FROM live_approved_hosts WHERE pubkey = ?').run(HOSTS[1]);
+    insertRequest(ID1, HOSTS[1]);
+    const { data } = await admin({ action: 'approve_request', id: ID1 });
+    expect(data).toEqual({ id: ID1, pubkey: HOSTS[1], status: 'approved' });
+    expect(requestRow(ID1).status).toBe('approved');
+    expect(rowOfApproved(HOSTS[1]).added_by).toBe(mocks.admin);
+    const list = await adminList();
+    expect(list.data.requests).toEqual([]);
+    expect(list.data.actions[0]).toMatchObject({
+      action: 'approve',
+      actor: mocks.admin,
+      target_pubkey: HOSTS[1],
+      detail: 'access request'
+    });
+    expect((await admin({ action: 'approve_request', id: ID1 })).res.status).toBe(409);
+  });
+
+  it('decline leaves the approved list alone, and is logged', async () => {
+    db.raw.prepare('DELETE FROM live_approved_hosts WHERE pubkey = ?').run(HOSTS[1]);
+    insertRequest(ID2, HOSTS[1]);
+    const { data } = await admin({ action: 'decline_request', id: ID2 });
+    expect(data).toEqual({ id: ID2, pubkey: HOSTS[1], status: 'declined' });
+    expect(typeof requestRow(ID2).decided_at).toBe('number');
+    expect(rowOfApproved(HOSTS[1])).toBeUndefined();
+    expect((await adminList()).data.actions[0]).toMatchObject({ action: 'decline', target_pubkey: HOSTS[1] });
+  });
+
+  it('a direct approve also closes the pending request', async () => {
+    db.raw.prepare('DELETE FROM live_approved_hosts WHERE pubkey = ?').run(HOSTS[1]);
+    insertRequest(ID1, HOSTS[1]);
+    await admin({ action: 'approve', pubkey: HOSTS[1] });
+    expect(requestRow(ID1).status).toBe('approved');
+  });
+
+  it('approval is one transaction: if adding the host fails, the request stays pending (review #977)', async () => {
+    db.raw.prepare('DELETE FROM live_approved_hosts WHERE pubkey = ?').run(HOSTS[1]);
+    insertRequest(ID1, HOSTS[1]);
+    db.raw.exec('DROP TABLE live_approved_hosts');
+    const { res } = await admin({ action: 'approve_request', id: ID1 });
+    expect(res.status).toBe(500);
+    expect(requestRow(ID1).status).toBe('pending');
+  });
+
+  it('GET ?incident= returns every report of one incident', async () => {
+    const s0 = await createLive(0);
+    for (let i = 0; i < 3; i++) {
+      db.raw
+        .prepare(
+          "INSERT INTO live_reports (id, session_id, reporter_hash, reason, created_at) VALUES (?, ?, ?, 'spam', ?)"
+        )
+        .run(`r${i}`, s0.id, String(i).repeat(64), i);
+    }
+    const res = await GET({
+      request: new Request(`${ADMIN_URL}?incident=${s0.id}`, {
+        headers: { Authorization: await nip98(`${ADMIN_URL}?incident=${s0.id}`, 'GET', undefined, adminSk) }
+      }),
+      platform: { env }
+    } as any);
+    const data = await res.json();
+    expect(data.reports).toHaveLength(3);
+    expect(JSON.stringify(data)).not.toContain('0'.repeat(64));
+  });
+
+  it('refuses a malformed id and a non-admin', async () => {
+    insertRequest(ID1, HOSTS[1]);
+    expect((await admin({ action: 'approve_request', id: 'nope' })).res.status).toBe(400);
+    expect((await admin({ action: 'approve_request', id: ID1 }, { sk: hostSks[1] })).res.status).toBe(403);
+    expect(requestRow(ID1).status).toBe('pending');
+  });
+});
+
+describe('environments share one KV namespace', () => {
+  it('preview switches its own off flag and mode, never production’s', async () => {
+    env.LIVE_INPUT_PREFIX = 'zc-live-preview-';
+    await admin({ action: 'off', on: true });
+    await admin({ action: 'mode', mode: 'members' });
+    expect(kv.data.get('live:preview:off')).toBe('1');
+    expect(kv.data.get('live:preview:hosting_mode')).toBe('members');
+    expect(kv.data.has('live:off')).toBe(false);
+    expect(kv.data.has('live:hosting_mode')).toBe(false);
+  });
+
+  it('production does not read preview keys', async () => {
+    kv.data.set('live:preview:off', '1');
+    kv.data.set('live:preview:hosting_mode', 'members');
+    const list = await adminList();
+    expect(list.data.off).toBe(false);
+    expect(list.data.mode).toBe('approved');
+    await createLive(0); // production create still works
+  });
+
+  it('preview does not read production keys', async () => {
+    kv.data.set('live:off', '1');
+    env.LIVE_INPUT_PREFIX = 'zc-live-preview-';
+    expect((await adminList()).data.off).toBe(false);
+  });
+});
+
+describe('mode display', () => {
+  it('reports the mode last switched to (mode_set) even when the KV read is stale', async () => {
+    expect((await adminList()).data.mode_set).toBeNull();
+    await admin({ action: 'mode', mode: 'members' });
+    await admin({ action: 'mode', mode: 'approved' });
+    // Simulate a stale KV read at this location: it still says members.
+    kv.data.set('live:hosting_mode', 'members');
+    const { data } = await adminList();
+    expect(data.mode).toBe('members');
+    expect(data.mode_set).toBe('approved');
+  });
+
+  it('a failed switch is an error reply and leaves mode_set alone', async () => {
+    await admin({ action: 'mode', mode: 'members' });
+    kv.failWrites = true;
+    const { res, data } = await admin({ action: 'mode', mode: 'approved' });
+    expect(res.status).toBe(503);
+    expect(data).toEqual({ error: 'not_written' });
+    kv.failWrites = false;
+    expect((await adminList()).data.mode_set).toBe('members');
+  });
+});
+
+describe('off switch display (off_set)', () => {
+  it('reports the last switch from the log, over a stale KV read', async () => {
+    expect((await adminList()).data.off_set).toBeNull();
+    await admin({ action: 'off', on: true });
+    expect((await adminList()).data.off_set).toBe(true);
+    await admin({ action: 'off', on: false });
+    kv.data.set('live:off', '1'); // a stale read here still says off
+    const { data } = await adminList();
+    expect(data.off).toBe(true);
+    expect(data.off_set).toBe(false);
+  });
+
+  it('ignores a switch whose flag could not be written', async () => {
+    await admin({ action: 'off', on: false });
+    kv.failWrites = true;
+    const { data } = await admin({ action: 'off', on: true });
+    expect(data.flag_written).toBe(false);
+    kv.failWrites = false;
+    expect((await adminList()).data.off_set).toBe(false);
   });
 });

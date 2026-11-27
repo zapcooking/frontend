@@ -1,0 +1,283 @@
+import { describe, it, expect, vi } from 'vitest';
+import {
+  fetchLiveSessions,
+  fetchSession,
+  goLiveSessionFor,
+  isGoLiveSession,
+  mergeLiveItems,
+  sessionToStreamItem,
+  streamPath,
+  type GoLiveSession
+} from './goLive';
+import type { StreamItem } from './types';
+
+const HOST = 'f'.repeat(64);
+const session = (over: Partial<GoLiveSession> = {}): GoLiveSession => ({
+  id: 'a'.repeat(32),
+  status: 'live',
+  title: 'Sunday sourdough',
+  recipe_a: `30023:${'b'.repeat(64)}:sourdough`,
+  host_pubkey: HOST,
+  created_at: 100,
+  started_at: 110,
+  ended_at: null,
+  ...over
+});
+
+describe('sessionToStreamItem', () => {
+  it('maps a session to a stream item the directory and player can use', () => {
+    const item = sessionToStreamItem(session(), { title: 'Sourdough', image: 'https://img/x.jpg' });
+    expect(item).toMatchObject({
+      key: `zc:${'a'.repeat(32)}`,
+      source: 'zapcooking',
+      sessionId: 'a'.repeat(32),
+      title: 'Cooking Sourdough',
+      url: null,
+      recording: null,
+      status: 'live',
+      live: true,
+      image: 'https://img/x.jpg',
+      starts: 110,
+      host: HOST,
+      viewers: null,
+      recipeA: `30023:${'b'.repeat(64)}:sourdough`
+    });
+  });
+
+  it('names the stream: host is cooking recipe, a typed title, or Live from Zap Cooking', () => {
+    const recipe = { title: 'Refried Beans', image: null };
+    expect(sessionToStreamItem(session(), recipe, 'Seth').title).toBe(
+      'Seth is cooking Refried Beans'
+    );
+    // Recipe not fetched yet: the stored title is the recipe's.
+    expect(sessionToStreamItem(session({ title: 'Refried Beans' }), null, 'Seth').title).toBe(
+      'Seth is cooking Refried Beans'
+    );
+    const titleOnly = session({ recipe_a: null });
+    expect(sessionToStreamItem({ ...titleOnly, title: 'Taco Tuesday' }, null, 'Seth').title).toBe(
+      'Taco Tuesday'
+    );
+    expect(
+      sessionToStreamItem({ ...titleOnly, title: 'Live cook-along' }, null, 'Seth').title
+    ).toBe('Live from Zap Cooking');
+  });
+
+  it('carries the Live now note id, and only a well-formed one', () => {
+    expect(sessionToStreamItem(session()).noteId).toBeNull();
+    expect(sessionToStreamItem(session({ note_id: 'e'.repeat(64) })).noteId).toBe('e'.repeat(64));
+    expect(sessionToStreamItem(session({ note_id: 'bad' })).noteId).toBeNull();
+  });
+
+  it('reads a not-yet-started session as live and an ended one as ended', () => {
+    expect(sessionToStreamItem(session({ status: 'created', started_at: null })).status).toBe(
+      'live'
+    );
+    const ended = sessionToStreamItem(session({ status: 'ended', ended_at: 200 }));
+    expect(ended.status).toBe('ended');
+    expect(ended.live).toBe(false);
+    expect(ended.updated).toBe(200);
+  });
+});
+
+describe('streamPath', () => {
+  it('sends Go live to /live/s/<id> and NIP-53 to /live/<naddr>', () => {
+    expect(streamPath(sessionToStreamItem(session()))).toBe(`/live/s/${'a'.repeat(32)}`);
+    const nostr = { key: `30311:${HOST}:abc`, relays: [] } as unknown as StreamItem;
+    expect(streamPath(nostr)).toMatch(/^\/live\/naddr1/);
+    expect(streamPath({ key: 'junk', relays: [] } as unknown as StreamItem)).toBeNull();
+  });
+});
+
+describe('mergeLiveItems', () => {
+  it('puts Zap Cooking streams first, newest first, then the rest in order', () => {
+    const older = sessionToStreamItem(session({ id: '1'.repeat(32), started_at: 10 }));
+    const newer = sessionToStreamItem(session({ id: '2'.repeat(32), started_at: 20 }));
+    const n1 = { key: 'n1' } as StreamItem;
+    const n2 = { key: 'n2' } as StreamItem;
+    expect(mergeLiveItems([older, newer], [n1, n2]).map((i) => i.key)).toEqual([
+      `zc:${'2'.repeat(32)}`,
+      `zc:${'1'.repeat(32)}`,
+      'n1',
+      'n2'
+    ]);
+  });
+
+  it('drops the announcement copy of a session that also came from the API (host + d)', () => {
+    const id = 'a'.repeat(32);
+    const live = sessionToStreamItem(session({ id }));
+    // No streaming tag, no url: the address alone identifies it.
+    const announcement = { key: `30311:${HOST}:${id}`, url: null } as StreamItem;
+    const unrelated = { key: 'n1' } as StreamItem;
+    expect(mergeLiveItems([live], [announcement, unrelated]).map((i) => i.key)).toEqual([
+      `zc:${id}`,
+      'n1'
+    ]);
+  });
+
+  it('keeps an announcement that only looks like ours', () => {
+    const id = 'a'.repeat(32);
+    const live = sessionToStreamItem(session({ id }));
+    // Another account reusing the session id, even pointing at our join URL.
+    const imposter = {
+      key: `30311:${'c'.repeat(64)}:${id}`,
+      url: `https://zap.cooking/api/live/${id}/join`
+    } as StreamItem;
+    // The host's own announcement of another stream.
+    const otherStream = { key: `30311:${HOST}:${'9'.repeat(32)}` } as StreamItem;
+    expect(mergeLiveItems([live], [imposter, otherStream]).map((i) => i.key)).toEqual([
+      `zc:${id}`,
+      imposter.key,
+      otherStream.key
+    ]);
+  });
+});
+
+describe('goLiveSessionFor', () => {
+  const id = 'a'.repeat(32);
+  const server = (body: unknown, status = 200) =>
+    vi.fn(async () => new Response(JSON.stringify(body), { status })) as unknown as typeof fetch;
+
+  it('is the session id when the address is the session host + session id', async () => {
+    const fetchFn = server(session({ id }));
+    expect(await goLiveSessionFor({ pubkey: HOST, identifier: id }, fetchFn)).toBe(id);
+    expect(await goLiveSessionFor({ pubkey: HOST.toUpperCase(), identifier: id }, fetchFn)).toBe(
+      id
+    );
+    // An ended session is still ours: its page says the stream has ended.
+    expect(
+      await goLiveSessionFor(
+        { pubkey: HOST, identifier: id },
+        server(session({ id, status: 'ended', ended_at: 200 }))
+      )
+    ).toBe(id);
+  });
+
+  it("is null for another account's announcement under our session id", async () => {
+    expect(
+      await goLiveSessionFor({ pubkey: 'c'.repeat(64), identifier: id }, server(session({ id })))
+    ).toBeNull();
+  });
+
+  it('does not ask the server about an address that cannot be a session', async () => {
+    const fetchFn = server(session({ id }));
+    expect(await goLiveSessionFor({ pubkey: HOST, identifier: 'my-stream' }, fetchFn)).toBeNull();
+    expect(
+      await goLiveSessionFor(
+        { pubkey: HOST, identifier: '0b9a3c1e-52f4-4a56-9a3e-1f2b3c4d5e6f' },
+        fetchFn
+      )
+    ).toBeNull();
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it('is null when the session is unknown or the server cannot be reached', async () => {
+    expect(await goLiveSessionFor({ pubkey: HOST, identifier: id }, server({}, 404))).toBeNull();
+    expect(await goLiveSessionFor({ pubkey: HOST, identifier: id }, server({}, 500))).toBeNull();
+    const down = vi.fn(async () => {
+      throw new Error('offline');
+    }) as unknown as typeof fetch;
+    expect(await goLiveSessionFor({ pubkey: HOST, identifier: id }, down)).toBeNull();
+  });
+});
+
+describe('reading sessions', () => {
+  it('accepts only well-formed sessions', () => {
+    expect(isGoLiveSession(session())).toBe(true);
+    expect(isGoLiveSession({ ...session(), id: '../etc' })).toBe(false);
+    expect(isGoLiveSession({ ...session(), status: 'weird' })).toBe(false);
+    expect(isGoLiveSession(null)).toBe(false);
+  });
+
+  it('lists sessions, dropping malformed ones, and is empty on any failure', async () => {
+    const ok = async () => Response.json({ sessions: [session(), { id: 'bad' }] });
+    expect((await fetchLiveSessions(ok as never)).length).toBe(1);
+    expect(
+      await fetchLiveSessions((async () => new Response('', { status: 500 })) as never)
+    ).toEqual([]);
+    expect(
+      await fetchLiveSessions((async () => {
+        throw new Error('offline');
+      }) as never)
+    ).toEqual([]);
+  });
+
+  it('reads one session: null when gone, undefined when it cannot tell', async () => {
+    const id = 'a'.repeat(32);
+    expect(await fetchSession(id, (async () => Response.json(session())) as never)).toEqual(
+      session()
+    );
+    expect(
+      await fetchSession(id, (async () => new Response('', { status: 404 })) as never)
+    ).toBeNull();
+    expect(
+      await fetchSession(id, (async () => new Response('', { status: 503 })) as never)
+    ).toBeUndefined();
+    expect(await fetchSession('not-an-id')).toBeNull();
+  });
+});
+
+describe('recipe fetch retry', () => {
+  it('tries again while nothing is found, and stops when no longer wanted', async () => {
+    const { fetchRecipeEventWithRetry } = await import('./recipeCard');
+    const a = `30023:${'b'.repeat(64)}:sourdough`;
+    const waits: number[] = [];
+    let calls = 0;
+    const event = { tags: [['title', 'Sourdough']] };
+    const ndk = {
+      fetchEvent: async () => (++calls >= 3 ? event : null)
+    };
+    const found = await fetchRecipeEventWithRetry(
+      () => ndk as never,
+      a,
+      () => true,
+      async (ms) => void waits.push(ms)
+    );
+    expect(found).toBe(event);
+    expect(waits).toEqual([3000, 8000]);
+
+    calls = -100;
+    let wanted = true;
+    const none = await fetchRecipeEventWithRetry(
+      () => ndk as never,
+      `30023:${'c'.repeat(64)}:other`,
+      () => wanted,
+      async () => {
+        wanted = false;
+      }
+    );
+    expect(none).toBeNull();
+    expect(await fetchRecipeEventWithRetry(() => ndk as never, 'not-an-address')).toBeNull();
+  });
+});
+
+describe('recipe fetch and the hidden-recipe list', () => {
+  const HIDDEN_PUBKEY = 'a22a71c97b536902adb2b15f3e56014d2a2a2adc0c2d99f3996081455cc4ea92';
+
+  it('never fetches a hidden recipe', async () => {
+    const { fetchRecipeEvent } = await import('./recipeCard');
+    let calls = 0;
+    const ndk = {
+      fetchEvent: async () => {
+        calls++;
+        return { kind: 30023, pubkey: HIDDEN_PUBKEY, tags: [['d', 'pr11-ghost-recipe']] };
+      }
+    };
+    expect(
+      await fetchRecipeEvent(ndk as never, `30023:${HIDDEN_PUBKEY}:pr11-ghost-recipe`)
+    ).toBeNull();
+    expect(calls).toBe(0);
+  });
+
+  it('drops a returned event that is on the hidden list', async () => {
+    const { fetchRecipeEvent } = await import('./recipeCard');
+    const ndk = {
+      // The relay answers with a hidden event for an address that is not itself listed.
+      fetchEvent: async () => ({
+        kind: 30023,
+        pubkey: HIDDEN_PUBKEY,
+        tags: [['d', 'pr11-ghost-recipe']]
+      })
+    };
+    expect(await fetchRecipeEvent(ndk as never, `30023:${'c'.repeat(64)}:other-recipe`)).toBeNull();
+  });
+});

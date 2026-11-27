@@ -8,7 +8,7 @@
    *   - Per-code create / edit / delete
    *
    * All requests are NIP-98 signed (kind 27235) and verified server-
-   * side. The signing pubkey must equal ADMIN_PUBKEY — the public
+   * side. The signing pubkey must be in ADMIN_PUBKEYS — the public
    * admin pubkey alone isn't enough auth, since it's, well, public.
    *
    * KV reads/writes are eventually consistent across CF edges (~60s

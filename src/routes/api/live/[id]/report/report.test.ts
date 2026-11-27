@@ -1,0 +1,397 @@
+/**
+ * POST /api/live/<id>/report: stored, held and alerted (DM publisher
+ * stubbed). Nothing is ended automatically.
+ */
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import {
+  finalizeEvent,
+  generateSecretKey,
+  getPublicKey,
+  nip04,
+  type EventTemplate
+} from 'nostr-tools';
+import { normalizeUrl, sha256Hex } from '$lib/nip98';
+import { ADMIN_PUBKEY, ADMIN_PUBKEYS, BACKUP_ADMIN_PUBKEY } from '$lib/adminAuth';
+// One DM per admin (primary and backup) for every alert.
+const DMS = ADMIN_PUBKEYS.length;
+import { bytesToHex } from '@noble/hashes/utils.js';
+import { createLiveDatabase } from '../../../../../test/liveDatabase';
+import { createKvFake } from '../../../../../test/liveStreamStub';
+
+const mocks = vi.hoisted(() => ({ publish: vi.fn() }));
+vi.mock('$lib/rawPublish', () => ({ publishEventRaw: mocks.publish }));
+
+import { POST as report } from './+server';
+import { keyedReporterHash } from '$lib/live/safety.server';
+
+async function sha256(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+const HOST = 'a'.repeat(64);
+const SESSION = 'ab'.repeat(16);
+const COMMENT = { id: '1'.repeat(64), pubkey: 'c'.repeat(64) };
+
+let db: ReturnType<typeof createLiveDatabase>;
+let kv: ReturnType<typeof createKvFake>;
+let env: Record<string, unknown>;
+let ip = 0;
+let waited: Promise<unknown>[];
+
+const reporterSk = generateSecretKey();
+
+/** NIP-98 over this exact request, as the chat signs a comment report. */
+async function nip98(url: string, body: string, sk = reporterSk) {
+  const template: EventTemplate = {
+    kind: 27235,
+    created_at: Math.floor(Date.now() / 1000),
+    tags: [
+      ['u', normalizeUrl(url)],
+      ['method', 'POST'],
+      ['payload', await sha256Hex(new TextEncoder().encode(body))]
+    ],
+    content: ''
+  };
+  return `Nostr ${btoa(JSON.stringify(finalizeEvent(template, sk)))}`;
+}
+
+/**
+ * POST a report. A comment report is signed unless `auth` says otherwise
+ * (null = no Authorization header; a string = that header).
+ */
+async function post(
+  body: unknown,
+  opts: { id?: string; ip?: string; ctx?: boolean; auth?: string | null } = {}
+) {
+  const platform: any = { env };
+  if (opts.ctx) platform.ctx = { waitUntil: (p: Promise<unknown>) => waited.push(p) };
+  const id = opts.id ?? SESSION;
+  const address = opts.ip ?? `10.0.0.${++ip}`;
+  const url = `https://zap.cooking/api/live/${id}/report`;
+  const text = typeof body === 'string' ? body : JSON.stringify(body);
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  const isComment = typeof body === 'object' && body !== null && 'comment' in body;
+  const auth = opts.auth !== undefined ? opts.auth : isComment ? await nip98(url, text) : null;
+  if (auth) headers.Authorization = auth;
+  return report({
+    request: new Request(url, { method: 'POST', headers, body: text }),
+    params: { id },
+    platform,
+    getClientAddress: () => address
+  } as never);
+}
+
+const count = (table: string) => db.raw.prepare(`SELECT COUNT(*) AS c FROM ${table}`).get().c;
+const statusOf = () =>
+  db.raw.prepare('SELECT status FROM live_sessions WHERE id = ?').get(SESSION).status;
+
+beforeEach(() => {
+  db = createLiveDatabase();
+  kv = createKvFake();
+  waited = [];
+  env = {
+    SCHEDULER_DB: db,
+    GATED_CONTENT: kv,
+    NOTIFICATION_PRIVATE_KEY: bytesToHex(generateSecretKey()),
+    LIVE_REPORTER_HASH_SECRET: 'reporter-secret-for-tests'
+  };
+  mocks.publish.mockReset().mockResolvedValue(2);
+  db.raw
+    .prepare(
+      "INSERT INTO live_sessions (id, host_pubkey, title, host_token_hash, status, created_at, cf_input_uid) VALUES (?, ?, 'Pizza Beans', 'h', 'live', 1, NULL)"
+    )
+    .run(SESSION, HOST);
+  for (const level of ['info', 'warn', 'error', 'log'] as const)
+    vi.spyOn(console, level).mockImplementation(() => {});
+});
+
+describe('POST /api/live/<id>/report', () => {
+  it('stores a stream report, opens the hold and DMs the admin', async () => {
+    const res = await post({ reason: 'nudity', details: '  look at 2:10  ' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, duplicate: false });
+    const row = db.raw.prepare('SELECT * FROM live_reports').get();
+    expect(row).toMatchObject({
+      session_id: SESSION,
+      reason: 'nudity',
+      details: 'look at 2:10',
+      comment_id: null
+    });
+    expect(row.reporter_hash).toMatch(/^[0-9a-f]{64}$/);
+    expect(JSON.stringify(row)).not.toContain('10.0.0.');
+    expect(count('live_holds')).toBe(1);
+    expect(mocks.publish).toHaveBeenCalledTimes(1 * DMS);
+    // One DM each: the primary and the backup admin.
+    expect(mocks.publish.mock.calls.map((c: any) => c[0].tags)).toEqual(
+      ADMIN_PUBKEYS.map((pk) => [['p', pk]])
+    );
+    expect(ADMIN_PUBKEYS).toEqual([ADMIN_PUBKEY, BACKUP_ADMIN_PUBKEY]);
+  });
+
+  it('stores HMAC(secret, limiter hash), never the limiter hash itself', async () => {
+    await post({ reason: 'nudity' }, { ip: '10.7.7.7' });
+    const stored = db.raw.prepare('SELECT reporter_hash FROM live_reports').get().reporter_hash;
+    const day = new Date().toISOString().slice(0, 10);
+    const salt = kv.data.get(`config:ip-salt-v2:${day}`)!;
+    const limiterHash = await sha256(`10.7.7.7:${salt}`);
+    expect(stored).not.toBe(limiterHash);
+    expect(stored).toBe(await keyedReporterHash('reporter-secret-for-tests', limiterHash));
+    // Another secret gives another id.
+    expect(await keyedReporterHash('other-secret', limiterHash)).not.toBe(stored);
+  });
+
+  it('without the secret: stores nothing, still DMs the admin (unthrottled), logs it, asks to email support', async () => {
+    env.LIVE_REPORTER_HASH_SECRET = undefined;
+    // NIP-04 is symmetric: the sender's key and the admin's pubkey read the DM.
+    const senderSk = generateSecretKey();
+    env.NOTIFICATION_PRIVATE_KEY = bytesToHex(senderSk);
+
+    const res = await post({ reason: 'child_safety', details: 'reporter note' });
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: 'not_stored' });
+    expect(count('live_reports')).toBe(0);
+    expect(count('live_holds')).toBe(0);
+    expect(console.error).toHaveBeenCalledWith(
+      '[Live] report NOT stored: LIVE_REPORTER_HASH_SECRET is not set'
+    );
+
+    expect(mocks.publish).toHaveBeenCalledTimes(1 * DMS);
+    const event = mocks.publish.mock.calls[0][0];
+    const text = nip04.decrypt(senderSk, ADMIN_PUBKEY, event.content);
+    // The backup admin gets the same urgent alert, encrypted to their key.
+    const backup = mocks.publish.mock.calls[1][0];
+    expect(backup.tags).toEqual([['p', BACKUP_ADMIN_PUBKEY]]);
+    expect(nip04.decrypt(senderSk, BACKUP_ADMIN_PUBKEY, backup.content)).toBe(text);
+    expect(text).toMatch(/^⚠️ NOT STORED/);
+    expect(text).toContain('CHILD SAFETY');
+    expect(text).toContain(`/live/s/${SESSION}`);
+    // Nothing about the reporter: not their note, not an address.
+    expect(text).not.toContain('reporter note');
+    expect(text).not.toMatch(/10\.0\.0\./);
+
+    // Never throttled: every report still reaches the admin, urgent or not.
+    for (const value of ['', '   ']) {
+      env.LIVE_REPORTER_HASH_SECRET = value;
+      expect((await post({ reason: 'spam' })).status).toBe(503);
+    }
+    expect(mocks.publish).toHaveBeenCalledTimes(3 * DMS);
+    expect(count('live_reports')).toBe(0);
+  });
+
+  it('without the secret, an unknown session is still 404 and sends nothing', async () => {
+    env.LIVE_REPORTER_HASH_SECRET = undefined;
+    expect((await post({ reason: 'child_safety' }, { id: 'f'.repeat(32) })).status).toBe(404);
+    expect(mocks.publish).not.toHaveBeenCalled();
+  });
+
+  it('without KV (no limiter hash) stores a one-off unverified id, never a guessable one', async () => {
+    env.GATED_CONTENT = undefined;
+    await post({ reason: 'spam' }, { ip: '10.8.8.8' });
+    await post({ reason: 'spam' }, { ip: '10.8.8.8' });
+    const ids = db.raw.prepare('SELECT reporter_hash FROM live_reports').all();
+    expect(ids).toHaveLength(2);
+    for (const r of ids) expect(r.reporter_hash).toMatch(/^unverified:/);
+  });
+
+  it('on preview, uses preview throttle and rate-limit keys only', async () => {
+    env.LIVE_INPUT_PREFIX = 'zc-live-preview-';
+    await post({ reason: 'nudity' });
+    const keys = [...kv.data.keys()];
+    expect(keys).toContain(`live:preview:alert:${SESSION}`);
+    expect(keys).not.toContain(`live:alert:${SESSION}`);
+    expect(keys.some((k) => k.startsWith('rl:live-preview-report:'))).toBe(true);
+    expect(keys.some((k) => k.startsWith('rl:live-report:'))).toBe(false);
+    // A production throttle does not hold back a preview alert.
+    env.LIVE_INPUT_PREFIX = undefined;
+    kv.data.delete(`live:preview:alert:${SESSION}`);
+    kv.data.set(`live:alert:${SESSION}`, '1');
+    env.LIVE_INPUT_PREFIX = 'zc-live-preview-';
+    await post({ reason: 'spam' });
+    expect(mocks.publish).toHaveBeenCalledTimes(2 * DMS);
+  });
+
+  it('stores a comment report against that comment', async () => {
+    await post({ reason: 'spam', comment: COMMENT });
+    expect(db.raw.prepare('SELECT comment_id, comment_pubkey FROM live_reports').get()).toEqual({
+      comment_id: COMMENT.id,
+      comment_pubkey: COMMENT.pubkey
+    });
+  });
+
+  it('takes a kind 1311 chat message id, on a session with no "Live now" note', async () => {
+    // What the chat reports since Go live chat moved to kind 1311: the id
+    // of a real signed 1311 on the session's address. The session has no
+    // note (the fixture's note_id is NULL): the report does not need one.
+    const author = generateSecretKey();
+    const message = finalizeEvent(
+      {
+        kind: 1311,
+        created_at: 1_700_000_000,
+        content: 'spam spam',
+        tags: [
+          ['a', `30311:${HOST}:${SESSION}`],
+          ['p', HOST]
+        ]
+      },
+      author
+    );
+    const res = await post({
+      reason: 'spam',
+      comment: { id: message.id, pubkey: message.pubkey }
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, duplicate: false });
+    expect(db.raw.prepare('SELECT comment_id, comment_pubkey FROM live_reports').get()).toEqual({
+      comment_id: message.id,
+      comment_pubkey: message.pubkey
+    });
+    // The hold opens with the session's facts; the chat address is
+    // rebuilt from them (host + id), with no note on record.
+    const hold = db.raw.prepare('SELECT status, snapshot_json FROM live_holds').get();
+    expect(hold.status).toBe('open');
+    expect(JSON.parse(hold.snapshot_json)).toMatchObject({
+      id: SESSION,
+      host_pubkey: HOST,
+      note_id: null
+    });
+    // Another message by the same author is its own target.
+    const again = await post(
+      { reason: 'spam', comment: { id: '3'.repeat(64), pubkey: message.pubkey } },
+      { ip: '10.9.9.9' }
+    );
+    expect(await again.json()).toEqual({ ok: true, duplicate: false });
+    expect(count('live_reports')).toBe(2);
+  });
+
+  it('refuses a comment report without a valid signature, and stores nothing', async () => {
+    const body = { reason: 'spam', comment: COMMENT };
+    const unsigned = await post(body, { auth: null });
+    expect(unsigned.status).toBe(401);
+    expect(await unsigned.json()).toEqual({ error: 'auth_required' });
+    const url = `https://zap.cooking/api/live/${SESSION}/report`;
+    // Signed for another body (a different comment): refused.
+    const other = JSON.stringify({ reason: 'spam', comment: { ...COMMENT, id: '2'.repeat(64) } });
+    expect((await post(body, { auth: await nip98(url, other) })).status).toBe(401);
+    // Signed for another session's URL: refused.
+    const elsewhere = `https://zap.cooking/api/live/${'cd'.repeat(16)}/report`;
+    expect((await post(body, { auth: await nip98(elsewhere, JSON.stringify(body)) })).status).toBe(
+      401
+    );
+    expect((await post(body, { auth: 'Nostr garbage' })).status).toBe(401);
+    expect(count('live_reports')).toBe(0);
+    expect(count('live_holds')).toBe(0);
+    expect(mocks.publish).not.toHaveBeenCalled();
+  });
+
+  it('keeps stream reports open: no signature needed, and a bad one is ignored', async () => {
+    expect((await post({ reason: 'nudity' }, { auth: null })).status).toBe(200);
+    expect((await post({ reason: 'spam' }, { auth: 'Nostr garbage' })).status).toBe(200);
+    expect(count('live_reports')).toBe(2);
+  });
+
+  it('stores and sends nothing about the comment reporter but the keyed IP hash', async () => {
+    await post({ reason: 'spam', comment: COMMENT });
+    const signer = getPublicKey(reporterSk);
+    expect(JSON.stringify(db.raw.prepare('SELECT * FROM live_reports').get())).not.toContain(
+      signer
+    );
+    const sent = mocks.publish.mock.calls.map((c: any) => JSON.stringify(c[0])).join('');
+    expect(sent).not.toContain(signer);
+  });
+
+  it('sends the DM in the background when the runtime offers waitUntil', async () => {
+    await post({ reason: 'spam' }, { ctx: true });
+    expect(waited).toHaveLength(1);
+    await Promise.all(waited);
+    expect(mocks.publish).toHaveBeenCalledTimes(1 * DMS);
+  });
+
+  it('a repeat from the same reporter is a duplicate and sends nothing', async () => {
+    await post({ reason: 'nudity' }, { ip: '10.9.9.9' });
+    const again = await post({ reason: 'spam' }, { ip: '10.9.9.9' });
+    expect(await again.json()).toEqual({ ok: true, duplicate: true });
+    expect(count('live_reports')).toBe(1);
+    expect(mocks.publish).toHaveBeenCalledTimes(1 * DMS);
+  });
+
+  it('stores and alerts an urgent report even after the same reporter reported another reason', async () => {
+    await post({ reason: 'nudity' }, { ip: '10.5.5.5' });
+    const cs = await post({ reason: 'child_safety', details: 'second look' }, { ip: '10.5.5.5' });
+    expect(await cs.json()).toEqual({ ok: true, duplicate: false });
+    const rows = db.raw
+      .prepare('SELECT reason, reporter_hash FROM live_reports ORDER BY created_at, rowid')
+      .all();
+    expect(rows.map((r: any) => r.reason)).toEqual(['nudity', 'child_safety']);
+    // Same reporter, recognisably: the urgent id is the same hash plus the reason.
+    expect(rows[1].reporter_hash).toBe(`${rows[0].reporter_hash}#child_safety`);
+    // Violence after both: stored too.
+    await post({ reason: 'violence' }, { ip: '10.5.5.5' });
+    expect(count('live_reports')).toBe(3);
+    // Every urgent submission alerts (nudity once + child safety + violence).
+    expect(mocks.publish).toHaveBeenCalledTimes(3 * DMS);
+  });
+
+  it('an identical urgent repeat is stored once but alerts every time', async () => {
+    await post({ reason: 'child_safety' }, { ip: '10.6.6.6' });
+    const again = await post({ reason: 'child_safety' }, { ip: '10.6.6.6' });
+    expect(await again.json()).toEqual({ ok: true, duplicate: true });
+    expect(count('live_reports')).toBe(1);
+    expect(mocks.publish).toHaveBeenCalledTimes(2 * DMS);
+  });
+
+  it("after an urgent report, the reporter's first other-reason report is stored and later ones are duplicates", async () => {
+    await post({ reason: 'child_safety' }, { ip: '10.4.4.4' });
+    await post({ reason: 'spam' }, { ip: '10.4.4.4' });
+    await post({ reason: 'nudity' }, { ip: '10.4.4.4' });
+    expect(db.raw.prepare('SELECT reason FROM live_reports ORDER BY rowid').all()).toEqual([
+      { reason: 'child_safety' },
+      { reason: 'spam' }
+    ]);
+  });
+
+  it('throttles alerts per session, except child safety and violence', async () => {
+    await post({ reason: 'nudity' });
+    await post({ reason: 'spam' });
+    expect(mocks.publish).toHaveBeenCalledTimes(1 * DMS);
+    await post({ reason: 'child_safety' });
+    await post({ reason: 'violence' });
+    expect(mocks.publish).toHaveBeenCalledTimes(3 * DMS);
+  });
+
+  it('refuses bad input and unknown sessions', async () => {
+    for (const body of [
+      { reason: 'nsfw' },
+      { reason: 'other', details: 5 },
+      { reason: 'other', details: 'x'.repeat(301) },
+      { reason: 'other', comment: { id: 'nope', pubkey: COMMENT.pubkey } },
+      'not json',
+      '[]'
+    ]) {
+      expect((await post(body)).status).toBe(400);
+    }
+    expect((await post({ reason: 'other' }, { id: 'nope' })).status).toBe(400);
+    expect((await post({ reason: 'other' }, { id: 'f'.repeat(32) })).status).toBe(404);
+    expect((await post('x'.repeat(3000))).status).toBe(413);
+    expect(count('live_reports')).toBe(0);
+  });
+
+  it('rate limits per address', async () => {
+    let last = 0;
+    for (let i = 0; i < 9; i++) {
+      last = (
+        await post(
+          { reason: 'other', comment: { ...COMMENT, id: String(i).repeat(64) } },
+          { ip: '10.1.1.1' }
+        )
+      ).status;
+    }
+    expect(last).toBe(429);
+  });
+
+  it('never ends a stream by itself, however many report it', async () => {
+    for (let i = 0; i < 5; i++) await post({ reason: 'nudity' });
+    expect(statusOf()).toBe('live');
+    expect(count('live_actions')).toBe(0);
+  });
+});

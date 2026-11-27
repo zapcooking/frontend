@@ -10,7 +10,7 @@
  * containing a signed kind-27235 event bound to this URL, POST
  * method, and the exact request body (via `payload` tag hash).
  * Server verifies signature, timestamp skew (±60s), URL/method match,
- * body hash, and that the signing pubkey === ADMIN_PUBKEY. See
+ * body hash, and that the signing pubkey is in ADMIN_PUBKEYS. See
  * src/lib/nip98.server.ts for verifier details.
  *
  * The companion read endpoint /api/admin/nourish-flags still uses
@@ -60,7 +60,7 @@ import { json, type RequestHandler } from '@sveltejs/kit';
 import { env } from '$env/dynamic/private';
 import { NOURISH_PROMPT_VERSION } from '$lib/nourish/types';
 import { runScoringPipeline } from '$lib/nourish/scoringEngine.server';
-import { ADMIN_PUBKEY } from '$lib/adminAuth';
+import { ADMIN_PUBKEYS } from '$lib/adminAuth';
 import { verifyNip98 } from '$lib/nip98.server';
 
 const HEX_64_RE = /^[a-fA-F0-9]{64}$/;
@@ -74,7 +74,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 	const bodyBytes = new Uint8Array(await request.arrayBuffer());
 
 	const auth = await verifyNip98(request, {
-		expectedPubkey: ADMIN_PUBKEY,
+		expectedPubkeys: ADMIN_PUBKEYS,
 		bodyBytes
 	});
 	if (!auth.ok) {

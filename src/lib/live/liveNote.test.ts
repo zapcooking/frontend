@@ -1,0 +1,207 @@
+import { describe, it, expect } from 'vitest';
+import {
+  isLiveWatchMessage,
+  liveAnnouncementTemplate,
+  liveNoteTemplate,
+  liveWatchMessageText
+} from './liveNote';
+
+const URL_ = 'https://zap.cooking/live/s/' + 'a'.repeat(32);
+const RECIPE = `30023:${'b'.repeat(64)}:refried-beans`;
+
+describe('liveNoteTemplate', () => {
+  it('names the stream, links the watch page and carries the photo', () => {
+    const t = liveNoteTemplate(
+      {
+        name: 'Seth is cooking Refried Beans',
+        watchUrl: URL_,
+        image: 'https://image.nostr.build/beans.jpg',
+        recipeA: RECIPE
+      },
+      1_700_000_000_000
+    );
+    expect(t.kind).toBe(1);
+    expect(t.created_at).toBe(1_700_000_000);
+    expect(t.content).toBe(
+      `Seth is cooking Refried Beans\n\nWatch live: ${URL_}\n\nhttps://image.nostr.build/beans.jpg`
+    );
+    expect(t.tags).toEqual([
+      ['r', URL_],
+      ['t', 'zapcooking'],
+      ['t', 'live'],
+      ['a', RECIPE],
+      ['imeta', 'url https://image.nostr.build/beans.jpg']
+    ]);
+  });
+
+  it('title-only: no image, no recipe tag', () => {
+    const t = liveNoteTemplate({ name: 'Live from Zap Cooking', watchUrl: URL_ });
+    expect(t.content).toBe(`Live from Zap Cooking\n\nWatch live: ${URL_}`);
+    expect(t.tags.map((x) => x[0])).toEqual(['r', 't', 't']);
+  });
+
+  it('drops a non-https image and a malformed recipe address', () => {
+    const t = liveNoteTemplate({
+      name: 'x',
+      watchUrl: URL_,
+      image: 'http://insecure/x.jpg',
+      recipeA: 'nope'
+    });
+    expect(t.content).not.toContain('insecure');
+    expect(t.tags.some((x) => x[0] === 'a' || x[0] === 'imeta')).toBe(false);
+  });
+});
+
+describe('liveAnnouncementTemplate', () => {
+  const HOST = 'a'.repeat(64);
+  const base = {
+    sessionId: 'abc-123',
+    name: 'Seth is cooking pasta',
+    hostPubkey: HOST,
+    joinUrl: 'https://zap.cooking/api/live/abc-123/join',
+    watchUrl: 'https://zap.cooking/live/s/abc-123',
+    startedAt: 1_700_000_000
+  };
+
+  it('is a replaceable 30311 with the session, WHEP endpoint, status and tagged host', () => {
+    const t = liveAnnouncementTemplate({ ...base, status: 'live' }, 1_700_000_000_000);
+    expect(t.kind).toBe(30311);
+    expect(t.created_at).toBe(1_700_000_000);
+    expect(t.tags).toContainEqual(['d', 'abc-123']);
+    expect(t.tags).toContainEqual(['title', 'Seth is cooking pasta']);
+    expect(t.tags).toContainEqual(['streaming', base.joinUrl]);
+    expect(t.tags).toContainEqual(['status', 'live']);
+    expect(t.tags).toContainEqual(['p', HOST, '', 'host']);
+    expect(t.tags).toContainEqual(['starts', '1700000000']);
+    expect(t.tags.find((tag) => tag[0] === 'ends')).toBeUndefined();
+  });
+
+  it('keeps the streaming tag and also points at the watch page', () => {
+    for (const status of ['live', 'ended'] as const) {
+      const t = liveAnnouncementTemplate({ ...base, status }, 1_700_000_000_000);
+      expect(t.tags).toContainEqual(['streaming', base.joinUrl]);
+      expect(t.tags).toContainEqual([
+        'summary',
+        'Live on Zap Cooking. Watch here: https://zap.cooking/live/s/abc-123'
+      ]);
+      expect(t.tags).toContainEqual(['r', 'https://zap.cooking/live/s/abc-123']);
+      expect(t.tags).toContainEqual([
+        'alt',
+        'Live cook-along on Zap Cooking. Watch: https://zap.cooking/live/s/abc-123'
+      ]);
+    }
+  });
+
+  it('uses the watch URL it is given (a preview keeps its own origin)', () => {
+    const watchUrl = 'https://some-branch.frontend-hvd.pages.dev/live/s/abc-123';
+    const t = liveAnnouncementTemplate({ ...base, watchUrl, status: 'live' });
+    expect(t.tags).toContainEqual(['r', watchUrl]);
+    expect(t.tags).toContainEqual(['summary', `Live on Zap Cooking. Watch here: ${watchUrl}`]);
+  });
+
+  it('pins the watch-link chat message when its id is given', () => {
+    const id = 'e'.repeat(64);
+    expect(
+      liveAnnouncementTemplate({ ...base, status: 'live', pinnedId: id }).tags
+    ).toContainEqual(['pinned', id]);
+    expect(
+      liveAnnouncementTemplate({ ...base, status: 'ended', pinnedId: id }).tags
+    ).toContainEqual(['pinned', id]);
+    for (const pinnedId of [undefined, null, '', 'nope']) {
+      expect(
+        liveAnnouncementTemplate({ ...base, status: 'live', pinnedId }).tags.some(
+          (tag) => tag[0] === 'pinned'
+        )
+      ).toBe(false);
+    }
+  });
+
+  it('marks the announcement ended and stamps the end time', () => {
+    const t = liveAnnouncementTemplate({ ...base, status: 'ended' }, 1_700_000_500_000);
+    expect(t.tags).toContainEqual(['status', 'ended']);
+    expect(t.tags).toContainEqual(['ends', '1700000500']);
+  });
+
+  it('links the recipe and carries the photo with imeta', () => {
+    const t = liveAnnouncementTemplate(
+      {
+        ...base,
+        status: 'live',
+        recipeA: RECIPE,
+        image: 'https://image.nostr.build/beans.jpg'
+      },
+      1_700_000_000_000
+    );
+    expect(t.tags).toContainEqual(['a', RECIPE]);
+    expect(t.tags).toContainEqual(['imeta', 'url https://image.nostr.build/beans.jpg']);
+    expect(t.tags).toContainEqual(['image', 'https://image.nostr.build/beans.jpg']);
+  });
+
+  it('drops non-https images and invalid host pubkeys', () => {
+    const t = liveAnnouncementTemplate(
+      { ...base, status: 'live', image: 'http://example.com/pic.jpg', hostPubkey: 'nope' },
+      1_700_000_000_000
+    );
+    expect(t.tags.find((tag) => tag[0] === 'imeta')).toBeUndefined();
+    expect(t.tags.find((tag) => tag[0] === 'p')).toBeUndefined();
+  });
+
+  it('names the chat and zap relays in a relays tag, when given', () => {
+    const t = liveAnnouncementTemplate({
+      ...base,
+      status: 'live',
+      relays: [
+        'wss://nos.lol',
+        'wss://relay.primal.net',
+        'wss://nos.lol',
+        'https://not-a-relay',
+        ''
+      ]
+    });
+    expect(t.tags.filter((tag) => tag[0] === 'relays')).toEqual([
+      ['relays', 'wss://nos.lol', 'wss://relay.primal.net']
+    ]);
+    // None given (or none usable): no tag.
+    expect(
+      liveAnnouncementTemplate({ ...base, status: 'live' }).tags.some((tag) => tag[0] === 'relays')
+    ).toBe(false);
+    expect(
+      liveAnnouncementTemplate({ ...base, status: 'live', relays: ['ws://plain'] }).tags.some(
+        (tag) => tag[0] === 'relays'
+      )
+    ).toBe(false);
+  });
+
+  it('keeps the relays tag on the ended replacement', () => {
+    const t = liveAnnouncementTemplate({ ...base, status: 'ended', relays: ['wss://nos.lol'] });
+    expect(t.tags).toContainEqual(['relays', 'wss://nos.lol']);
+    expect(t.tags).toContainEqual(['status', 'ended']);
+  });
+});
+
+describe('the pinned watch-link chat message', () => {
+  const HOST = 'a'.repeat(64);
+  const url = `https://zap.cooking/live/s/${'0123456789abcdef'.repeat(2)}`;
+
+  it('reads "Watch live on Zap Cooking: <watch URL>"', () => {
+    expect(liveWatchMessageText(url)).toBe(`Watch live on Zap Cooking: ${url}`);
+  });
+
+  it("is recognised only as the host's own kind 1311 with exactly that text", () => {
+    const message = { kind: 1311, pubkey: HOST, content: liveWatchMessageText(url) };
+    expect(isLiveWatchMessage(message, HOST)).toBe(true);
+    expect(isLiveWatchMessage(message, HOST.toUpperCase())).toBe(true);
+    const preview = liveWatchMessageText(
+      `https://some-branch.frontend-hvd.pages.dev/live/s/${'ab'.repeat(16)}`
+    );
+    expect(isLiveWatchMessage({ ...message, content: preview }, HOST)).toBe(true);
+    // Someone else wording a comment this way is still a comment.
+    expect(isLiveWatchMessage({ ...message, pubkey: 'b'.repeat(64) }, HOST)).toBe(false);
+    expect(isLiveWatchMessage({ ...message, kind: 1 }, HOST)).toBe(false);
+    expect(isLiveWatchMessage({ ...message, content: `${message.content} hi` }, HOST)).toBe(false);
+    expect(isLiveWatchMessage({ ...message, content: 'Watch live on Zap Cooking' }, HOST)).toBe(
+      false
+    );
+    expect(isLiveWatchMessage(message, null)).toBe(false);
+  });
+});

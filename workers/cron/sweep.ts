@@ -14,9 +14,21 @@
  */
 
 import { importScheduleKey, decryptScheduledEvent } from '../../src/lib/scheduleCrypto.server';
-import { standardRelays } from '../../src/lib/consts';
+import { storedScheduleRelays } from '../../src/lib/scheduleRelays';
 
 export const PANTRY_RELAY = 'wss://pantry.zap.cooking';
+
+/**
+ * Relays every 'all'-mode row is broadcast to, whatever the client
+ * sent. Chosen because they accept a note from a keyless publisher:
+ * no NIP-42 auth, no payment, no kind allowlist (NIP-11 and relay
+ * docs, checked 2026-11-23). Deliberately NOT the app's standardRelays:
+ * of those four, purplepag.es stores only profiles and relay lists and
+ * nostr.wine is a paid relay, so neither would ever take a scheduled
+ * note. With MAX_SCHEDULE_RELAYS client relays this list must fit the
+ * Workers connection limit (src/lib/scheduleRelays.ts).
+ */
+export const SCHEDULER_FLOOR_RELAYS = ['wss://nos.lol', 'wss://relay.primal.net'];
 
 /** Rows swept per tick. */
 export const SWEEP_BATCH_LIMIT = 20;
@@ -30,12 +42,56 @@ export const RETRY_WINDOW_SECONDS = 86400;
 export const TICK_BUDGET_SECONDS = 25;
 
 /**
- * Relay set per relay_mode. 'all' is the app's default relay list,
- * imported directly from the frontend's src/lib/consts.ts — one
- * source of truth, no mirror to drift.
+ * How long one row's broadcast may wait (publishEventRaw's early
+ * settle; index.js passes these as SWEEP_PUBLISH_OPTIONS).
+ *
+ * Rows are published one after another against TICK_BUDGET_SECONDS,
+ * and client-supplied relays can be dead. Without these a single
+ * relay that never answers costs the full 10 s per-relay timeout on
+ * every row that names it, about 2 rows a tick, and delays every row
+ * behind it. Cost per row, and rows that fit in a 25 s tick:
+ *
+ *   every relay answers             well under 1 s      all 20
+ *   one accepts, another is silent  first OK + grace,   about 10
+ *                                   about 2.3 s
+ *   nothing answers                 the hard cap, 6 s   4 to 5
+ *
+ * GRACE 2 s: a full batch in which every row names a dead relay takes
+ * two ticks, so its tail is one minute later. 1 s would fit ~19 rows
+ * but abandons slow healthy relays mid-handshake, and those then
+ * never get the note; delivery to the author's own relays is worth
+ * more than that worst case.
+ *
+ * CAP 6 s: below the 10 s per-relay timeout (or it does nothing) and
+ * above a slow TLS handshake plus OK. It applies only when no relay
+ * has accepted, in practice when both floor relays are unreachable.
+ *
+ * A row that starts just inside the budget can finish ~6 s past it.
+ * That is safe: scheduled Workers get 15 minutes of wall time and a
+ * claim is not treated as stale for CLAIM_STALE_SECONDS.
  */
-export function relaysFor(relayMode: string): string[] {
-  return relayMode === 'pantry' ? [PANTRY_RELAY] : standardRelays;
+export const PUBLISH_GRACE_AFTER_FIRST_OK_MS = 2000;
+export const PUBLISH_HARD_CAP_MS = 6000;
+export const SWEEP_PUBLISH_OPTIONS = {
+  graceAfterFirstOkMs: PUBLISH_GRACE_AFTER_FIRST_OK_MS,
+  hardCapMs: PUBLISH_HARD_CAP_MS
+} as const;
+
+/**
+ * Relay set for a row. 'pantry' is the pantry relay alone and ignores
+ * the row's relays. 'all' is the floor relays followed by the row's
+ * own relays (the `relays` column, re-validated and capped on the way
+ * out), without duplicates; a row with none gets the floor only. The
+ * floor comes first so it is never the part left waiting in the
+ * connection queue.
+ */
+export function relaysFor(relayMode: string, rowRelays?: string | null): string[] {
+  if (relayMode === 'pantry') return [PANTRY_RELAY];
+  const targets = [...SCHEDULER_FLOOR_RELAYS];
+  for (const url of storedScheduleRelays(rowRelays)) {
+    if (!targets.includes(url)) targets.push(url);
+  }
+  return targets;
 }
 
 interface D1Like {
@@ -52,6 +108,7 @@ interface DueRow {
   id: string;
   publish_at: number;
   relay_mode: string;
+  relays: string | null;
   ciphertext: string;
   iv: string;
 }
@@ -99,7 +156,7 @@ export async function sweepDueEvents(deps: SweepDeps): Promise<SweepSummary> {
   // 2. Due rows, oldest first.
   const { results: due } = await db
     .prepare(
-      `SELECT id, publish_at, relay_mode, ciphertext, iv
+      `SELECT id, publish_at, relay_mode, relays, ciphertext, iv
          FROM scheduled_events
         WHERE status = 'pending' AND publish_at <= ?1
         ORDER BY publish_at
@@ -148,7 +205,7 @@ export async function sweepDueEvents(deps: SweepDeps): Promise<SweepSummary> {
     let okCount = 0;
     let lastError = 'no_relay_accepted';
     try {
-      okCount = await publish(signedEvent, relaysFor(row.relay_mode));
+      okCount = await publish(signedEvent, relaysFor(row.relay_mode, row.relays));
     } catch (err) {
       lastError = err instanceof Error ? err.message.slice(0, 500) : 'publish_error';
     }

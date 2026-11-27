@@ -214,6 +214,8 @@ Everyone is welcome to contribute.
 
 Working on membership or Cook+ locally? `/membership` returns 404 until `MEMBERSHIP_ENABLED=true` is set in `.env`, and the Cook+ discovery modal needs `PUBLIC_MEMBERSHIP_ENABLED=true` as well. Both are explained in the MEMBERSHIP CONFIGURATION block of `.env.example`.
 
+Changing a composer (notes, replies, articles, recipes) or any field whose text is published as written? Read [docs/handoffs/composer-editor-matrix.md](docs/handoffs/composer-editor-matrix.md) and run [editor-matrix](https://github.com/dmnyc/editor-matrix) before and after the change.
+
 Note: The tag list is [here](https://github.com/github-tijlxyz/nostr.cooking/blob/main/src/lib/consts.ts#L22), please add useful tags to this list so they work with autocompletion.
 
 ---

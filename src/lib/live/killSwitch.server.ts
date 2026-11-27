@@ -1,7 +1,10 @@
 /**
  * Go live — the global off flag.
  *
- * One key in the general-purpose GATED_CONTENT KV namespace. While it is
+ * One key in the general-purpose GATED_CONTENT KV namespace, named per
+ * environment (live:off on production, live:preview:off on preview: the
+ * namespace is shared, and a preview switch must never reach production).
+ * While it is
  * set, create, publish and join all refuse. It is flipped by an admin
  * through /api/admin/live, with no deploy.
  *
@@ -14,7 +17,8 @@
  * off": a KV outage must not take the whole feature down. The failure is
  * logged, and the admin route reports whether it could write the flag.
  */
-import { LIVE_OFF_KEY } from './config';
+import { LIVE_OFF_NAME } from './config';
+import { liveKv } from './env.server';
 
 type FlagStore = {
   get(key: string, type?: 'text' | 'json'): Promise<string | unknown | null>;
@@ -30,7 +34,7 @@ export async function isLiveOff(platform: Readonly<App.Platform> | undefined): P
   const kv = store(platform);
   if (!kv) return false;
   try {
-    return (await kv.get(LIVE_OFF_KEY)) === '1';
+    return (await kv.get(liveKv(platform, LIVE_OFF_NAME))) === '1';
   } catch (err) {
     console.error(`[Live] off flag unreadable: ${(err as Error)?.name ?? 'error'}`);
     return false;
@@ -45,8 +49,9 @@ export async function setLiveOff(
   const kv = store(platform);
   if (!kv) return false;
   try {
-    if (off) await kv.put(LIVE_OFF_KEY, '1');
-    else await kv.delete(LIVE_OFF_KEY);
+    const key = liveKv(platform, LIVE_OFF_NAME);
+    if (off) await kv.put(key, '1');
+    else await kv.delete(key);
     return true;
   } catch (err) {
     console.error(`[Live] off flag not written: ${(err as Error)?.name ?? 'error'}`);

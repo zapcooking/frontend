@@ -8,23 +8,44 @@
    * run it, because zap.stream's LL-HLS playlists freeze AVPlayer — see
    * $lib/streams/hlsEngine. Native HLS is the fallback. Status flows into the
    * `streamPlayer` store, where the playing surface's UI reads it.
+   *
+   * Go live sessions (`item.source === 'zapcooking'`) have no URL. They play
+   * over a receive-only WebRTC connection set up through Zap Cooking's play
+   * relay (/api/live/<id>/join), with the rejoin rules in WatchPolicy and
+   * the rejoin pass from the server. A member is asked to sign only if the
+   * session turns out to be full for guests.
    */
   import { onDestroy, onMount } from 'svelte';
+  import { browser } from '$app/environment';
   import {
     streamPlayer,
     setStreamStatus,
+    setStreamPaused,
     setStreamMuted,
-    setStreamPosition
+    setStreamPosition,
+    setStreamOrientation
   } from '$lib/stores/streamPlayer';
   import { runtime } from '$lib/streams/parse';
   import { clampSeek, formatClock, isSeekableDuration, percentOf } from '$lib/streams/scrub';
   import { hlsJsConfig, pickHlsEngine } from '$lib/streams/hlsEngine';
+  import { get } from 'svelte/store';
+  import { isGoLiveItem } from '$lib/streams/goLive';
+  import { goLiveAddress } from '$lib/streams/target';
+  import { ndk, userPublickey } from '$lib/nostr';
+  import { signNip98AuthHeader } from '$lib/nip98';
+  import { joinLiveSession, loadPass, savePass } from '$lib/live/watch/joinClient';
+  import { mediaProgress, WatchPolicy, type WatchStop } from '$lib/live/watch/watchPolicy';
   import PlayIcon from 'phosphor-svelte/lib/Play';
   import SpeakerHighIcon from 'phosphor-svelte/lib/SpeakerHigh';
   import SpeakerXIcon from 'phosphor-svelte/lib/SpeakerX';
   import PictureInPictureIcon from 'phosphor-svelte/lib/PictureInPicture';
   import ArrowsOutIcon from 'phosphor-svelte/lib/ArrowsOut';
+  import ChatCircleTextIcon from 'phosphor-svelte/lib/ChatCircleText';
+  import ChatCircleSlashIcon from 'phosphor-svelte/lib/ChatCircleSlash';
+  import LiveOverlay from './LiveOverlay.svelte';
+  import { streamSlot } from '$lib/stores/streamSlot';
   import { showToast } from '$lib/toast';
+  import StreamLikes from './StreamLikes.svelte';
 
   export let surface: 'page' | 'dock' | 'popout' = 'page';
 
@@ -47,8 +68,71 @@
   let appliedGeneration = -1;
   let appliedUrl: string | null = null;
   let autoplayRejected = false;
+  /**
+   * Dev-only preview: `?orientation=portrait|landscape` on the URL forces
+   * the layout branch without a real broadcast in that shape. No-op in
+   * production builds.
+   */
+  const devOrientation =
+    import.meta.env.DEV && browser
+      ? ((): 'portrait' | 'landscape' | null => {
+          const v = new URLSearchParams(window.location.search).get('orientation');
+          return v === 'portrait' || v === 'landscape' ? v : null;
+        })()
+      : null;
+  let portrait = devOrientation === 'portrait';
+  function measure(e: Event) {
+    const v = e.currentTarget as HTMLVideoElement;
+    if (devOrientation) {
+      portrait = devOrientation === 'portrait';
+      setStreamOrientation(devOrientation);
+      return;
+    }
+    portrait = v.videoHeight > v.videoWidth && v.videoWidth > 0;
+    // The stream page's layout follows the picture's shape (chat beside a
+    // portrait video runs full height; landscape caps to the video block).
+    setStreamOrientation(v.videoWidth && v.videoHeight ? (v.videoHeight > v.videoWidth ? 'portrait' : 'landscape') : null);
+  }
+
+  // The dev override re-asserts itself whenever the store resets (stream
+  // switch) or before any metadata has arrived.
+  $: if (devOrientation && $streamPlayer.orientation === null) setStreamOrientation(devOrientation);
   let paused = true;
   let inPictureInPicture = false;
+
+  // ── Control chrome reveal ────────────────────────────────────────────
+  // The seek bar and buttons fade unless they are needed: the pointer is
+  // moving over the player (desktop), a tap was recent (touch), the stream
+  // is paused, a drag is in flight, or a control inside has keyboard focus
+  // (:focus-within in the styles). Stillness is the fade signal on desktop
+  // too — parked-mouse chrome is never shown idle.
+  let touchRecent = false;
+  let chromeTimer: ReturnType<typeof setTimeout> | null = null;
+  const CHROME_SHOW_MS = 3000;
+
+  function pokeChrome() {
+    touchRecent = true;
+    if (chromeTimer) clearTimeout(chromeTimer);
+    chromeTimer = setTimeout(() => (touchRecent = false), CHROME_SHOW_MS);
+  }
+
+  /** A tap on hidden controls reveals the chrome; the click that follows
+      it is swallowed instead of toggling play/pause. */
+  let tapToReveal = false;
+
+  function onChromePointerDown(event: PointerEvent) {
+    tapToReveal = !chromeVisible;
+    // A reveal tap on any pointer type should show the chrome immediately:
+    // a stationary mouse must not wait for its next movement.
+    pokeChrome();
+  }
+
+  /** Desktop: movement keeps the chrome up, stillness lets it fade. */
+  function onChromePointerMove(event: PointerEvent) {
+    if (event.pointerType === 'mouse') pokeChrome();
+  }
+
+  $: chromeVisible = touchRecent || paused || scrubbing;
 
   // ── Replay playhead ───────────────────────────────────────────────────
   // A live HLS playlist reports an infinite duration, so the bar only shows
@@ -111,7 +195,186 @@
     return hlsPromise;
   }
 
+  // ── Go live (WebRTC through our play relay) ──────────────────────
+  let pc: RTCPeerConnection | null = null;
+  let policy: WatchPolicy | null = null;
+  let statsTimer: ReturnType<typeof setInterval> | null = null;
+
+  /** Session storage for the rejoin pass, or undefined where storage is blocked
+   *  (reading the property itself can throw SecurityError): join without a pass. */
+  function passStorage(): Storage | undefined {
+    try {
+      return typeof sessionStorage !== 'undefined' ? sessionStorage : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  function stopRtc() {
+    policy?.shutdown();
+    policy = null;
+    if (statsTimer) clearInterval(statsTimer);
+    statsTimer = null;
+    pc?.close();
+    pc = null;
+    if (video) video.srcObject = null;
+  }
+
+  function playVideo() {
+    video?.play().then(
+      () => {},
+      () => {
+        // Autoplay with sound can be refused; the play overlay takes over.
+        autoplayRejected = true;
+      }
+    );
+  }
+
+  function gathered(conn: RTCPeerConnection): Promise<void> {
+    if (conn.iceGatheringState === 'complete') return Promise.resolve();
+    return new Promise((resolve) => {
+      const done = () => {
+        conn.removeEventListener('icegatheringstatechange', check);
+        resolve();
+      };
+      const check = () => conn.iceGatheringState === 'complete' && done();
+      conn.addEventListener('icegatheringstatechange', check);
+      setTimeout(done, 2000);
+    });
+  }
+
+  /** A signed-in viewer with a signer can be counted as a member. */
+  function canSignAsMember(): boolean {
+    return !!get(userPublickey) && !!get(ndk)?.signer;
+  }
+
+  function startRtc(sessionId: string, generation: number) {
+    policy = new WatchPolicy({
+      rejoin: () => void rtcJoin(sessionId, generation),
+      stop: (reason) => rtcStopped(reason, generation),
+      setTimer: (fn, ms) => setTimeout(fn, ms),
+      clearTimer: (h) => clearTimeout(h as ReturnType<typeof setTimeout>)
+    });
+    policy.setHidden(typeof document !== 'undefined' && document.hidden);
+    statsTimer = setInterval(pollFrames, 1000);
+    void rtcJoin(sessionId, generation);
+  }
+
+  async function rtcJoin(sessionId: string, generation: number, signed = false) {
+    const owner = policy;
+    if (generation !== appliedGeneration || !owner) return;
+    owner.joinStarted();
+    pc?.close();
+    const conn = new RTCPeerConnection({ bundlePolicy: 'max-bundle' });
+    pc = conn;
+    // Still this player's join? The viewer can stop or switch streams during
+    // any await below; a stale join must neither be sent (it would take a
+    // guest slot or a pass rejoin) nor report to the current policy.
+    const current = () => pc === conn && generation === appliedGeneration && policy === owner;
+    conn.addTransceiver('video', { direction: 'recvonly' });
+    conn.addTransceiver('audio', { direction: 'recvonly' });
+    const media = new MediaStream();
+    conn.ontrack = (e) => {
+      media.addTrack(e.track);
+      if (video && video.srcObject !== media) {
+        video.srcObject = media;
+        playVideo();
+      }
+    };
+
+    let offerSdp: string;
+    let authorization: string | null = null;
+    try {
+      await conn.setLocalDescription(await conn.createOffer());
+      await gathered(conn);
+      offerSdp = conn.localDescription?.sdp ?? '';
+      if (signed) {
+        authorization = await signNip98AuthHeader(get(ndk), {
+          method: 'POST',
+          url: `${location.origin}/api/live/${sessionId}/join`,
+          bodyString: offerSdp
+        });
+      }
+    } catch {
+      conn.close();
+      if (current()) owner.joinFailed(signed ? 'full' : 'retry');
+      return;
+    }
+    if (!current()) {
+      conn.close();
+      return;
+    }
+
+    const out = await joinLiveSession(sessionId, offerSdp, {
+      pass: loadPass(passStorage(), sessionId),
+      authorization
+    });
+    if (!current()) {
+      conn.close();
+      return;
+    }
+    if (!out.ok) {
+      conn.close();
+      // Full for guests: a signed-in member gets in uncounted. Ask the
+      // signer only now, so a member is not prompted on every join, and
+      // never from a hidden tab: there the policy holds a retry until the
+      // tab is visible, and that guest join (full again) asks then.
+      if (out.failure === 'full' && !signed && canSignAsMember()) {
+        if (typeof document !== 'undefined' && document.hidden) {
+          owner.joinFailed('retry');
+          return;
+        }
+        void rtcJoin(sessionId, generation, true);
+        return;
+      }
+      if (out.failure === 'not_live' || out.failure === 'retry' || out.failure === 'rejected') {
+        setStreamStatus(out.failure === 'not_live' ? 'connecting' : 'buffering');
+      }
+      owner.joinFailed(out.failure);
+      return;
+    }
+    savePass(passStorage(), sessionId, out.pass);
+    try {
+      await conn.setRemoteDescription({ type: 'answer', sdp: out.answerSdp });
+      if (!current()) {
+        conn.close();
+        return;
+      }
+      owner.joinSucceeded();
+    } catch {
+      conn.close();
+      if (current()) owner.joinFailed('retry');
+    }
+  }
+
+  async function pollFrames() {
+    if (!pc || !policy) return;
+    try {
+      // No inbound entry yet counts as 0 (see decodedVideoFrames, mediaProgress):
+      // an answered join that never delivers media must still trip the
+      // no-picture rule and rejoin, not stay black.
+      const report = await pc.getStats();
+      policy?.frames(mediaProgress(report));
+    } catch {
+      /* stats unavailable this tick */
+    }
+  }
+
+  function rtcStopped(reason: WatchStop, generation: number) {
+    if (generation !== appliedGeneration) return;
+    if (statsTimer) clearInterval(statsTimer);
+    statsTimer = null;
+    pc?.close();
+    pc = null;
+    setStreamStatus(reason === 'full' ? 'full' : reason === 'gave_up' ? 'unavailable' : 'ended');
+  }
+
+  function onVisibility() {
+    policy?.setHidden(document.hidden);
+  }
+
   function teardownMedia() {
+    stopRtc();
     if (hls) {
       hls.destroy();
       hls = null;
@@ -136,10 +399,31 @@
 
   async function wire(state: typeof $streamPlayer) {
     if (!video) return;
-    if (!state.item || !state.mediaUrl || state.surface !== surface) {
+    const goLive = isGoLiveItem(state.item);
+    if (!state.item || state.surface !== surface || (!goLive && !state.mediaUrl)) {
       if (appliedGeneration !== -1) teardownMedia();
       return;
     }
+    if (goLive) {
+      const sessionId = state.item.sessionId;
+      if (!sessionId || state.item.status === 'ended') {
+        if (appliedGeneration !== -1) teardownMedia();
+        // Guarded: setting the status re-runs this function through the store.
+        if (state.status !== 'ended') setStreamStatus('ended');
+        return;
+      }
+      const target = `rtc:${sessionId}`;
+      if (state.generation === appliedGeneration && target === appliedUrl) return;
+      teardownMedia();
+      appliedGeneration = state.generation;
+      appliedUrl = target;
+      autoplayRejected = false;
+      setStreamStatus('connecting');
+      video.muted = state.muted;
+      startRtc(sessionId, state.generation);
+      return;
+    }
+    if (!state.mediaUrl) return;
     if (state.generation === appliedGeneration && state.mediaUrl === appliedUrl) return;
 
     teardownMedia();
@@ -208,6 +492,7 @@
   // Reactive statements run before bind:this lands, so wire once more after mount.
   onMount(() => {
     wire($streamPlayer);
+    document.addEventListener('visibilitychange', onVisibility);
   });
 
   $: if ($streamPlayer.muted && video) {
@@ -217,6 +502,39 @@
   function toggleMute() {
     setStreamMuted(!video?.muted);
     if (video) video.muted = !video.muted;
+  }
+
+  // ── Go live overlays (comments + zap lightning) ────────────────────
+  // Comments on the video: on by default in full screen, off otherwise;
+  // the player's button flips the current one for this visit. Zap
+  // animations always run (reduced motion gets a static banner). The
+  // corner dock never shows comments: it is too small.
+  let fullscreen = false;
+  let commentsFullscreen = true;
+  let commentsInline = false;
+  function onFullscreenChange() {
+    const doc = document as Document & { webkitFullscreenElement?: Element | null };
+    const el = document.fullscreenElement ?? doc.webkitFullscreenElement ?? null;
+    fullscreen = !!el && !!container && el === container;
+  }
+  onMount(() => {
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', onFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', onFullscreenChange);
+    };
+  });
+  $: overlayTarget =
+    $streamPlayer.item && isGoLiveItem($streamPlayer.item) && $streamPlayer.item.status !== 'ended'
+      ? goLiveAddress($streamPlayer.item.host, $streamPlayer.item.sessionId)
+      : null;
+  $: inPageSlot = !!$streamSlot && $streamSlot.isConnected;
+  $: overlayCommentsOn = fullscreen ? commentsFullscreen : inPageSlot && commentsInline;
+  $: commentsToggleShown = !!overlayTarget && (fullscreen || inPageSlot);
+  function toggleOverlayComments() {
+    if (fullscreen) commentsFullscreen = !commentsFullscreen;
+    else commentsInline = !commentsInline;
   }
 
   async function toggleFullscreen() {
@@ -350,14 +668,30 @@
     };
   }
 
+  onMount(() => {
+    // The chrome shows briefly on load, then fades until it is needed.
+    pokeChrome();
+    return () => {
+      if (chromeTimer) clearTimeout(chromeTimer);
+    };
+  });
+
   onDestroy(() => {
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', onVisibility);
+    }
     teardownMedia();
   });
 </script>
 
 <div
   bind:this={container}
-  class="@container relative w-full overflow-hidden rounded-xl bg-black aspect-video group"
+  class="engine-box @container relative w-full overflow-hidden rounded-xl bg-black aspect-video group"
+  class:portrait
+  role="group"
+  aria-label="Video player"
+  on:pointerdown={onChromePointerDown}
+  on:pointermove={onChromePointerMove}
 >
   <!-- Live relay video has no caption track; the a11y rule targets media
        with meaningful content that can carry one. -->
@@ -369,8 +703,15 @@
     on:playing={() => {
       setStreamStatus('playing');
       paused = false;
+      setStreamPaused(false);
+      // The reveal clock starts with the picture: a slow WebRTC join must
+      // not eat the three seconds before the viewer sees anything.
+      pokeChrome();
     }}
-    on:pause={() => (paused = true)}
+    on:pause={() => {
+      paused = true;
+      setStreamPaused(true);
+    }}
     on:waiting={() => setStreamStatus('buffering')}
     on:error={handleError}
     on:timeupdate={() => {
@@ -379,15 +720,45 @@
       if (video && item?.status === 'ended') setStreamPosition(video.currentTime);
     }}
     on:durationchange={syncTime}
-    on:loadedmetadata={syncTime}
+    on:loadedmetadata={(e) => {
+      syncTime();
+      measure(e);
+    }}
+    on:resize={measure}
     on:seeked={syncTime}
-    on:playing={() => (paused = false)}
-    on:pause={() => (paused = true)}
     on:click={() => {
+      // A tap that revealed hidden controls is a reveal, not a toggle:
+      // swallowing it keeps "show me the controls" from pausing the stream.
+      if (tapToReveal) {
+        tapToReveal = false;
+        return;
+      }
       if (video?.paused) video.play().catch(() => {});
       else video?.pause();
     }}
   ></video>
+  {#if devOrientation}
+    <!-- Dev preview: a standalone placeholder broadcast, so the portrait
+         and landscape layouts can be judged without a real stream. -->
+    <!-- svelte-ignore a11y-media-has-caption -->
+    <video
+      class="pointer-events-none absolute inset-0 h-full w-full object-cover"
+      src="/dev/portrait-demo.mp4"
+      autoplay
+      muted
+      loop
+      playsinline
+      aria-hidden="true"
+    ></video>
+  {/if}
+  {#if overlayTarget}
+    <LiveOverlay
+      target={overlayTarget}
+      showComments={overlayCommentsOn}
+      compact={!fullscreen && !inPageSlot}
+      bottom="4.75rem"
+    />
+  {/if}
   {#if $streamPlayer.item}
     <div class="pointer-events-none absolute left-3 top-3 flex items-center gap-2">
       <span
@@ -396,7 +767,11 @@
           ? 'bg-zinc-700 text-zinc-200'
           : 'bg-red-600 text-white animate-pulse'}"
       >
-        {$streamPlayer.item.status === 'ended' ? 'Replay' : 'Live'}
+        {$streamPlayer.item.status === 'ended'
+          ? isGoLiveItem($streamPlayer.item)
+            ? 'Ended'
+            : 'Replay'
+          : 'Live'}
       </span>
       {#if $streamPlayer.item.viewers != null && $streamPlayer.item.status !== 'ended'}
         <span class="rounded-full bg-black/60 px-2 py-0.5 text-xs text-zinc-200">
@@ -406,8 +781,9 @@
     </div>
 
     <div
-      class="pointer-events-none absolute bottom-0 left-0 right-0 flex flex-col gap-1 p-3
+      class="chrome pointer-events-none absolute bottom-0 left-0 right-0 flex flex-col gap-1 p-3
       bg-gradient-to-t from-black/70 to-transparent"
+      class:chrome-hidden={!chromeVisible}
     >
       {#if scrubbable}
         <!-- Replay playhead. A native range gives pointer, touch and keyboard
@@ -433,84 +809,106 @@
         </div>
       {/if}
       <div class="flex items-end gap-2">
-      <!-- Persistent keyboard-accessible play/pause: the video's own click
+        <!-- Persistent keyboard-accessible play/pause: the video's own click
            handler stays for pointer users; this labeled button serves
            keyboard and screen-reader users at all times. -->
-      <button
-        type="button"
-        class="{ctrlBtn} pointer-events-auto shrink-0 transition-colors"
-        aria-label={paused ? 'Play stream' : 'Pause stream'}
-        title={paused ? 'Play' : 'Pause'}
-        on:click|stopPropagation={() => {
-          if (video?.paused) video.play().catch(() => {});
-          else video?.pause();
-        }}
-      >
-        {#if paused}
-          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <path d="M8 5v14l11-7z" />
-          </svg>
-        {:else}
-          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-            <path d="M7 5h4v14H7zM13 5h4v14h-4z" />
-          </svg>
-        {/if}
-      </button>
-      <div class="min-w-0 flex-1">
-        <p
-          class="truncate text-sm font-medium text-white"
-          dir="auto"
-          title={$streamPlayer.item.title}
-        >
-          {$streamPlayer.item.title}
-        </p>
-        <p class="text-xs text-zinc-300">
-          {#if $streamPlayer.status === 'connecting'}
-            Connecting…
-          {:else if $streamPlayer.status === 'buffering'}
-            Buffering…
-          {:else if $streamPlayer.status === 'unavailable'}
-            Stream unavailable — try another stream or come back later.
-          {:else if $streamPlayer.item.starts && $streamPlayer.item.status !== 'ended'}
-            Live for {runtime($streamPlayer.item.starts)?.minutes ?? 0} min
-          {/if}
-        </p>
-      </div>
-      <div class="pointer-events-auto flex shrink-0 items-center gap-1 @min-[340px]:pointer-coarse:gap-2">
         <button
           type="button"
-          on:click={toggleMute}
-          class={ctrlBtn}
-          aria-label={$streamPlayer.muted ? 'Unmute' : 'Mute'}
-          title={$streamPlayer.muted ? 'Unmute' : 'Mute'}
+          class="{ctrlBtn} pointer-events-auto shrink-0 transition-colors"
+          aria-label={paused ? 'Play stream' : 'Pause stream'}
+          title={paused ? 'Play' : 'Pause'}
+          on:click|stopPropagation={() => {
+            if (video?.paused) video.play().catch(() => {});
+            else video?.pause();
+          }}
         >
-          {#if $streamPlayer.muted}
-            <SpeakerXIcon class="h-4 w-4" />
+          {#if paused}
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M8 5v14l11-7z" />
+            </svg>
           {:else}
-            <SpeakerHighIcon class="h-4 w-4" />
+            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M7 5h4v14H7zM13 5h4v14h-4z" />
+            </svg>
           {/if}
         </button>
-        {#if pipSupported(video)}
+        <div class="min-w-0 flex-1">
+          <p
+            class="truncate text-sm font-medium text-white"
+            dir="auto"
+            title={$streamPlayer.item.title}
+          >
+            {$streamPlayer.item.title}
+          </p>
+          <p class="text-xs text-zinc-300">
+            {#if $streamPlayer.status === 'connecting'}
+              Connecting…
+            {:else if $streamPlayer.status === 'buffering'}
+              Buffering…
+            {:else if $streamPlayer.status === 'unavailable'}
+              Stream unavailable — try another stream or come back later.
+            {:else if $streamPlayer.item.starts && $streamPlayer.item.status !== 'ended'}
+              Live for {runtime($streamPlayer.item.starts)?.minutes ?? 0} min
+            {/if}
+          </p>
+        </div>
+        <div
+          class="pointer-events-auto flex shrink-0 items-center gap-1 @min-[340px]:pointer-coarse:gap-2"
+        >
           <button
             type="button"
-            on:click={togglePictureInPicture}
-            class="{ctrlBtn} {inPictureInPicture ? 'ring-1 ring-white/70' : ''}"
-            aria-label="Picture in picture"
-            title="Picture in picture"
+            on:click={toggleMute}
+            class={ctrlBtn}
+            aria-label={$streamPlayer.muted ? 'Unmute' : 'Mute'}
+            title={$streamPlayer.muted ? 'Unmute' : 'Mute'}
           >
-            <PictureInPictureIcon class="h-4 w-4" />
+            {#if $streamPlayer.muted}
+              <SpeakerXIcon class="h-4 w-4" />
+            {:else}
+              <SpeakerHighIcon class="h-4 w-4" />
+            {/if}
           </button>
-        {/if}
-        <button
-          type="button"
-          on:click={toggleFullscreen}
-          class={ctrlBtn}
-          aria-label="Full screen"
-          title="Full screen"
-        >
-          <ArrowsOutIcon class="h-4 w-4" />
-        </button>
-      </div>
+          {#if commentsToggleShown}
+            <button
+              type="button"
+              on:click={toggleOverlayComments}
+              class="{ctrlBtn} {overlayCommentsOn ? 'ring-1 ring-white/70' : ''}"
+              aria-pressed={overlayCommentsOn}
+              aria-label={overlayCommentsOn
+                ? 'Hide comments on the video'
+                : 'Show comments on the video'}
+              title={overlayCommentsOn
+                ? 'Hide comments on the video'
+                : 'Show comments on the video'}
+            >
+              {#if overlayCommentsOn}
+                <ChatCircleTextIcon class="h-4 w-4" />
+              {:else}
+                <ChatCircleSlashIcon class="h-4 w-4" />
+              {/if}
+            </button>
+          {/if}
+          {#if pipSupported(video)}
+            <button
+              type="button"
+              on:click={togglePictureInPicture}
+              class="{ctrlBtn} {inPictureInPicture ? 'ring-1 ring-white/70' : ''}"
+              aria-label="Picture in picture"
+              title="Picture in picture"
+            >
+              <PictureInPictureIcon class="h-4 w-4" />
+            </button>
+          {/if}
+          <button
+            type="button"
+            on:click={toggleFullscreen}
+            class={ctrlBtn}
+            aria-label="Full screen"
+            title="Full screen"
+          >
+            <ArrowsOutIcon class="h-4 w-4" />
+          </button>
+        </div>
       </div>
     </div>
 
@@ -530,7 +928,25 @@
     {/if}
   {/if}
 
-  {#if $streamPlayer.status === 'unavailable'}
+  {#if $streamPlayer.status === 'ended' && isGoLiveItem($streamPlayer.item)}
+    <div class="absolute inset-0 flex items-center justify-center bg-black/75 p-4 text-center">
+      <p class="text-sm font-medium text-zinc-100">This live stream has ended</p>
+    </div>
+  {:else if $streamPlayer.status === 'full'}
+    <div
+      class="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/75 p-4 text-center"
+    >
+      <p class="text-sm font-medium text-zinc-100">
+        This live stream is full for guests. Cook+ members always get in.
+      </p>
+      <a
+        href="/membership"
+        class="rounded-full bg-white px-4 py-1.5 text-sm font-semibold text-zinc-900 hover:bg-zinc-200"
+      >
+        Become a member
+      </a>
+    </div>
+  {:else if $streamPlayer.status === 'unavailable'}
     <div class="absolute inset-0 flex items-center justify-center bg-black/70 p-4 text-center">
       <p class="text-sm text-zinc-300">
         This stream is not reachable right now.
@@ -538,9 +954,31 @@
       </p>
     </div>
   {/if}
+
+  <!-- Rapid-fire likes: each one floats up here at once; signed-in
+       viewers also publish them as signed ephemeral events (kind 21111)
+       so other viewers and the host see them. -->
+  <StreamLikes />
 </div>
 
 <style>
+  /* Control chrome fades when it is not needed: no hover, no recent tap,
+     playing, not scrubbing. Keyboard focus inside it reveals it again. */
+  .chrome {
+    transition: opacity 0.25s ease;
+  }
+  .chrome.chrome-hidden {
+    opacity: 0;
+  }
+  .chrome.chrome-hidden .pointer-events-auto {
+    pointer-events: none;
+  }
+  .chrome:focus-within {
+    opacity: 1;
+  }
+  .chrome:focus-within .pointer-events-auto {
+    pointer-events: auto;
+  }
   /* The filled part of the track follows --progress; the thumb grows while
      the bar is hovered, focused or held. */
   .scrub {
@@ -618,6 +1056,25 @@
     .scrub::-moz-range-thumb {
       width: 16px;
       height: 16px;
+    }
+  }
+  /* In the stream page's slot (not the corner dock): a portrait broadcast
+     gets a tall frame instead of a narrow strip inside 16:9, as tall as
+     the window allows under the header with room for the host row. */
+  :global(.stream-slot) .engine-box.portrait {
+    aspect-ratio: auto;
+    height: min(calc(100dvh - var(--header-h, 4rem) - 8rem), 177vw, 56rem);
+    min-height: 16rem;
+  }
+  @media (max-width: 640px) {
+    :global(.stream-slot) .engine-box {
+      border-radius: 0;
+    }
+    /* Leave the host row, the Chat | Recipe tabs and the bottom nav in view under the video. */
+    :global(.stream-slot) .engine-box.portrait {
+      height: calc(
+        100dvh - var(--header-h, 4rem) - 4rem - env(safe-area-inset-bottom, 0px) - 10.5rem
+      );
     }
   }
 </style>

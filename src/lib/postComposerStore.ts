@@ -1,5 +1,6 @@
 import { writable } from 'svelte/store';
 import type { NDKEvent } from '@nostr-dev-kit/ndk';
+import type { ComposerRestore } from './scheduledList';
 
 export const postComposerOpen = writable(false);
 
@@ -15,6 +16,55 @@ export function openComposerWithQuote(nevent: string, event: NDKEvent) {
 // Helper function to clear the quoted note (called when composer closes)
 export function clearQuotedNote() {
   quotedNoteStore.set(null);
+}
+
+/**
+ * Text the composer starts with the next time it opens (e.g. "Share on
+ * Nostr" for a live stream). The composer takes it once on open and
+ * clears it; an unsent draft keeps its text and gets this after it.
+ */
+export const composerPrefillText = writable<string | null>(null);
+
+export function openComposerWithText(text: string) {
+  composerPrefillText.set(text);
+  postComposerOpen.set(true);
+}
+
+/**
+ * A scheduled post on its way back into the composer (Reschedule, in My
+ * Kitchen › Scheduled). The text and attachments travel as the
+ * composer's stored draft; this carries the rest: the poll, the relay
+ * mode and the time. The composer takes it once on open and clears it.
+ */
+export const composerRestore = writable<ComposerRestore | null>(null);
+
+export function openComposerRestored(restore: ComposerRestore) {
+  composerRestore.set(restore);
+  postComposerOpen.set(true);
+}
+
+/**
+ * A publish time for the composer to open with (the Scheduled calendar):
+ *
+ *   publishAt  the post's time is already set to this (an empty slot was
+ *              chosen): the "Will post …" line shows it and no picker
+ *              step is needed. It can still be changed.
+ *   pickerAt   the time picker opens showing this, and nothing is set
+ *              until the person picks (a day's "+", for a time of their
+ *              own on that day).
+ *
+ * Whatever unsent draft there is stays in the composer: this is only
+ * about when. The composer takes it once on open and clears it.
+ */
+export interface ComposerSchedulePreset {
+  publishAt: number | null;
+  pickerAt: number | null;
+}
+export const composerSchedulePreset = writable<ComposerSchedulePreset | null>(null);
+
+export function openComposerAt(preset: ComposerSchedulePreset) {
+  composerSchedulePreset.set(preset);
+  postComposerOpen.set(true);
 }
 
 // A parked note draft: the composer closed with unsent content and the draft

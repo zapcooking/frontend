@@ -16,12 +16,22 @@ import {
   sweepDueEvents,
   relaysFor,
   PANTRY_RELAY,
+  SCHEDULER_FLOOR_RELAYS,
   MAX_ATTEMPTS,
-  SWEEP_BATCH_LIMIT
+  SWEEP_BATCH_LIMIT,
+  TICK_BUDGET_SECONDS,
+  PUBLISH_GRACE_AFTER_FIRST_OK_MS,
+  PUBLISH_HARD_CAP_MS,
+  SWEEP_PUBLISH_OPTIONS
 } from './sweep';
-import { dispatchScheduled, MINUTELY_CRON, DAILY_CRON } from './index';
+import { dispatchScheduled, runSweepTick, MINUTELY_CRON, DAILY_CRON } from './index';
+import { publishEventRaw, PER_RELAY_TIMEOUT_MS, type WebSocketLike } from './publisher';
 import { importScheduleKey, encryptScheduledEvent } from '../../src/lib/scheduleCrypto.server';
 import { standardRelays } from '../../src/lib/consts';
+import {
+  MAX_SCHEDULE_RELAYS,
+  WORKERS_SIMULTANEOUS_CONNECTIONS
+} from '../../src/lib/scheduleRelays';
 
 const ENC_KEY = 'd'.repeat(64);
 const NOW = 1_800_000_000;
@@ -40,6 +50,7 @@ interface Row {
   kind: number;
   publish_at: number;
   relay_mode: string;
+  relays: string | null;
   ciphertext: string;
   iv: string;
   status: string;
@@ -70,10 +81,12 @@ function fakeD1(rows: Row[]) {
                   .filter((r) => r.status === 'pending' && r.publish_at <= args[0])
                   .sort((a, b) => a.publish_at - b.publish_at)
                   .slice(0, SWEEP_BATCH_LIMIT)
-                  .map(({ id, publish_at, relay_mode, ciphertext, iv }) => ({
+                  .map(({ id, publish_at, relay_mode, relays, ciphertext, iv }) => ({
                     id,
                     publish_at,
                     relay_mode,
+                    // Only what the SELECT names comes back, as in D1.
+                    relays: /\brelays\b/.test(sql) ? relays : undefined,
                     ciphertext,
                     iv
                   }));
@@ -145,6 +158,7 @@ async function seedRow(rows: Row[], overrides: Partial<Row> = {}): Promise<Row &
     kind: 1,
     publish_at: NOW - 60,
     relay_mode: 'all',
+    relays: null,
     ciphertext,
     iv,
     status: 'pending',
@@ -177,13 +191,233 @@ function sweep(db: FakeDb, publish: any, clock: () => number = fixedClock) {
 // ── relay sets ──────────────────────────────────────────────────────
 
 describe('relaysFor', () => {
-  it("'pantry' broadcasts to the pantry relay only", () => {
+  const USER = ['wss://a.example.com', 'wss://b.example.com'];
+
+  it("'pantry' broadcasts to the pantry relay only, ignoring the row's relays", () => {
     expect(relaysFor('pantry')).toEqual([PANTRY_RELAY]);
+    expect(relaysFor('pantry', JSON.stringify(USER))).toEqual([PANTRY_RELAY]);
   });
 
-  it("'all' broadcasts to the app's default relay list (shared constant, not a mirror)", () => {
-    expect(relaysFor('all')).toBe(standardRelays);
-    expect(standardRelays.length).toBeGreaterThan(0);
+  it("'all' with no row relays is the floor only", () => {
+    expect(SCHEDULER_FLOOR_RELAYS).toEqual(['wss://nos.lol', 'wss://relay.primal.net']);
+    expect(relaysFor('all')).toEqual(SCHEDULER_FLOOR_RELAYS);
+    expect(relaysFor('all', null)).toEqual(SCHEDULER_FLOOR_RELAYS);
+    expect(relaysFor('all', '[]')).toEqual(SCHEDULER_FLOOR_RELAYS);
+  });
+
+  it("'all' is the floor first, then the row's relays", () => {
+    expect(relaysFor('all', JSON.stringify(USER))).toEqual([...SCHEDULER_FLOOR_RELAYS, ...USER]);
+  });
+
+  it('a row relay that is already a floor relay is not connected to twice', () => {
+    const targets = relaysFor('all', JSON.stringify(['wss://nos.lol/', 'wss://a.example.com', 'wss://Relay.Primal.net']));
+    expect(targets).toEqual([...SCHEDULER_FLOOR_RELAYS, 'wss://a.example.com']);
+  });
+
+  it('never returns a fresh copy of the floor that callers could mutate into the constant', () => {
+    relaysFor('all').push('wss://mutated.example.com');
+    expect(SCHEDULER_FLOOR_RELAYS).toHaveLength(2);
+  });
+
+  it('the floor is its own list, not the app default relays (which include two that never take a note)', () => {
+    expect(relaysFor('all')).not.toEqual(standardRelays);
+    expect(SCHEDULER_FLOOR_RELAYS).not.toContain('wss://purplepag.es');
+    expect(SCHEDULER_FLOOR_RELAYS).not.toContain('wss://nostr.wine');
+  });
+
+  it('a damaged or hostile relays column cannot widen the target set', () => {
+    expect(relaysFor('all', '{not json')).toEqual(SCHEDULER_FLOOR_RELAYS);
+    expect(relaysFor('all', '"wss://a.example.com"')).toEqual(SCHEDULER_FLOOR_RELAYS);
+    expect(
+      relaysFor('all', JSON.stringify(['wss://localhost', 'ws://a.example.com', 'wss://10.0.0.1', 7, 'wss://ok.example.com']))
+    ).toEqual([...SCHEDULER_FLOOR_RELAYS, 'wss://ok.example.com']);
+    // More than the cap in the column: only the first MAX_SCHEDULE_RELAYS are used.
+    const many = Array.from({ length: 9 }, (_, i) => `wss://r${i}.example.com`);
+    expect(relaysFor('all', JSON.stringify(many))).toEqual([
+      ...SCHEDULER_FLOOR_RELAYS,
+      ...many.slice(0, MAX_SCHEDULE_RELAYS)
+    ]);
+  });
+
+  it('floor + client cap fits the Workers simultaneous-connection limit', () => {
+    expect(WORKERS_SIMULTANEOUS_CONNECTIONS).toBe(6);
+    expect(SCHEDULER_FLOOR_RELAYS.length + MAX_SCHEDULE_RELAYS).toBeLessThanOrEqual(
+      WORKERS_SIMULTANEOUS_CONNECTIONS
+    );
+    const full = Array.from({ length: MAX_SCHEDULE_RELAYS }, (_, i) => `wss://r${i}.example.com`);
+    expect(relaysFor('all', JSON.stringify(full)).length).toBeLessThanOrEqual(
+      WORKERS_SIMULTANEOUS_CONNECTIONS
+    );
+  });
+});
+
+describe('row relays reach the publisher', () => {
+  it("an 'all' row is published to floor + its relays; a pantry row to pantry alone", async () => {
+    const rows: Row[] = [];
+    const withRelays = await seedRow(rows, {
+      publish_at: NOW - 180,
+      relays: JSON.stringify(['wss://a.example.com'])
+    });
+    const plainRow = await seedRow(rows, { publish_at: NOW - 120 });
+    const pantryRow = await seedRow(rows, {
+      publish_at: NOW - 60,
+      relay_mode: 'pantry',
+      relays: JSON.stringify(['wss://a.example.com'])
+    });
+    const pub = makePublisher(1);
+    await sweep(fakeD1(rows), pub.publish);
+
+    expect(pub.calls).toEqual([
+      { eventId: withRelays.eventId, relays: [...SCHEDULER_FLOOR_RELAYS, 'wss://a.example.com'] },
+      { eventId: plainRow.eventId, relays: SCHEDULER_FLOOR_RELAYS },
+      { eventId: pantryRow.eventId, relays: [PANTRY_RELAY] }
+    ]);
+  });
+});
+
+// ── early settle: the sweep through the real publisher ──────────────
+
+/** Fake relay socket: opens, then answers the EVENT as scripted (or never). */
+class RelaySocket implements WebSocketLike {
+  closed = false;
+  private listeners = new Map<string, ((ev: any) => void)[]>();
+  constructor(private behaviour: 'accept' | 'reject' | 'silent' | 'never-opens') {
+    if (behaviour !== 'never-opens') setTimeout(() => this.emit('open', {}), 0);
+  }
+  addEventListener(type: string, fn: (ev: any) => void) {
+    this.listeners.set(type, [...(this.listeners.get(type) ?? []), fn]);
+  }
+  private emit(type: string, ev: any) {
+    for (const fn of this.listeners.get(type) ?? []) fn(ev);
+  }
+  send(data: string) {
+    const id = JSON.parse(data)[1].id;
+    if (this.behaviour === 'accept') {
+      setTimeout(() => this.emit('message', { data: JSON.stringify(['OK', id, true, '']) }), 1);
+    } else if (this.behaviour === 'reject') {
+      setTimeout(
+        () => this.emit('message', { data: JSON.stringify(['OK', id, false, 'blocked: spam filter']) }),
+        1
+      );
+    }
+  }
+  close() {
+    this.closed = true;
+  }
+}
+
+describe('sweep with the real publisher and early settle', () => {
+  const DEAD = 'wss://dead.example.com';
+  // The production numbers scaled 1:50 so the test takes milliseconds;
+  // the real values are pinned in the next describe block.
+  const scaled = {
+    graceAfterFirstOkMs: PUBLISH_GRACE_AFTER_FIRST_OK_MS / 50,
+    hardCapMs: PUBLISH_HARD_CAP_MS / 50
+  };
+
+  function realPublisher(behaviours: Record<string, ConstructorParameters<typeof RelaySocket>[0]>) {
+    const sockets: Record<string, RelaySocket> = {};
+    const publish = (event: any, relays: string[]) =>
+      publishEventRaw(event, relays, {
+        ...scaled,
+        timeoutMs: PER_RELAY_TIMEOUT_MS, // the real 10 s: only early settle can beat it
+        wsFactory: (url) => (sockets[url] = new RelaySocket(behaviours[url] ?? 'silent'))
+      });
+    return { sockets, publish };
+  }
+
+  it('one dead user relay + one accepting floor relay: the row is sent, quickly, with every socket closed', async () => {
+    const rows: Row[] = [];
+    const row = await seedRow(rows, { relays: JSON.stringify([DEAD]) });
+    const { sockets, publish } = realPublisher({
+      'wss://nos.lol': 'accept',
+      'wss://relay.primal.net': 'never-opens',
+      [DEAD]: 'silent'
+    });
+
+    const started = Date.now();
+    const summary = await sweep(fakeD1(rows), publish);
+    const elapsed = Date.now() - started;
+
+    expect(summary.sent).toBe(1);
+    expect(row.status).toBe('sent');
+    expect(row.sent_at).toBe(NOW);
+    expect(row.last_error).toBeNull();
+    expect(row.attempts).toBe(0);
+    // Settled by the grace period, far inside the 10 s per-relay timeout.
+    expect(elapsed).toBeLessThan(1500);
+    expect(Object.keys(sockets).sort()).toEqual([DEAD, 'wss://nos.lol', 'wss://relay.primal.net'].sort());
+    expect(Object.values(sockets).every((s) => s.closed)).toBe(true);
+  });
+
+  it('nothing answers: the row goes back to pending with a last_error that says so', async () => {
+    const rows: Row[] = [];
+    const row = await seedRow(rows, { relays: JSON.stringify([DEAD]) });
+    const { sockets, publish } = realPublisher({
+      'wss://nos.lol': 'silent',
+      'wss://relay.primal.net': 'never-opens',
+      [DEAD]: 'silent'
+    });
+
+    const started = Date.now();
+    const summary = await sweep(fakeD1(rows), publish);
+
+    expect(Date.now() - started).toBeLessThan(1500); // the hard cap, not 10 s
+    expect(summary.retried).toBe(1);
+    expect(row.status).toBe('pending');
+    expect(row.attempts).toBe(1);
+    expect(row.last_error).toBe('no relay answered before the publish was abandoned (3 pending)');
+    expect(Object.values(sockets).every((s) => s.closed)).toBe(true);
+  });
+
+  it('a relay that refused is what last_error reports, even with silent relays listed before it', async () => {
+    const rows: Row[] = [];
+    const REFUSES = 'wss://refuses.example.com';
+    const row = await seedRow(rows, { relays: JSON.stringify([REFUSES]) });
+    const { publish } = realPublisher({
+      'wss://nos.lol': 'silent',
+      'wss://relay.primal.net': 'silent',
+      [REFUSES]: 'reject'
+    });
+
+    await sweep(fakeD1(rows), publish);
+
+    expect(row.status).toBe('pending');
+    expect(row.last_error).toBe('blocked: spam filter');
+  });
+});
+
+describe('sweep publish options', () => {
+  it('are 2 s grace and a 6 s cap, under the per-relay timeout and the tick budget', () => {
+    expect(SWEEP_PUBLISH_OPTIONS).toEqual({ graceAfterFirstOkMs: 2000, hardCapMs: 6000 });
+    expect(PUBLISH_GRACE_AFTER_FIRST_OK_MS).toBeLessThan(PUBLISH_HARD_CAP_MS);
+    expect(PUBLISH_HARD_CAP_MS).toBeLessThan(PER_RELAY_TIMEOUT_MS);
+    expect(PUBLISH_HARD_CAP_MS).toBeLessThan(TICK_BUDGET_SECONDS * 1000);
+  });
+
+  it('the worker entry hands exactly those options to the publisher for every row', async () => {
+    const rows: Row[] = [];
+    const row = await seedRow(rows, { relays: JSON.stringify(['wss://a.example.com']) });
+    const calls: { id: string; relays: string[]; opts: unknown }[] = [];
+    const publishImpl = async (event: any, relays: string[], opts: unknown) => {
+      calls.push({ id: event.id, relays, opts });
+      return 1;
+    };
+    const realNow = Date.now;
+    Date.now = () => NOW * 1000; // runSweepTick uses the wall clock
+    try {
+      await runSweepTick({ SCHEDULER_DB: fakeD1(rows), SCHEDULE_ENC_KEY: ENC_KEY }, publishImpl);
+    } finally {
+      Date.now = realNow;
+    }
+    expect(calls).toEqual([
+      {
+        id: row.eventId,
+        relays: [...SCHEDULER_FLOOR_RELAYS, 'wss://a.example.com'],
+        opts: SWEEP_PUBLISH_OPTIONS
+      }
+    ]);
+    expect(row.status).toBe('sent');
   });
 });
 

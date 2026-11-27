@@ -14,33 +14,52 @@
  * This route makes no Cloudflare Stream call: the live input is created
  * when the host publishes.
  *
+ * GET /api/live
+ *   No auth. The sessions that are live right now, newest first, in the
+ *   public shape (the same fields as GET /api/live/<id>). Used by the /live
+ *   directory. Empty while Go live is switched off. Each session also has
+ *   `watching`: how many are watching now (anonymous heartbeat count), or
+ *   null when it cannot be read.
+ *
  * Checks, in order, fail-fast:
  *   database bound                         → 500 not_configured
  *   Go live switched off (admin)           → 503 live_off
  *   body over 4 KB (enforced while reading) → 413 too_large
  *   NIP-98                                 → 401 auth_failed (coarse; reason logged only)
  *   body shape, title, recipe address      → 400 bad_request | bad_title | bad_recipe
- *   signer is on the host list             → 403 not_allowed
  *   membership could not be checked        → 503 membership_unavailable
  *   signer is not an active member         → 403 membership_required
  *   host already has a session not ended   → 409 already_active (with its id)
- *   create rate limit (atomic with insert) → 429 rate_limited
+ *   host has not agreed to the current     → 403 terms_required { version }
+ *     hosting terms (LIVE_TERMS_VERSION; POST /api/live/terms)
+ *   then, atomic with the insert:
+ *     signer is blocked from hosting       → 403 blocked
+ *     'approved' mode, signer not approved → 403 not_approved
+ *     create rate limit                    → 429 rate_limited
+ *     open sessions at the global cap      → 503 live_full
  *
- * A membership outage is never reported as "not a member": `unknown`
- * from the tri-state check is a 503, and only a real `inactive` is a 403.
+ * Who may host depends on the hosting mode (switched from /admin/live):
+ * 'approved' (the default) = active members on the approved-hosts list;
+ * 'members' = any active member. A membership outage is never reported
+ * as "not a member": `unknown` from the tri-state check is a 503, and
+ * only a real `inactive` is a 403.
  */
 
 import { json, type RequestHandler } from '@sveltejs/kit';
 import { verifyNip98 } from '$lib/nip98.server';
 import { authFailedResponse } from '$lib/scheduleApi.server';
 import { checkMembership } from '$lib/membershipApi.server';
-import { isLiveHost } from '$lib/live/config';
+import { LIVE_TERMS_VERSION, parseMaxOpenSessions } from '$lib/live/config';
 import { readBodyCapped } from '$lib/live/body.server';
 import { readLiveEnv } from '$lib/live/env.server';
 import { isLiveOff } from '$lib/live/killSwitch.server';
+import { readWatching } from '$lib/live/presence.server';
+import { getHostingMode } from '$lib/live/safety.server';
+import { hasAcceptedTerms } from '$lib/live/terms.server';
 import {
   createSession,
   getActiveSessionForHost,
+  listLiveSessions,
   parseRecipeAddress,
   parseTitle,
   type LiveDb
@@ -97,10 +116,6 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       return json({ error: 'bad_recipe' }, { status: 400, headers: NO_STORE });
     }
 
-    if (!isLiveHost(hostPubkey)) {
-      return json({ error: 'not_allowed' }, { status: 403, headers: NO_STORE });
-    }
-
     // Tri-state membership. The boolean helper reads an outage as "not a
     // member"; this route must not.
     const membershipEnabled = readLiveEnv(platform, 'MEMBERSHIP_ENABLED')?.toLowerCase() === 'true';
@@ -123,10 +138,33 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       return json({ error: 'already_active', id: existing.id }, { status: 409, headers: NO_STORE });
     }
 
-    const created = await createSession(db, { hostPubkey, title, recipeA });
+    // The hosting agreement (18+ and the Terms, incl. Live Stream Conduct),
+    // once per account per terms version. The host page shows the dialog.
+    if (!(await hasAcceptedTerms(db, hostPubkey, LIVE_TERMS_VERSION))) {
+      return json(
+        { error: 'terms_required', version: LIVE_TERMS_VERSION },
+        { status: 403, headers: NO_STORE }
+      );
+    }
+
+    const created = await createSession(db, {
+      hostPubkey,
+      title,
+      recipeA,
+      mode: await getHostingMode(platform),
+      maxOpen: parseMaxOpenSessions(readLiveEnv(platform, 'LIVE_MAX_OPEN_SESSIONS'))
+    });
     if (!created.ok) {
+      if (created.reason === 'blocked' || created.reason === 'not_approved') {
+        console.warn(`[Live] create refused: ${created.reason}`);
+        return json({ error: created.reason }, { status: 403, headers: NO_STORE });
+      }
       if (created.reason === 'rate_limited') {
         return json({ error: 'rate_limited' }, { status: 429, headers: NO_STORE });
+      }
+      if (created.reason === 'live_full') {
+        console.warn('[Live] create refused: open-session cap reached');
+        return json({ error: 'live_full' }, { status: 503, headers: NO_STORE });
       }
       // Lost a race with a simultaneous create from the same host.
       const winner = await getActiveSessionForHost(db, hostPubkey);
@@ -142,6 +180,29 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     );
   } catch (err) {
     console.error('[Live] create failed:', err);
+    return json({ error: 'internal' }, { status: 500, headers: NO_STORE });
+  }
+};
+
+export const GET: RequestHandler = async ({ platform }) => {
+  try {
+    const db = platform?.env?.SCHEDULER_DB as LiveDb | undefined;
+    if (!db) {
+      console.error('[Live] SCHEDULER_DB not configured');
+      return json({ error: 'not_configured' }, { status: 500, headers: NO_STORE });
+    }
+    // A short shared cache: the directory polls this, and every viewer sees
+    // the same answer. Status changes reach it within seconds.
+    const headers = { 'Cache-Control': 'public, max-age=10' };
+    if (await isLiveOff(platform)) return json({ sessions: [] }, { headers });
+    // Each live session carries its "watching now" count (null when the
+    // presence object cannot be read right now). Anonymous: see
+    // $lib/live/presenceCounter.
+    const sessions = await listLiveSessions(db);
+    const counts = await Promise.all(sessions.map((s) => readWatching(platform, s.id)));
+    return json({ sessions: sessions.map((s, i) => ({ ...s, watching: counts[i] })) }, { headers });
+  } catch (err) {
+    console.error(`[Live] list failed: ${(err as Error)?.name ?? 'error'}`);
     return json({ error: 'internal' }, { status: 500, headers: NO_STORE });
   }
 };

@@ -343,6 +343,16 @@
     const content = document.getElementById('app-content');
     if (!content) return;
     event.preventDefault();
+    // Outline the main area only when the skip link was used from the
+    // keyboard (a keyboard-activated click has detail 0). Other focus on it
+    // (a tap on plain content, which iPhone Safari routes to this focusable
+    // area, or focus moved by script for screen readers) draws nothing.
+    if (event.detail === 0) {
+      content.setAttribute('data-skip-focus', '');
+      content.addEventListener('blur', () => content.removeAttribute('data-skip-focus'), {
+        once: true
+      });
+    }
     content.focus({ preventScroll: true });
     const scroller = document.getElementById('app-scroll');
     if (scroller) scroller.scrollTop = 0;
@@ -640,8 +650,11 @@
         <!-- Header. Fixed to the viewport (not sticky inside the scroll
            container) so it stays put while the page content scrolls and
            rubber-band-bounces behind it. -->
+        <!-- ≥xl the strip is gone: search and the account controls nest
+             in the sidebar (DesktopSideNav), and --header-h collapses to
+             zero in app.css so no space is reserved. -->
         <div
-          class="header-blur fixed top-0 left-0 right-0 lg:left-[calc(14rem_+_5px)] xl:left-[calc(20rem_+_5px)] z-30 py-3 px-4"
+          class="header-blur fixed top-0 left-0 right-0 lg:left-[calc(14rem_+_5px)] xl:left-[calc(20rem_+_5px)] z-30 py-3 px-4 xl:hidden"
           on:click|self={scrollToTop}
         >
           <Header />
@@ -760,7 +773,15 @@
   #app-content {
     scroll-margin-top: calc(var(--header-h) + 0.75rem);
   }
-  #app-content:focus-visible {
+  /* The main area is focusable (tabindex -1) only as the skip link's
+     target. iPhone Safari also focuses it on a tap on plain content and
+     then draws :focus-visible, which showed as an orange ring around the
+     page (Go live host page, stream pages). Outline it only after a
+     keyboard skip. */
+  #app-content:focus {
+    outline: none;
+  }
+  :global(#app-content[data-skip-focus]:focus) {
     outline: 2px solid var(--color-primary);
     outline-offset: 4px;
   }

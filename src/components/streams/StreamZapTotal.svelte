@@ -7,16 +7,27 @@
    * service account. The zap request carries the `a` coordinate instead of
    * an event id, so receipts land with the `#a` tag every NIP-53 client
    * (zap.stream included) scans.
+   *
+   * A Go live session: with its "Live now" note (`noteId`) the zap targets
+   * the note, an `e` tag, so it also shows on the note in other apps.
+   * Without a note it targets the session's address (`address`, an `a`
+   * tag), like any NIP-53 stream. The total counts both.
    */
   import { createEventDispatcher } from 'svelte';
-  import { NDKUser } from '@nostr-dev-kit/ndk';
+  import { get } from 'svelte/store';
+  import { NDKEvent, NDKUser } from '@nostr-dev-kit/ndk';
+  import { ndk } from '$lib/nostr';
   import LightningIcon from 'phosphor-svelte/lib/Lightning';
   import ZapModal from '../ZapModal.svelte';
 
-  export let address: string;
+  export let address: string | null;
+  /**
+   * Go live: the "Live now" note's id, zapped instead of the address once
+   * it exists. Before it does (or with the note off) a zap goes to the
+   * address; the total counts it either way, so the button never waits.
+   */
+  export let noteId: string | null = null;
   export let hostPubkey: string;
-  /** Host's lud16 resolved by the player — skips the profile resolver. */
-  export let hostLud16: string | null = null;
   export let sats = 0;
   export let count = 0;
   export let loading = false;
@@ -26,6 +37,18 @@
   let zapOpen = false;
 
   $: hostUser = hostPubkey ? new NDKUser({ pubkey: hostPubkey }) : null;
+  // The note as an event the zap modal can target (id + author is enough).
+  $: noteEvent =
+    noteId && hostPubkey
+      ? new NDKEvent(get(ndk), {
+          kind: 1,
+          id: noteId,
+          pubkey: hostPubkey,
+          content: '',
+          tags: [],
+          created_at: 0
+        })
+      : null;
 
   function compact(n: number): string {
     if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
@@ -38,8 +61,29 @@
   }
 </script>
 
-<div class="flex items-center gap-1.5">
+<div class="flex items-center gap-1.5 {count > 0 ? 'justify-between' : 'justify-end'}">
   {#if hostUser}
+    {#if count > 0}
+      <!-- The count leads and the Zap button closes the row, so the button
+           sits at the right edge wherever this strip is stretched or paired
+           with the goal box. -->
+      <button
+        type="button"
+        class="text-sm font-semibold text-amber-500 tabular-nums whitespace-nowrap {loading
+          ? 'opacity-60'
+          : ''}"
+        on:click={() => (zapOpen = true)}
+        title={'⚡ ' +
+          sats.toLocaleString() +
+          ' sats across ' +
+          count.toLocaleString() +
+          (count === 1 ? ' zap' : ' zaps')}
+      >
+        ⚡ {compact(sats)} sats · {count.toLocaleString()}
+        {count === 1 ? 'zap' : 'zaps'}
+      </button>
+    {/if}
+
     <button
       type="button"
       class="flex items-center gap-1 rounded-full bg-amber-500/15 px-3 py-1.5 text-sm font-semibold text-amber-500 hover:bg-amber-500/25"
@@ -50,29 +94,14 @@
       <LightningIcon class="h-4 w-4" weight="fill" />
       Zap
     </button>
-
-    {#if count > 0}
-      <button
-        type="button"
-        class="text-sm font-semibold text-amber-500 tabular-nums {loading ? 'opacity-60' : ''}"
-        on:click={() => (zapOpen = true)}
-        title={'⚡ ' +
-          sats.toLocaleString() +
-          ' sats across ' +
-          count.toLocaleString() +
-          (count === 1 ? ' zap' : ' zaps')}
-      >
-        ⚡ {compact(sats)}
-      </button>
-    {/if}
   {/if}
 </div>
 
 {#if hostUser}
   <ZapModal
     bind:open={zapOpen}
-    event={hostUser}
-    addressTag={address}
+    event={noteEvent ?? hostUser}
+    addressTag={noteEvent ? undefined : (address ?? undefined)}
     on:zap-complete={onComplete}
   />
 {/if}

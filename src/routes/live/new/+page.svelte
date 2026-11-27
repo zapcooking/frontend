@@ -3,9 +3,11 @@
    * Go live — the host page.
    *
    * Reached from "Go live" in the create menu (pick a recipe or just a
-   * title) or on a recipe page (that recipe attached). Shown only to
-   * allowlisted hosts; the server enforces the list, this page only
-   * decides what to show.
+   * title) or on a recipe page (that recipe attached). Hosting is for
+   * active members (Cook+) who are not blocked; the server decides. This
+   * page shows the membership page link to a CONFIRMED non-member before
+   * the camera opens. An unknown membership answer goes ahead and lets the
+   * server decide (an outage is "try again", never "not a member").
    *
    * The page never holds a Cloudflare URL. It posts an SDP offer to
    * /api/live/<id>/publish and gets an SDP answer back.
@@ -18,54 +20,134 @@
    *    by itself. ReconnectPolicy republishes with backoff and the page
    *    shows "Reconnecting…", never an error that needs a tap.
    *  - It keeps the screen awake while live.
+   *  - With the "Live now" note switch on (the default), it posts a kind 1
+   *    note from the host when the broadcast first connects, records the
+   *    note's id on the session, and announces the stream (NIP-53) with
+   *    a pinned chat message linking the watch page, posted again every
+   *    15 minutes. Off: no note, no announcement, no link messages. Either way the stream has a zap total and
+   *    a chat, on the session's own address (kind 1311).
    */
-  import { onDestroy, onMount } from 'svelte';
+  import { onDestroy, onMount, tick } from 'svelte';
+  import { browser } from '$app/environment';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import { ndk, userPublickey } from '$lib/nostr';
   import { signNip98AuthHeader } from '$lib/nip98';
   import { requireAuth } from '$lib/auth/requireAuth';
-  import { isLiveHost } from '$lib/live/config';
+  import { goLiveAccess, LIVE_ACCESS_NOTE_MAX, LIVE_MEMBERSHIP_PATH } from '$lib/live/config';
+  import { getMembership } from '$lib/stores/membershipStatus';
   import { setBottomDockClaim } from '$lib/stores/bottomDock';
   import {
     createLiveSession,
+    endedStatsLine,
     endLiveSession,
+    dropHeldEndedEvent,
     endLiveSessionSigned,
+    holdEndedEvent,
+    endLiveSessionWithStats,
+    acceptLiveTerms,
+    fetchHostingStatus,
+    fetchLiveStats,
     publishOffer,
     readLiveStatus,
+    readWatchingNow,
+    recordLiveNote,
+    requestHostingAccess,
+    type OwnAccessRequest,
     type CreateOutcome,
     type HostSession,
+    type LiveStats,
     type SignRequest
   } from '$lib/live/host/hostApi';
+  import { LIVE_WATCHING_POLL_MS } from '$lib/live/config';
+  import { watchingCount, watchingLabel } from '$lib/streams/goLive';
   import { ReconnectPolicy, type StopReason } from '$lib/live/host/reconnect';
+  import { WatchRepeatGate } from '$lib/live/host/watchRepeats';
+  import { endedTwinTemplate, pickHostRelays } from '$lib/live/endedEvent';
+  import { publishWithRetry } from '$lib/live/host/publishRetry';
   import {
     cameraAttempts,
     classifyMediaError,
     clearStoredSession,
+    loadPinnedMessage,
+    storePinnedMessage,
     detectPlatform,
-    hasConfirmedAge,
     isConstraintFailure,
+    liveDurationLine,
     loadStoredSession,
     mediaHelp,
     readRecipeHandoff,
-    rememberAgeConfirmed,
-    setMicrophoneEnabled,
+    audioSwitches,
     storeSession,
     type HostPlatform,
     type MediaHelp
   } from '$lib/live/host/hostDevice';
+  import { LIVE_DEFAULT_TITLE, liveStreamName } from '$lib/live/streamName';
+  import { fetchSession, sessionToStreamItem } from '$lib/streams/goLive';
+  import { fetchRecipeEvent, recipeCardOf } from '$lib/streams/recipeCard';
+  import { createStreamPool } from '$lib/streams/relayPage';
+  import {
+    DISCOVERY_RELAYS,
+    goLiveAnnouncementRelays,
+    goLiveChatRelays
+  } from '$lib/streams/relays';
+  import { goLiveAddress } from '$lib/streams/target';
+  import { chatTemplate, goLiveChatScope } from '$lib/streams/chat';
+  import {
+    liveAnnouncementTemplate,
+    liveNoteTemplate,
+    liveWatchMessageText
+  } from '$lib/live/liveNote';
+  import { addClientTagToEvent } from '$lib/nip89';
+  import { NDKEvent, NDKRelaySet } from '@nostr-dev-kit/ndk';
+  import type { SimplePool } from 'nostr-tools/pool';
+  import type { StreamItem } from '$lib/streams/types';
+  import StreamChat from '../../../components/streams/StreamChat.svelte';
+  import RecipePanel from '../../../components/streams/RecipePanel.svelte';
+  import { hostCheckScope, pruneHostChecks } from '$lib/live/host/hostRecipeChecks';
+  import type { NDKEvent as NDKEventType } from '@nostr-dev-kit/ndk';
+  import CameraRotateIcon from 'phosphor-svelte/lib/CameraRotate';
+  import MonitorArrowUpIcon from 'phosphor-svelte/lib/MonitorArrowUp';
+  import MicrophoneIcon from 'phosphor-svelte/lib/Microphone';
+  import MicrophoneSlashIcon from 'phosphor-svelte/lib/MicrophoneSlash';
+  import {
+    canShareScreen,
+    classifyShareError,
+    displayMediaAttempts,
+    mixAudio,
+    shareHint,
+    shareProblemMessage,
+    type AudioMix
+  } from '$lib/live/host/screenShare';
+  import LiveShareButton from '../../../components/streams/LiveShareButton.svelte';
+  import { getSiteOrigin } from '$lib/utils/share';
+  import XIcon from 'phosphor-svelte/lib/X';
+  import ChatCircleTextIcon from 'phosphor-svelte/lib/ChatCircleText';
+  import ChatCircleSlashIcon from 'phosphor-svelte/lib/ChatCircleSlash';
+  import LightningIcon from 'phosphor-svelte/lib/Lightning';
+  import LightningSlashIcon from 'phosphor-svelte/lib/LightningSlash';
+  import LiveOverlay from '../../../components/streams/LiveOverlay.svelte';
+  import HostReactions from '../../../components/streams/HostReactions.svelte';
+  import {
+    OVERLAY_PREF_KEYS,
+    readOverlayPref,
+    writeOverlayPref
+  } from '$lib/live/overlay/overlay';
   import RecipePickerModal from '../../../components/RecipePickerModal.svelte';
   import Modal from '../../../components/Modal.svelte';
 
   const DOCK_OWNER = 'live-host';
   const STATUS_POLL_MS = 5000;
-  const DEFAULT_TITLE = 'Live cook-along';
+  const DEFAULT_TITLE = LIVE_DEFAULT_TITLE;
+  /** The "locking your phone" hint is shown until dismissed, once per device. */
+  const LOCK_HINT_KEY = 'zc.live.lockHintDismissed';
 
   type Phase =
     | 'loading' // working out who this is
     | 'signed_out'
-    | 'not_allowed'
-    | 'confirm_age'
+    | 'membership_required' // a confirmed non-member: link to the membership page
+    | 'blocked' // blocked from hosting by the admin
+    | 'rollout' // a member, not on the approved list yet: "Request access"
     | 'preview' // camera on, not live yet
     | 'starting' // creating the session and publishing
     | 'live'
@@ -76,6 +158,7 @@
   let phase: Phase = 'loading';
   let platform: HostPlatform = 'other';
   let videoEl: HTMLVideoElement;
+  let stageEl: HTMLElement;
 
   // What is being broadcast.
   let title = DEFAULT_TITLE;
@@ -89,6 +172,52 @@
   let mediaProblem: MediaHelp | null = null;
   let flipping = false;
 
+  // Screen sharing (desktop). While sharing, `stream` holds the screen's
+  // video track and the audio that is sent (the microphone, or the
+  // microphone mixed with the tab's audio); the camera is closed.
+  let shareSupported = false;
+  let sharing = false;
+  let shareBusy = false;
+  let screenTrack: MediaStreamTrack | null = null;
+  /** The shared tab's or system's audio, when the browser gave it. */
+  let screenAudio: MediaStreamTrack | null = null;
+  /** The microphone, held here while `stream` carries the mix instead. */
+  let micTrack: MediaStreamTrack | null = null;
+  let audioMix: AudioMix | null = null;
+  /** "Share one window or tab…", or the stronger whole-screen line. */
+  let shareLine = '';
+  /** The camera did not come back after sharing: offer to try again. */
+  let cameraLost = false;
+
+  // Sound. Two separate switches:
+  //  - micMuted: the host's own Mute button. Kept across camera and screen
+  //    switches and reconnects; only the host changes it.
+  //  - soundOn: the page's automatic rule (off while a phone is locked or
+  //    the page is hidden in camera mode, and when leaving the page).
+  // A muted microphone still sends silent audio packets, so viewers stay
+  // connected (their stall rule counts audio packets).
+  let micMuted = false;
+  let soundOn = true;
+
+  /** Apply both switches to the tracks. While sharing with tab audio, Mute silences only the microphone. */
+  function applyAudio() {
+    if (!stream) return;
+    const sent = stream.getAudioTracks()[0];
+    const on = audioSwitches({ mixing: !!micTrack, micMuted, soundOn });
+    if (micTrack) micTrack.enabled = on.mic;
+    if (sent) sent.enabled = on.sent;
+  }
+
+  function setSound(on: boolean) {
+    soundOn = on;
+    applyAudio();
+  }
+
+  function toggleMute() {
+    micMuted = !micMuted;
+    applyAudio();
+  }
+
   // Session and connection.
   let session: HostSession | null = null;
   let pc: RTCPeerConnection | null = null;
@@ -96,19 +225,35 @@
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let wakeLock: { release(): Promise<void> } | null = null;
   let startedAt = 0;
+  /** Whether this page ever had a connected broadcast (for the ended screen). */
+  let everLive = false;
+  /** "You were live for …" on the ended screen. */
+  let liveLine: string | null = null;
+  /** "Peak N watching · N joins · N sats" on the ended screen. */
+  let statsLine: string | null = null;
+  /** "N watching" while live (anonymous heartbeat count; 0 or unknown shows nothing). */
+  let watching: number | null = null;
+  let watchingTimer: ReturnType<typeof setInterval> | null = null;
   let elapsed = '0:00';
   let clockTimer: ReturnType<typeof setInterval> | null = null;
 
   // Messages. `notice` is a soft, non-blocking line; `endedMessage` is final.
   let notice = '';
   let endedMessage = '';
-  let ageDialogOpen = false;
+  // The hosting agreement ("I'm 18+, agree and go live"), recorded on the
+  // server per account and terms version. Asked when the host taps Go live.
+  let termsDialogOpen = false;
+  /** Agreed to the current version: true / false, or null = not known (create decides). */
+  let termsAccepted: boolean | null = null;
+  /** The version the dialog asks about (from hosting status or a terms_required reply). */
+  let termsVersion: string | null = null;
+  let termsBusy = false;
+  let termsError = '';
   let ending = false;
   /** Publish attempts made before the first success, for the badge. */
   let startAttempts = 0;
 
   const storage = () => (typeof sessionStorage !== 'undefined' ? sessionStorage : undefined);
-  const durable = () => (typeof localStorage !== 'undefined' ? localStorage : undefined);
 
   const sign: SignRequest = (opts) => signNip98AuthHeader($ndk, opts);
 
@@ -116,8 +261,515 @@
   $: isLive = phase === 'live' || phase === 'reconnecting';
   $: canStart = phase === 'preview' && !!stream && title.trim().length > 0;
 
+  // ── "Live now" note and chat ───────────────────────────────────────
+  /**
+   * The "Announce on Nostr" switch on the preview screen. Off: no "Live
+   * now" note and no NIP-53 announcement. The chat does not depend on it:
+   * it hangs off the session's own address.
+   */
+  let postNote = true;
+  /** The posted note's id, once it exists (also read back on resume). */
+  let noteId: string | null = null;
+  let notePosting = false;
+  /** The recipe's photo for the note, fetched when a recipe is attached. */
+  let recipeImage: string | null = null;
+  /** The attached recipe, for the host's own recipe panel while live. */
+  let recipeEvent: NDKEventType | null = null;
+  /** With a recipe and comments: which tab shows (Chat on each new stream). */
+  let hostTab: 'chat' | 'recipe' = 'chat';
+  let recipeImageFor: string | null = null;
+  let chatPool: SimplePool | null = null;
+  /** Verified zaps to the stream (its note and its address), as the chat counts them. */
+  let zapSats = 0;
+  let zapCount = 0;
+  let chatItem: StreamItem | null = null;
+
+  $: if (recipeA && recipeA !== recipeImageFor) void loadRecipeImage(recipeA);
+  async function loadRecipeImage(a: string) {
+    recipeImageFor = a;
+    recipeImage = null;
+    recipeEvent = null;
+    const event = await fetchRecipeEvent($ndk, a);
+    if (recipeImageFor === a) {
+      recipeImage = recipeCardOf(event)?.image ?? null;
+      recipeEvent = event;
+    }
+  }
+
+  // The chat's stream: this session, live. Built without waiting for the
+  // note; its id is filled in when the note is posted.
+  $: chatItem =
+    session && isLive
+      ? sessionToStreamItem(
+          {
+            id: session.id,
+            status: phase === 'ended' ? 'ended' : 'live',
+            title,
+            recipe_a: recipeA,
+            host_pubkey: $userPublickey,
+            created_at: Math.floor(startedAt / 1000),
+            started_at: Math.floor(startedAt / 1000),
+            ended_at: null,
+            note_id: noteId
+          },
+          recipeTitle ? { title: recipeTitle, image: recipeImage } : null,
+          ownName
+        )
+      : null;
+  $: if (chatItem && !chatPool) chatPool = createStreamPool();
+
+  // The side panel: the chat (every live stream has one) and, for a stream
+  // with a recipe attached, the recipe. A title-only stream keeps chat alone.
+  $: sideChat = !!(chatItem && chatPool);
+  /** Where the chat and the on-video comments hang: the session's address. */
+  $: chatAddress = session ? goLiveAddress($userPublickey, session.id) : null;
+  $: sideRecipe = !!recipeA && isLive;
+  $: sideTabs = sideChat && sideRecipe;
+  $: withSide = phase !== 'ended' && (sideChat || sideRecipe);
+
+  // Each new stream starts on Chat with no recipe checks. The checks live in
+  // this device's localStorage, scoped to the session; earlier streams' are
+  // removed here.
+  let hostTabFor: string | null = null;
+  $: if ((session?.id ?? null) !== hostTabFor) startHostPanels(session?.id ?? null);
+  function startHostPanels(id: string | null) {
+    hostTabFor = id;
+    hostTab = 'chat';
+    if (!id) return;
+    let ls: Storage | null = null;
+    try {
+      ls = window.localStorage;
+    } catch {
+      /* storage blocked: checks work in memory only */
+    }
+    pruneHostChecks(ls, id);
+  }
+
+  /**
+   * Post the "Live now" note and record it on the session. Runs once, when
+   * the broadcast first connects, so a start that never gets through
+   * leaves no note behind. A failure never stops the stream.
+   */
+  /**
+   * The note signed for a session, kept until its id is recorded. A retry
+   * (the next connect after a failure) re-publishes and re-records THIS
+   * event, never a new one: a lost reply after the server stored the id
+   * would otherwise leave duplicate Live now posts.
+   */
+  let signedNote: { sessionId: string; event: NDKEvent } | null = null;
+  let signedAnnouncement: { sessionId: string; event: NDKEvent } | null = null;
+  let signedWatchMessage: { sessionId: string; event: NDKEvent } | null = null;
+  let announcePublishedFor: string | null = null;
+  let announceRefreshTimer: ReturnType<typeof setInterval> | null = null;
+  /** The watch-link chat message repeats this often while live. */
+  const WATCH_MESSAGE_MS = 15 * 60 * 1000;
+  /** The announcement is re-signed on every 2nd repeat: every 30 minutes. */
+  const ANNOUNCE_REFRESH_EVERY = 2;
+  let refreshTicks = 0;
+  /** Repeats are for signers that answer at once: see WatchRepeatGate. */
+  const watchRepeats = new WatchRepeatGate();
+  // The same rule for the pre-signed "ended" announcement, counted on its
+  // own: a signer that declines it, or takes a while over it, is not
+  // asked for another one this stream.
+  const endedPresign = new WatchRepeatGate();
+  /** The live announcement whose ended twin has been dealt with, so a republish does not repeat it. */
+  let endedTwinFor: string | null = null;
+  const NOTE_RETRY_MS = 15000;
+  const NOTE_MAX_TRIES = 5;
+  let noteTries = 0;
+  let noteRetryTimer: ReturnType<typeof setTimeout> | null = null;
+
+  async function postLiveNote() {
+    if (!postNote || noteId || notePosting || !session) return;
+    notePosting = true;
+    noteTries++;
+    const forSession = session;
+    try {
+      let event = signedNote?.sessionId === forSession.id ? signedNote.event : null;
+      if (!event) {
+        const template = liveNoteTemplate({
+          name: streamName,
+          watchUrl: `${location.origin}/live/s/${forSession.id}`,
+          image: recipeImage,
+          recipeA
+        });
+        event = new NDKEvent($ndk, template as never);
+        addClientTagToEvent(event);
+        await event.sign();
+        signedNote = { sessionId: forSession.id, event };
+      }
+      const urls = [...new Set([...$ndk.pool.relays.keys(), ...DISCOVERY_RELAYS])];
+      await Promise.race([
+        event.publish(NDKRelaySet.fromRelayUrls(urls, $ndk, true)),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 10000))
+      ]);
+      if (session?.id !== forSession.id) return;
+      if (await recordLiveNote(forSession, event.id)) {
+        noteId = event.id;
+      } else {
+        // Not confirmed: the server may still hold an id (a lost reply, or
+        // one recorded earlier). Take what the session says.
+        const read = await fetchSession(forSession.id);
+        if (session?.id !== forSession.id) return;
+        if (!read?.note_id) throw new Error('not recorded');
+        noteId = read.note_id;
+      }
+      signedNote = null;
+      if (notice.startsWith('The Live now note')) notice = '';
+      // The announcement puts the session in the main live category (NIP-53).
+      void postLiveAnnouncement('live');
+    } catch {
+      if (session?.id === forSession.id) {
+        if (noteTries < NOTE_MAX_TRIES) {
+          // Same signed note, a little later (and again on reconnect).
+          notice = 'Posting your Live now note again shortly…';
+          if (noteRetryTimer) clearTimeout(noteRetryTimer);
+          noteRetryTimer = setTimeout(() => {
+            noteRetryTimer = null;
+            if (isLive) void postLiveNote();
+          }, NOTE_RETRY_MS);
+        } else {
+          notice =
+            "The Live now note wasn't posted, so this stream isn't announced on Nostr. Chat still works.";
+        }
+      }
+    } finally {
+      notePosting = false;
+    }
+  }
+
+  /**
+   * The id of this session's "Watch live on Zap Cooking: <link>" chat
+   * message (kind 1311 on the session's address), which the announcement
+   * pins so other live apps show the link at the top of the chat. Signed
+   * once per session, right before the announcement that names it; its id
+   * is kept with the session, so a reload pins the same message and never
+   * posts a second one. A signer that declined it, or took long over it,
+   * is not asked again. `create` is false for the ended announcement: it
+   * keeps an existing pin but never posts a new message. Nothing clears
+   * the id at teardown: the ended announcement is signed after it, and
+   * the id is only ever read for its own session. Null when there
+   * is none (the announcement then goes out without a pin).
+   */
+  async function pinnedWatchMessage(
+    forSession: HostSession,
+    hostPubkey: string,
+    watchUrl: string,
+    create: boolean
+  ): Promise<string | null> {
+    if (signedWatchMessage?.sessionId !== forSession.id) signedWatchMessage = null;
+    let id = signedWatchMessage?.event.id ?? loadPinnedMessage(storage(), forSession.id);
+    if (!id && create && watchRepeats.allows(forSession.id)) {
+      try {
+        const event = await signWatchMessage(forSession, hostPubkey, watchUrl);
+        if (!event) return null;
+        signedWatchMessage = { sessionId: forSession.id, event };
+        storePinnedMessage(storage(), forSession.id, event.id);
+        id = event.id;
+      } catch {
+        return null;
+      }
+    }
+    // Sent with every live announcement while this tab holds the signed
+    // event: a relay that missed it the first time gets it again (the
+    // same event, so never a duplicate).
+    if (create && signedWatchMessage) publishWatchMessage(signedWatchMessage.event);
+    return id;
+  }
+
+  /** A signed "Watch live on Zap Cooking: <link>" chat message (kind 1311). */
+  async function signWatchMessage(
+    forSession: HostSession,
+    hostPubkey: string,
+    watchUrl: string
+  ): Promise<NDKEvent | null> {
+    const scope = goLiveChatScope(hostPubkey, forSession.id);
+    if (!scope) return null;
+    const event = new NDKEvent($ndk, chatTemplate(scope, liveWatchMessageText(watchUrl)) as never);
+    // Timed: a slow or failed signature ends this stream's repeats.
+    await watchRepeats.timed(forSession.id, () => event.sign());
+    return event;
+  }
+
+  /** To the chat relays, best-effort. */
+  function publishWatchMessage(event: NDKEvent) {
+    void Promise.race([
+      event.publish(NDKRelaySet.fromRelayUrls(goLiveChatRelays(), $ndk, true)),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 10000))
+    ]).catch(() => undefined);
+  }
+
+  /**
+   * The same link again, as a new chat message: someone who opens the
+   * stream in another live app mid-way sees it near the bottom of the
+   * chat, not only at the very start. Zap Cooking's own chat leaves these
+   * out (isLiveWatchMessage). Only for a signer that answers at once:
+   * after one slow or failed signature the stream posts no more repeats
+   * (its pinned message and the announcement's link stay). Best-effort.
+   */
+  async function repeatWatchMessage(forSession: HostSession) {
+    if (!watchRepeats.allows(forSession.id)) return;
+    try {
+      const user = await $ndk.signer?.user();
+      const hostPubkey = user?.pubkey ?? $ndk.activeUser?.pubkey ?? '';
+      if (!hostPubkey) return;
+      const event = await signWatchMessage(
+        forSession,
+        hostPubkey,
+        `${getSiteOrigin()}/live/s/${forSession.id}`
+      );
+      if (event && session?.id === forSession.id) publishWatchMessage(event);
+    } catch {
+      // Not signed: the gate has stopped this stream's repeats.
+    }
+  }
+
+  /**
+   * The NIP-53 announcement puts the session in the main live category so
+   * other clients (Sidecar's video feature, zap.stream…) can pick it up.
+   * The announcement is cached per session; `fresh` forces a re-sign so a
+   * periodic republish refreshes `created_at` (the directory treats stale
+   * announcements as ended) and `status: 'ended'` replaces it when the
+   * stream is over — pass the closing session for that, since teardown
+   * has already cleared the page state. Best-effort: the Live now note is
+   * the primary surface and this one fails quietly.
+   */
+  async function postLiveAnnouncement(
+    status: 'live' | 'ended',
+    forSession: HostSession | null = session,
+    fresh = false
+  ) {
+    if (!forSession || !browser) return;
+    try {
+      // The signer's own pubkey — activeUser is only set by the NIP-46
+      // path, but every supported host signs through the configured signer.
+      const user = await $ndk.signer?.user();
+      const hostPubkey = user?.pubkey ?? $ndk.activeUser?.pubkey ?? '';
+      if (!hostPubkey) return;
+      let event =
+        !fresh &&
+        status === 'live' &&
+        signedAnnouncement?.sessionId === forSession.id
+          ? signedAnnouncement.event
+          : null;
+      // zap.cooking in production, the preview's own origin on a preview.
+      const watchUrl = `${getSiteOrigin()}/live/s/${forSession.id}`;
+      const pinnedId = await pinnedWatchMessage(
+        forSession,
+        hostPubkey,
+        watchUrl,
+        status === 'live'
+      );
+      if (!event) {
+        const template = liveAnnouncementTemplate({
+          sessionId: forSession.id,
+          name: streamName,
+          hostPubkey,
+          joinUrl: `${getSiteOrigin()}/api/live/${forSession.id}/join`,
+          watchUrl,
+          pinnedId,
+          // The session's start in seconds (startedAt is a local ms clock
+          // from the resume point; good enough when the server time is
+          // not in hand yet).
+          startedAt: Math.floor((startedAt ?? Date.now()) / 1000),
+          status,
+          image: recipeImage,
+          recipeA,
+          relays: goLiveAnnouncementRelays()
+        });
+        event = new NDKEvent($ndk, template as never);
+        addClientTagToEvent(event);
+        await event.sign();
+        signedAnnouncement = { sessionId: forSession.id, event };
+      }
+      // Marked as published at sign time: a relay may accept what the
+      // 10s race abandoned, and the refresh + ended replacement must
+      // still run for it.
+      announcePublishedFor = forSession.id;
+      if (status === 'live') startAnnouncementRefresh();
+      const urls = [...new Set([...$ndk.pool.relays.keys(), ...DISCOVERY_RELAYS])];
+      const signed = event;
+      const send = () => signed.publish(NDKRelaySet.fromRelayUrls(urls, $ndk, true));
+      if (status === 'ended') {
+        // The event that takes the LIVE card away in other apps: when no
+        // relay takes it, the same signed event is sent again, twice at
+        // most. The signer is asked once.
+        await publishWithRetry(send);
+        return;
+      }
+      const published = Promise.race([
+        send(),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 10000))
+      ]);
+      // The live one is on its way first; its ended twin never holds it up.
+      void presignEnded(forSession, event, urls);
+      await published;
+    } catch {
+      // Best-effort: the Live now note is the primary surface.
+    }
+  }
+
+  /**
+   * Sign the ended twin of a live announcement and leave it with the
+   * server, which publishes it when the session ends without this page
+   * (tab closed, connection lost, the time limit): only the host can
+   * sign "ended", and by then the host is often gone.
+   *
+   * One more signature per live announcement, so the fast-signer rule
+   * applies: declined, failed or slow, and this stream is not asked
+   * again. A live announcement that then goes out without a twin makes
+   * the held one too old to end anything, so it is withdrawn. Going live
+   * never waits on any of this.
+   */
+  async function presignEnded(forSession: HostSession, live: NDKEvent, relays: string[]) {
+    if (!live.id || endedTwinFor === live.id) return;
+    endedTwinFor = live.id;
+    try {
+      if (!endedPresign.allows(forSession.id)) throw new Error('not asked');
+      const twin = new NDKEvent($ndk, endedTwinTemplate(live.rawEvent() as never) as never);
+      await endedPresign.timed(forSession.id, () => twin.sign());
+      if (session?.id !== forSession.id) return; // ended while signing
+      await holdEndedEvent(forSession, twin.rawEvent(), pickHostRelays(relays));
+    } catch {
+      // Not asked, declined or failed: the ended event this page publishes
+      // itself at End is what remains. A twin held from an earlier live
+      // announcement is too old now; have the server forget it.
+      if (session?.id === forSession.id) void dropHeldEndedEvent(forSession);
+    }
+  }
+
+  /**
+   * The directory treats announcements older than an hour as ended, so a
+   * long broadcast re-signs and republishes a fresh replacement every 30
+   * minutes while still live — regardless of whether the tab is in the
+   * background. The same timer posts the watch-link chat message again
+   * every 15 minutes (fast signers only), so every other one is signed
+   * together with the announcement.
+   */
+  function startAnnouncementRefresh() {
+    if (announceRefreshTimer) return;
+    refreshTicks = 0;
+    announceRefreshTimer = setInterval(() => {
+      if (!session) return;
+      refreshTicks++;
+      void repeatWatchMessage(session);
+      if (refreshTicks % ANNOUNCE_REFRESH_EVERY === 0) {
+        void postLiveAnnouncement('live', session, true);
+      }
+    }, WATCH_MESSAGE_MS);
+  }
+
+  /** The host's own name, for "<name> is cooking <recipe>". */
+  let ownName: string | null = null;
+  $: streamName = liveStreamName({
+    title,
+    hasRecipe: !!recipeA,
+    recipeTitle,
+    hostName: ownName
+  });
+
+  // On-video comments and zap animations: on unless this device turned
+  // them off. They only change the host's own screen, never the broadcast.
+  // The zap switch also covers viewers' floating reactions.
+  let overlayComments = true;
+  let overlayZaps = true;
+  function overlayStorage(): Storage | null {
+    try {
+      return window.localStorage;
+    } catch {
+      return null;
+    }
+  }
+  function readOverlayPrefs() {
+    const ls = overlayStorage();
+    overlayComments = readOverlayPref(ls, OVERLAY_PREF_KEYS.hostComments);
+    overlayZaps = readOverlayPref(ls, OVERLAY_PREF_KEYS.hostZaps);
+  }
+  function toggleOverlayComments() {
+    overlayComments = !overlayComments;
+    writeOverlayPref(overlayStorage(), OVERLAY_PREF_KEYS.hostComments, overlayComments);
+  }
+  function toggleOverlayZaps() {
+    overlayZaps = !overlayZaps;
+    writeOverlayPref(overlayStorage(), OVERLAY_PREF_KEYS.hostZaps, overlayZaps);
+  }
+
+  let lockHintDismissed = true;
+  function readLockHint() {
+    try {
+      lockHintDismissed = localStorage.getItem(LOCK_HINT_KEY) === '1';
+    } catch {
+      lockHintDismissed = false;
+    }
+  }
+  function dismissLockHint() {
+    lockHintDismissed = true;
+    try {
+      localStorage.setItem(LOCK_HINT_KEY, '1');
+    } catch {
+      /* not remembered: it stays hidden for this visit */
+    }
+  }
+
+  async function loadOwnName(pubkey: string) {
+    try {
+      const profile = await $ndk.getUser({ pubkey }).fetchProfile();
+      const name = (profile?.displayName || profile?.name || '').toString().trim();
+      ownName = name || null;
+    } catch {
+      /* "Cooking <recipe>" without it */
+    }
+  }
+
+  // ── Staged rollout: "Request access" ──
+  // form: may ask (optional note) · sent: a request is pending ·
+  // declined: asked before and declined, may ask again from `retryAt`.
+  let accessView: 'form' | 'sent' | 'declined' = 'form';
+  let accessNote = '';
+  let accessRetryAt: number | null = null;
+  let accessSending = false;
+  let accessError = '';
+
+  function showOwnRequest(request: OwnAccessRequest) {
+    if (request.status === 'pending') accessView = 'sent';
+    else if (request.status === 'declined' && request.retry_at !== null) {
+      accessView = 'declined';
+      accessRetryAt = request.retry_at;
+    } else accessView = 'form';
+  }
+
+  async function requestAccess() {
+    if (accessSending) return;
+    accessSending = true;
+    accessError = '';
+    const outcome = await requestHostingAccess(accessNote.trim(), sign);
+    accessSending = false;
+    if (outcome.kind === 'approved') {
+      location.reload(); // approved meanwhile: start over as a host
+    } else if (outcome.kind === 'sent' || outcome.kind === 'already_pending') {
+      accessView = 'sent';
+    } else if (outcome.kind === 'declined_recently') {
+      accessView = 'declined';
+      accessRetryAt = outcome.retryAt;
+    } else if (outcome.kind === 'membership_required') {
+      phase = 'membership_required';
+    } else {
+      accessError =
+        outcome.kind === 'sign_failed'
+          ? 'The request was not signed. Approve it in your signer and try again.'
+          : "The request couldn't be sent. Please try again in a moment.";
+    }
+  }
+  const retryDate = (s: number | null) =>
+    s ? new Date(s * 1000).toLocaleDateString(undefined, { dateStyle: 'long' }) : 'soon';
+
   onMount(async () => {
     platform = detectPlatform(navigator.userAgent, navigator.maxTouchPoints);
+    shareSupported = canShareScreen({
+      platform,
+      hasGetDisplayMedia: typeof navigator.mediaDevices?.getDisplayMedia === 'function',
+      finePointer: window.matchMedia('(any-pointer: fine)').matches
+    });
 
     const handoff = readRecipeHandoff($page.url.searchParams);
     if (handoff) {
@@ -130,20 +782,26 @@
       phase = 'signed_out';
       return;
     }
-    if (!isLiveHost($userPublickey)) {
-      phase = 'not_allowed';
-      return;
-    }
+    const pk = $userPublickey.toLowerCase();
+    const startHosting = () => {
+      readLockHint();
+      readOverlayPrefs();
+      void loadOwnName($userPublickey);
+      document.addEventListener('visibilitychange', onVisibility);
+      window.addEventListener('pagehide', onPageHide);
+      window.addEventListener('online', onOnline);
+    };
 
-    document.addEventListener('visibilitychange', onVisibility);
-    window.addEventListener('pagehide', onPageHide);
-    window.addEventListener('online', onOnline);
-
-    // A session left open by a reload of this tab?
+    // A session left open by a reload of this tab? Recover it BEFORE the
+    // membership and approval checks below, which are for starting a NEW
+    // stream: a host whose approval was removed, or whose membership
+    // lapsed, while a session was open must still get Resume and End.
+    // (Publish still refuses a blocked host.)
     const stored = loadStoredSession(storage(), $userPublickey);
     if (stored) {
       const status = await readLiveStatus(stored.id);
       if (status === 'created' || status === 'live') {
+        startHosting();
         session = { id: stored.id, token: stored.token };
         title = stored.title || title;
         policy = makePolicy();
@@ -154,11 +812,28 @@
       clearStoredSession(storage());
     }
 
-    if (!hasConfirmedAge($userPublickey, durable())) {
-      phase = 'confirm_age';
-      ageDialogOpen = true;
+    // Only a confirmed "not a member" stops here. Unknown goes ahead: the
+    // server decides at create, and an outage there says "try again".
+    const membership = await getMembership([pk]).catch(
+      () => ({}) as Awaited<ReturnType<typeof getMembership>>
+    );
+    if (goLiveAccess(membership[pk]) === 'non_member') {
+      phase = 'membership_required';
       return;
     }
+    // Staged rollout: a member who is not approved yet can ask for access.
+    // Unanswered goes ahead; the create route decides.
+    const hosting = await fetchHostingStatus(sign);
+    if (hosting.known && !hosting.approved) {
+      showOwnRequest(hosting.request);
+      phase = 'rollout';
+      return;
+    }
+    if (hosting.known && hosting.terms) {
+      termsAccepted = hosting.terms.accepted;
+      termsVersion = hosting.terms.version;
+    }
+    startHosting();
     await enterPreview();
   });
 
@@ -170,18 +845,57 @@
     }
     setBottomDockClaim(DOCK_OWNER, false);
     teardown(false);
+    chatPool?.destroy();
+    chatPool = null;
   });
 
-  // ── 18+ confirmation ───────────────────────────────────────────────
-  async function confirmAge() {
-    rememberAgeConfirmed($userPublickey, durable());
-    ageDialogOpen = false;
-    await enterPreview();
+  // ── Hosting agreement (18+ and the Terms) ─────────────────────────
+  function askForTerms() {
+    termsError = '';
+    termsDialogOpen = true;
   }
 
-  function declineAge() {
-    ageDialogOpen = false;
-    leave();
+  /** "I'm 18+, agree and go live": record it, then go live. */
+  async function agreeToTerms() {
+    if (termsBusy) return;
+    if (!termsVersion) {
+      // Not known yet: let the create route say which version it wants.
+      termsDialogOpen = false;
+      termsAccepted = null;
+      await goLive();
+      return;
+    }
+    termsBusy = true;
+    termsError = '';
+    const outcome = await acceptLiveTerms(termsVersion, sign);
+    termsBusy = false;
+    if (outcome.kind === 'accepted') {
+      termsAccepted = true;
+      termsDialogOpen = false;
+      await goLive();
+      return;
+    }
+    if (outcome.kind === 'changed') {
+      termsVersion = outcome.version;
+      termsError = 'The Terms were just updated. Please review them, then try again.';
+      return;
+    }
+    if (outcome.kind === 'membership_required') {
+      termsDialogOpen = false;
+      teardown(true);
+      phase = 'membership_required';
+      return;
+    }
+    termsError =
+      outcome.kind === 'sign_failed'
+        ? 'The request was not signed. Approve it in your signer and try again.'
+        : "We couldn't save that just now. Check your connection and try again.";
+  }
+
+  /** "Not now": close the dialog and stay on the preview. */
+  function notNow() {
+    termsDialogOpen = false;
+    termsError = '';
   }
 
   // ── Camera ─────────────────────────────────────────────────────────
@@ -228,14 +942,16 @@
   const followed = new WeakSet<MediaStreamTrack>();
   function followCamera() {
     const track = stream?.getVideoTracks()[0];
-    if (!track || followed.has(track)) return;
+    // A shared screen is not a camera: a still window can read as muted,
+    // and that must not silence the host.
+    if (!track || track === screenTrack || followed.has(track)) return;
     followed.add(track);
     track.addEventListener('mute', () => {
-      if (stream?.getVideoTracks()[0] === track) setMicrophoneEnabled(stream, false);
+      if (stream?.getVideoTracks()[0] === track) setSound(false);
     });
     track.addEventListener('unmute', () => {
       if (stream?.getVideoTracks()[0] === track && document.visibilityState === 'visible') {
-        setMicrophoneEnabled(stream, true);
+        setSound(true);
       }
     });
   }
@@ -243,6 +959,7 @@
   /** Called every time the page adopts a camera: first open, flip, revive, resume. */
   function attachPreview() {
     followCamera();
+    applyAudio();
     if (videoEl && stream) {
       videoEl.srcObject = stream;
       videoEl.play().catch(() => undefined);
@@ -250,7 +967,7 @@
   }
 
   async function flip() {
-    if (!stream || flipping) return;
+    if (!stream || flipping || sharing) return;
     flipping = true;
     const next = facing === 'environment' ? 'user' : 'environment';
     const old = stream.getVideoTracks()[0];
@@ -285,11 +1002,16 @@
 
   /** After the tab was hidden or the phone locked, the camera may be dead. Bring it back. */
   async function reviveCamera() {
-    if (!stream) return;
+    // While sharing, the video track is the screen, not a camera.
+    if (!stream || sharing) return;
     const video = stream.getVideoTracks()[0];
     if (video && video.readyState === 'live' && !video.muted) return;
     try {
       const fresh = (await openCamera(facing, false)).getVideoTracks()[0];
+      if (!stream) {
+        fresh.stop();
+        return;
+      }
       if (video) {
         video.stop();
         stream.removeTrack(video);
@@ -297,12 +1019,162 @@
       stream.addTrack(fresh);
       const sender = pc?.getSenders().find((s) => s.track?.kind === 'video' || s.track === null);
       await sender?.replaceTrack(fresh);
+      cameraLost = false;
       attachPreview();
       // The camera is back and the host is looking at the page.
-      setMicrophoneEnabled(stream, true);
+      setSound(true);
     } catch {
       /* Stay as we are; the next visibility change tries again. */
     }
+  }
+
+  // ── Sharing the screen ─────────────────────────────────────────────
+  /** The sender for one kind of track. A sendonly transceiver's receiver still has that kind. */
+  function senderFor(kind: 'audio' | 'video'): RTCRtpSender | undefined {
+    return pc?.getTransceivers().find((t) => t.receiver.track?.kind === kind)?.sender;
+  }
+
+  /**
+   * Put `next` in place of the stream's track of that kind: in `stream`
+   * (what a republish sends) and on the live connection (replaceTrack, no
+   * renegotiation). Returns the track it replaced, still running.
+   */
+  async function swapTrack(
+    kind: 'audio' | 'video',
+    next: MediaStreamTrack
+  ): Promise<MediaStreamTrack | null> {
+    if (!stream) return null;
+    const old = (kind === 'video' ? stream.getVideoTracks() : stream.getAudioTracks())[0] ?? null;
+    if (old) stream.removeTrack(old);
+    stream.addTrack(next);
+    await senderFor(kind)?.replaceTrack(next);
+    return old;
+  }
+
+  let shareError = '';
+
+  async function startShare() {
+    if (!stream || sharing || shareBusy) return;
+    shareBusy = true;
+    shareError = '';
+    // The first getDisplayMedia call must happen inside the click itself
+    // (Safari refuses one made after an await), so nothing is awaited first.
+    let display: MediaStream | null = null;
+    const attempts = displayMediaAttempts();
+    for (let i = 0; i < attempts.length && !display; i++) {
+      try {
+        display = await navigator.mediaDevices.getDisplayMedia(attempts[i]);
+      } catch (err) {
+        const problem = classifyShareError(err);
+        if (problem === 'retry' && i < attempts.length - 1) continue;
+        shareError = shareProblemMessage(problem) ?? '';
+        shareBusy = false;
+        return;
+      }
+    }
+    const video = display?.getVideoTracks()[0];
+    if (!display || !video || !stream || phase === 'ended') {
+      display?.getTracks().forEach((t) => t.stop());
+      shareBusy = false;
+      return;
+    }
+    // Keep text sharp: a screen is mostly recipes and pages, not motion.
+    try {
+      video.contentHint = 'detail';
+    } catch {
+      /* not supported */
+    }
+    screenTrack = video;
+    const camera = await swapTrack('video', video);
+    camera?.stop(); // camera light off while the screen is on air
+
+    // Tab or system audio, when the browser offered it and the host
+    // ticked it: mixed with the microphone into the one audio track.
+    const tabAudio = display.getAudioTracks()[0] ?? null;
+    const mic = stream.getAudioTracks()[0] ?? null;
+    if (tabAudio && mic) {
+      const mix = mixAudio([mic, tabAudio]);
+      if (mix) {
+        micTrack = mic;
+        screenAudio = tabAudio;
+        audioMix = mix;
+        await swapTrack('audio', mix.track);
+      } else {
+        tabAudio.stop();
+      }
+    } else {
+      tabAudio?.stop();
+    }
+
+    sharing = true;
+    shareLine = shareHint(video.getSettings().displaySurface);
+    // Stopped from the browser's own "Stop sharing" control: back to the camera.
+    video.addEventListener('ended', () => {
+      if (screenTrack === video) void stopShare();
+    });
+    // The host is expected to be on another tab or window now: keep the
+    // microphone on (see onVisibility).
+    setSound(true);
+    attachPreview();
+    shareBusy = false;
+  }
+
+  /** Back to the camera, from the button or the browser's own control. */
+  async function stopShare() {
+    if (!sharing || !stream) return;
+    shareBusy = true;
+    sharing = false;
+    const screen = screenTrack;
+
+    // Sound: the microphone alone again.
+    if (audioMix && micTrack) {
+      await swapTrack('audio', micTrack);
+      audioMix.close();
+    }
+    audioMix = null;
+    micTrack = null;
+    screenAudio?.stop();
+    screenAudio = null;
+
+    // Picture: open the camera first, then drop the screen, so viewers
+    // never see a gap.
+    try {
+      const cam = (await openCamera(facing, false)).getVideoTracks()[0];
+      if (!stream) {
+        cam.stop();
+      } else {
+        await swapTrack('video', cam);
+        cameraLost = false;
+      }
+    } catch {
+      cameraLost = true;
+    }
+    screen?.stop();
+    screenTrack = null;
+    shareLine = '';
+    if (stream) {
+      attachPreview();
+      // The camera rule again: a hidden page sends no sound.
+      setSound(document.visibilityState === 'visible');
+    }
+    shareBusy = false;
+  }
+
+  /** Release whatever sharing holds (the screen itself is in `stream`). */
+  function releaseShare() {
+    audioMix?.close();
+    audioMix = null;
+    micTrack?.stop();
+    micTrack = null;
+    screenAudio?.stop();
+    screenAudio = null;
+    screenTrack?.stop();
+    screenTrack = null;
+    sharing = false;
+    shareBusy = false;
+    shareLine = '';
+    shareError = '';
+    cameraLost = false;
   }
 
   // ── Going live ─────────────────────────────────────────────────────
@@ -317,8 +1189,12 @@
 
   const createMessages: Record<Exclude<CreateOutcome, { ok: true }>['reason'], string> = {
     already_active: 'You already have a live stream open.',
-    not_allowed: 'Go live is not available for this account yet.',
+    blocked: 'This account cannot go live.',
+    not_approved: 'Live hosting is rolling out.',
+    terms_required: 'Please agree to the Terms of Service to go live.',
     membership_required: 'Go live is for Cook+ members.',
+    live_full:
+      'Too many cooks are live right now. Please try again in a few minutes.',
     membership_unavailable:
       "We couldn't check your membership just now. Please try again in a moment.",
     live_off: 'Go live is switched off right now. Please try again later.',
@@ -331,8 +1207,15 @@
 
   async function goLive() {
     if (!canStart || !stream) return;
+    if (termsAccepted === false) {
+      askForTerms();
+      return;
+    }
     phase = 'starting';
     notice = '';
+    // The Go live button sits below the video; bring the video (and the
+    // End button on it) fully back into view now that the form is gone.
+    void tick().then(() => stageEl?.scrollIntoView({ block: 'start' }));
 
     let outcome = await createLiveSession({ title: title.trim(), recipeA }, sign);
     if (!outcome.ok && outcome.reason === 'already_active' && outcome.id) {
@@ -350,6 +1233,24 @@
       return;
     }
     if (!outcome.ok) {
+      if (outcome.reason === 'terms_required') {
+        // Not agreed to the current terms (or they changed): ask, then retry.
+        phase = 'preview';
+        termsAccepted = false;
+        if (outcome.version) termsVersion = outcome.version;
+        askForTerms();
+        return;
+      }
+      if (
+        outcome.reason === 'blocked' ||
+        outcome.reason === 'membership_required' ||
+        outcome.reason === 'not_approved'
+      ) {
+        // Nothing this account can do from here: close the camera and say so.
+        teardown(true);
+        phase = outcome.reason === 'not_approved' ? 'rollout' : outcome.reason;
+        return;
+      }
       phase = 'preview';
       notice = createMessages[outcome.reason];
       return;
@@ -380,6 +1281,26 @@
       return;
     }
     startedAt = Date.now();
+    // The note (if any) was posted before the reload: read its id back,
+    // never post a second one. The announcement also waits for the
+    // session read: it only republishes when the host kept the note (a
+    // host who turned it off must not get a public 30311), and it needs
+    // the restored recipe/title and the real start time first.
+    postNote = false;
+    void fetchSession(session.id).then((read) => {
+      if (!read || session?.id !== read.id) return;
+      if (read.note_id) noteId = read.note_id;
+      // The recipe is not kept across a reload on this page: take it back
+      // from the session, for the name and the host's recipe panel.
+      if (read.recipe_a && !recipeA) {
+        recipeA = read.recipe_a;
+        recipeTitle = read.title;
+      }
+      if (read.note_id && read.started_at) {
+        startedAt = read.started_at * 1000;
+        void postLiveAnnouncement('live', session);
+      }
+    });
     await publish();
     startPolling();
     startClock();
@@ -423,8 +1344,10 @@
     conn.addEventListener('connectionstatechange', () => {
       if (pc !== conn || !policy) return; // an older connection
       if (conn.connectionState === 'connected') {
+        everLive = true;
         policy.connected();
         phase = 'live';
+        void postLiveNote();
       } else if (conn.connectionState === 'disconnected') {
         policy.disconnected();
         phase = 'reconnecting';
@@ -469,11 +1392,26 @@
       if (status === 'ended' || status === 'gone')
         await finish('This live stream has ended', false);
     }, STATUS_POLL_MS);
+    void readCount();
+    watchingTimer = setInterval(() => {
+      if (!document.hidden) void readCount();
+    }, LIVE_WATCHING_POLL_MS);
+  }
+
+  /** "N watching": the same number the Live cards show. */
+  async function readCount() {
+    const id = session?.id;
+    if (!id) return;
+    const n = await readWatchingNow(id);
+    // A failed read (null) keeps the last count: no blinking chip.
+    if (n !== null && session?.id === id && phase !== 'ended') watching = watchingCount(n);
   }
 
   function stopPolling() {
     if (pollTimer) clearInterval(pollTimer);
     pollTimer = null;
+    if (watchingTimer) clearInterval(watchingTimer);
+    watchingTimer = null;
   }
 
   function startClock() {
@@ -503,11 +1441,15 @@
       // Screen locked, or another app in front. iOS stops the camera but
       // not the microphone, so viewers would see black and still hear the
       // host. Send silence until the host is back.
-      setMicrophoneEnabled(stream, false);
+      // Not while sharing the screen: then the host is EXPECTED to be on
+      // another tab or window, talking over it.
+      if (!sharing) setSound(false);
       return;
     }
-    setMicrophoneEnabled(stream, true);
+    setSound(true);
     if (!isLive) return;
+    void readCount(); // back from the shared tab: a fresh count now
+
     // The lock is released whenever the page is hidden.
     await holdWakeLock();
     await reviveCamera();
@@ -515,8 +1457,11 @@
       policy?.failed();
   }
 
+  /** The public watch page for this session, for the host to share. */
+  $: watchUrl = session ? `${getSiteOrigin()}/live/s/${session.id}` : '';
+
   function onPageHide() {
-    setMicrophoneEnabled(stream, false);
+    setSound(false);
   }
 
   function onOnline() {
@@ -550,27 +1495,68 @@
     phase = 'ended';
     endedMessage = message;
     const closing = session;
+    // Captured before teardown clears them: the ended screen's sats are
+    // the stream's zap total as the chat counted it (note and address).
+    const sats = zapSats;
+    const wasLive = everLive;
+    statsLine = null;
+    // This page's own clock first; the server's start time (which also
+    // covers a stream resumed after a reload) replaces it when it arrives.
+    liveLine = everLive && startedAt ? liveDurationLine((Date.now() - startedAt) / 1000) : null;
     teardown(true);
-    if (tellServer && closing) await endLiveSession(closing);
+    // Replace the 'live' announcement with the ended one, first thing and
+    // alongside the server calls below: this is what other Nostr apps go
+    // by, and a host who closes the page right after End must not leave a
+    // LIVE card behind. Only when a live announcement went out
+    // (never-live sessions publish nothing).
+    if (closing && announcePublishedFor === closing.id) {
+      void postLiveAnnouncement('ended', closing, true);
+    }
+    let stats: LiveStats | null = null;
+    if (tellServer && closing) stats = (await endLiveSessionWithStats(closing)).stats;
+    // Ended elsewhere (time limit, admin, another device): the host token
+    // is dead by now, so the counts are asked for with a signature.
+    if (!stats && closing && wasLive) stats = await fetchLiveStats(closing.id, sign);
+    if (stats && wasLive) statsLine = endedStatsLine(stats, sats);
+    if (closing) {
+      const read = await fetchSession(closing.id);
+      if (read?.started_at) {
+        const end = read.ended_at ?? Math.floor(Date.now() / 1000);
+        liveLine = liveDurationLine(end - read.started_at);
+      }
+    }
   }
 
   /** Stop everything local: timers, connection, camera, wake lock. */
   function teardown(forget: boolean) {
+    if (noteRetryTimer) clearTimeout(noteRetryTimer);
+    noteRetryTimer = null;
     policy?.shutdown();
     policy = null;
     stopPolling();
+    watching = null;
     if (clockTimer) clearInterval(clockTimer);
     clockTimer = null;
+    if (announceRefreshTimer) clearInterval(announceRefreshTimer);
+    announceRefreshTimer = null;
     pc?.close();
     pc = null;
     stream?.getTracks().forEach((t) => t.stop());
     stream = null;
+    releaseShare();
+    micMuted = false;
+    soundOn = true;
     if (videoEl) videoEl.srcObject = null;
     void wakeLock?.release().catch(() => undefined);
     wakeLock = null;
     if (forget) {
       clearStoredSession(storage());
       session = null;
+      noteId = null;
+      signedNote = null;
+      noteTries = 0;
+      zapSats = 0;
+      zapCount = 0;
     }
   }
 
@@ -580,11 +1566,6 @@
     clearStoredSession(storage());
     session = null;
     policy = null;
-    if (!hasConfirmedAge($userPublickey, durable())) {
-      phase = 'confirm_age';
-      ageDialogOpen = true;
-      return;
-    }
     await enterPreview();
   }
 
@@ -612,28 +1593,106 @@
   <meta name="robots" content="noindex" />
 </svelte:head>
 
-<div class="live-host">
+<div class="live-host" class:with-side={withSide}>
   {#if phase === 'loading'}
     <p class="muted">Getting ready…</p>
   {:else if phase === 'signed_out'}
     <h1>Go live</h1>
     <p class="muted">Sign in to go live.</p>
-  {:else if phase === 'not_allowed'}
+  {:else if phase === 'membership_required'}
     <h1>Go live</h1>
-    <p class="muted">Go live is not available for this account yet.</p>
+    <p class="muted">Going live is part of Cook+. Become a member to cook live with the community.</p>
+    <a class="btn primary member-link" href={LIVE_MEMBERSHIP_PATH}>See Cook+</a>
+  {:else if phase === 'rollout'}
+    <h1>Live hosting is rolling out</h1>
+    {#if accessView === 'sent'}
+      <p class="muted" role="status">
+        Request sent. We'll let you know when Go live is ready for you.
+      </p>
+    {:else if accessView === 'declined'}
+      <p class="muted" role="status">
+        Your last request wasn't approved. You can ask again from {retryDate(accessRetryAt)}.
+      </p>
+    {:else}
+      <p class="muted">
+        We're opening Go live to Cook+ members a few cooks at a time. Ask for access and we'll let
+        you know when it's ready for you.
+      </p>
+      <label class="access-note">
+        <span class="muted">What would you cook, and how often? (optional)</span>
+        <textarea bind:value={accessNote} rows="3" maxlength={LIVE_ACCESS_NOTE_MAX} class="input"
+        ></textarea>
+      </label>
+      <button
+        class="btn primary member-link"
+        on:click={requestAccess}
+        disabled={accessSending}
+      >
+        {accessSending ? 'Sending…' : 'Request access'}
+      </button>
+      {#if accessError}<p class="muted" role="alert">{accessError}</p>{/if}
+    {/if}
+  {:else if phase === 'blocked'}
+    <h1>Go live</h1>
+    <p class="muted">This account cannot go live.</p>
   {:else if phase === 'ended'}
     <div class="ended" role="status">
       <h1>{endedMessage}</h1>
-      <button class="btn" on:click={leave}>Done</button>
+      {#if liveLine}<p class="muted">{liveLine}</p>{/if}
+      {#if statsLine}<p class="muted stats">{statsLine}</p>{/if}
+      <button class="btn done" on:click={leave}>Done</button>
     </div>
   {:else}
     <!-- Kept in the page (the video element must exist when the camera
          arrives) but collapsed while there is no picture to show, so the
          instructions are not pushed below an empty black box. -->
-    <div class="stage" class:collapsed={!!mediaProblem && !stream}>
+    <div
+      bind:this={stageEl}
+      class="stage"
+      class:collapsed={!!mediaProblem && !stream}
+      class:on-air={isLive || phase === 'starting'}
+      class:sharing
+    >
       <!-- svelte-ignore a11y-media-has-caption -->
-      <video bind:this={videoEl} autoplay muted playsinline class:mirrored={facing === 'user'}
+      <video
+        bind:this={videoEl}
+        autoplay
+        muted
+        playsinline
+        class:mirrored={facing === 'user' && !sharing}
       ></video>
+
+      {#if isLive && chatAddress}
+        <!-- Newest comments and zap lightning, on the host's screen only
+             (drawn over the preview, not into the broadcast). -->
+        <LiveOverlay
+          target={chatAddress}
+          showComments={overlayComments}
+          showZaps={overlayZaps}
+          bottom="4.75rem"
+        />
+      {/if}
+      {#if isLive && session && $userPublickey}
+        <!-- Viewers' reactions float up here too, with or without the
+             note (they also hang off the stream's address). Host's
+             screen only; the zap animations switch turns them off. -->
+        <HostReactions
+          sessionId={session.id}
+          hostPubkey={$userPublickey}
+          {noteId}
+          show={overlayZaps}
+        />
+      {/if}
+
+      {#if sharing}
+        <div class="share-banner" role="status">
+          <MonitorArrowUpIcon size={18} weight="bold" />
+          <span class="share-text">
+            <strong>You're sharing your screen</strong>
+            <span>{shareLine}</span>
+          </span>
+        </div>
+      {/if}
 
       {#if isLive}
         <div
@@ -647,13 +1706,131 @@
           {:else}
             <span class="dot" aria-hidden="true"></span> Live · {elapsed}
           {/if}
+          {#if micMuted}
+            <span class="mic-off">· Mic off</span>
+          {/if}
         </div>
       {:else if phase === 'starting'}
         <div class="badge" role="status" aria-live="polite">
           {startAttempts > 1 ? 'Still connecting…' : 'Starting…'}
         </div>
       {/if}
+
+      {#if stream && phase !== 'resume'}
+        <!-- Controls sit on the video, on a translucent bar along the bottom. -->
+        <div class="overlay-bar">
+          {#if !sharing}
+            <button
+              class="icon-btn"
+              on:click={flip}
+              disabled={!stream || flipping}
+              aria-label="Flip camera"
+              title="Flip camera"
+            >
+              <CameraRotateIcon size={20} weight="bold" />
+            </button>
+          {/if}
+          <button
+            class="icon-btn"
+            class:muted-mic={micMuted}
+            on:click={toggleMute}
+            aria-pressed={micMuted}
+            aria-label={micMuted ? 'Unmute microphone' : 'Mute microphone'}
+            title={micMuted ? 'Unmute microphone' : 'Mute microphone'}
+          >
+            {#if micMuted}
+              <MicrophoneSlashIcon size={20} weight="bold" />
+            {:else}
+              <MicrophoneIcon size={20} weight="bold" />
+            {/if}
+          </button>
+          {#if shareSupported}
+            <!-- Desktop only. Swaps the picture on the same connection:
+                 viewers stay connected. -->
+            <button
+              class="share-btn"
+              class:active={sharing}
+              on:click={sharing ? stopShare : startShare}
+              disabled={shareBusy}
+              aria-pressed={sharing}
+              title={sharing
+                ? 'Go back to your camera'
+                : 'Share one window or tab, not your whole screen'}
+            >
+              <MonitorArrowUpIcon size={18} weight="bold" />
+              {sharing ? 'Stop sharing' : 'Share screen'}
+            </button>
+          {/if}
+          {#if isLive && chatAddress}
+            <button
+              class="icon-btn"
+              class:off={!overlayComments}
+              on:click={toggleOverlayComments}
+              aria-pressed={overlayComments}
+              aria-label={overlayComments ? 'Hide comments on the video' : 'Show comments on the video'}
+              title={overlayComments ? 'Hide comments on the video' : 'Show comments on the video'}
+            >
+              {#if overlayComments}
+                <ChatCircleTextIcon size={20} weight="bold" />
+              {:else}
+                <ChatCircleSlashIcon size={20} weight="bold" />
+              {/if}
+            </button>
+          {/if}
+          {#if isLive}
+            <!-- Shown without a note too: it also switches viewers'
+                 reactions, which do not need one. -->
+            <button
+              class="icon-btn"
+              class:off={!overlayZaps}
+              on:click={toggleOverlayZaps}
+              aria-pressed={overlayZaps}
+              aria-label={overlayZaps
+                ? 'Turn off zap animations and reactions'
+                : 'Turn on zap animations and reactions'}
+              title={overlayZaps
+                ? 'Turn off zap animations and reactions (your screen only)'
+                : 'Turn on zap animations and reactions (your screen only)'}
+            >
+              {#if overlayZaps}
+                <LightningIcon size={20} weight="bold" />
+              {:else}
+                <LightningSlashIcon size={20} weight="bold" />
+              {/if}
+            </button>
+          {/if}
+          {#if isLive || phase === 'starting'}
+            {#if session}
+              <!-- Phones: the share sheet. Desktop: Copy link / Share on Nostr. -->
+              <LiveShareButton url={watchUrl} title={title} variant="icon" tone="glass" up />
+            {/if}
+            <span class="spacer"></span>
+            <!-- Never disabled while starting: if the first publish cannot get
+                 through, End is the only way out short of closing the tab. -->
+            <button class="end-btn" on:click={end} disabled={ending}>End</button>
+          {/if}
+        </div>
+      {/if}
+      {#if isLive && !lockHintDismissed && !sharing}
+        <!-- Shown until dismissed, once per device. -->
+        <p class="hint">
+          <span>Locking your phone or leaving this page pauses your picture and sound.</span>
+          <button class="hint-close" on:click={dismissLockHint} aria-label="Dismiss tip">
+            <XIcon size={12} weight="bold" />
+          </button>
+        </p>
+      {/if}
     </div>
+
+    {#if shareError}
+      <p class="notice" role="alert">{shareError}</p>
+    {/if}
+    {#if cameraLost && !sharing}
+      <div class="notice camera-lost" role="alert">
+        <span>Your camera didn't come back after sharing. Viewers can still hear you.</span>
+        <button class="btn" on:click={reviveCamera}>Turn the camera back on</button>
+      </div>
+    {/if}
 
     {#if mediaProblem}
       <div class="help" role="alert">
@@ -674,13 +1851,13 @@
     {#if phase === 'resume'}
       <div class="panel">
         <h1>You have a live stream open</h1>
-        <p class="muted">{title}</p>
+        <p class="muted">{streamName}</p>
         <div class="actions">
           <button class="btn primary" on:click={resume}>Resume</button>
           <button class="btn" on:click={endStored}>End</button>
         </div>
       </div>
-    {:else if phase === 'preview' || phase === 'confirm_age'}
+    {:else if phase === 'preview'}
       <div class="panel">
         {#if recipeA}
           <p class="recipe">
@@ -696,50 +1873,133 @@
           <button class="link" on:click={() => (pickerOpen = true)}>Pick one of my recipes</button>
         {/if}
 
+        <label class="switch-row">
+          <input type="checkbox" role="switch" bind:checked={postNote} />
+          <span class="switch-text">
+            <strong>Announce on Nostr</strong>
+            <span class="muted small">
+              {#if postNote}
+                Posts “{streamName}” from your account with the watch link, so it shows in your
+                followers' feeds and in live apps.
+              {:else}
+                Not announced: no note in your followers' feeds and no listing in other live
+                apps. The stream still shows on Zap Cooking's Live page, and chat and zaps work.
+              {/if}
+            </span>
+          </span>
+        </label>
+
         {#if notice}<p class="notice" role="status">{notice}</p>{/if}
 
-        <div class="actions">
-          <button
-            class="btn"
-            on:click={flip}
-            disabled={!stream || flipping}
-            aria-label="Flip camera">Flip</button
-          >
-          <button class="btn primary" on:click={goLive} disabled={!canStart}>Go live</button>
-        </div>
+        <button class="btn primary" on:click={goLive} disabled={!canStart}>Go live</button>
         <p class="muted small">Live streams end by themselves after 90 minutes.</p>
       </div>
     {:else}
-      <div class="panel">
-        <p class="live-title">{title}</p>
-        <p class="muted small">
-          Locking your phone or leaving this page pauses the picture and mutes your microphone.
-        </p>
+      <div class="panel live-panel">
+        <p class="live-title" title={streamName}>{streamName}</p>
+        {#if watching}
+          <p class="watching" role="status">{watchingLabel(watching)}</p>
+        {/if}
+        {#if zapCount > 0}
+          <p class="zaps" title={`${zapSats.toLocaleString()} sats across ${zapCount} zaps`}>
+            ⚡ {zapSats.toLocaleString()} sats · {zapCount}
+            {zapCount === 1 ? 'zap' : 'zaps'}
+          </p>
+        {/if}
         {#if notice}<p class="notice" role="status">{notice}</p>{/if}
-        <div class="actions">
-          <button
-            class="btn"
-            on:click={flip}
-            disabled={!stream || flipping}
-            aria-label="Flip camera">Flip</button
-          >
-          <!-- Never disabled while starting: if the first publish cannot get
-               through, End is the only way out short of closing the tab. -->
-          <button class="btn danger" on:click={end} disabled={ending}>End</button>
-        </div>
+        {#if !noteId && notePosting}
+          <p class="muted small" role="status">Posting your Live now note…</p>
+        {/if}
       </div>
+      {#if sideChat || sideRecipe}
+        <!-- Beside the video on wide screens, under it on phones. With a
+             recipe and comments both: Chat | Recipe tabs, Chat first. The
+             chat stays mounted on the Recipe tab, so comments and the zap
+             total keep arriving. -->
+        <div class="host-side">
+          {#if sideTabs}
+            <div class="tabs" role="tablist" aria-label="Live panels">
+              <button
+                type="button"
+                role="tab"
+                id="host-tab-chat"
+                aria-controls="host-panel-chat"
+                aria-selected={hostTab === 'chat'}
+                class:active={hostTab === 'chat'}
+                on:click={() => (hostTab = 'chat')}>Chat</button
+              >
+              <button
+                type="button"
+                role="tab"
+                id="host-tab-recipe"
+                aria-controls="host-panel-recipe"
+                aria-selected={hostTab === 'recipe'}
+                class:active={hostTab === 'recipe'}
+                on:click={() => (hostTab = 'recipe')}>Recipe</button
+              >
+            </div>
+          {/if}
+          {#if sideRecipe && session}
+            <section
+              class="host-recipe"
+              id="host-panel-recipe"
+              role={sideTabs ? 'tabpanel' : undefined}
+              aria-labelledby={sideTabs ? 'host-tab-recipe' : undefined}
+              aria-label={sideTabs ? undefined : 'Recipe'}
+              hidden={sideTabs && hostTab !== 'recipe'}
+            >
+              <RecipePanel
+                recipe={recipeEvent}
+                loading={!recipeEvent}
+                size="host"
+                checkScope={hostCheckScope(session.id)}
+              />
+            </section>
+          {/if}
+          {#if sideChat && chatItem && chatPool}
+            <!-- The stream's chat, on the session's address (note or no note). -->
+            <section
+              class="host-chat"
+              id="host-panel-chat"
+              role={sideTabs ? 'tabpanel' : undefined}
+              aria-labelledby={sideTabs ? 'host-tab-chat' : undefined}
+              aria-label={sideTabs ? undefined : 'Live chat'}
+              hidden={sideTabs && hostTab !== 'chat'}
+            >
+              {#key session?.id}
+                <StreamChat
+                  item={chatItem}
+                  pool={chatPool}
+                  on:zaps={(e) => {
+                    zapSats = Math.max(zapSats, e.detail.sats);
+                    zapCount = Math.max(zapCount, e.detail.count);
+                  }}
+                />
+              {/key}
+            </section>
+          {/if}
+        </div>
+      {/if}
     {/if}
   {/if}
 </div>
 
-<Modal bind:open={ageDialogOpen} locked noHeader compact autoHeight>
+<Modal bind:open={termsDialogOpen} locked noHeader compact autoHeight>
   <div class="age">
     <h2>Before you go live</h2>
-    <p>Hosts must be 18 or older. By continuing you confirm that you are 18 or older.</p>
-    <p class="muted small">You will only be asked this once on this device.</p>
+    <p>
+      You must be 18 or older to host. Live streams follow our
+      <a href="/terms" target="_blank" rel="noopener noreferrer" class="link">Terms of Service</a>,
+      including the Live Stream Conduct rules.
+    </p>
+    {#if termsError}
+      <p class="small" role="alert">{termsError}</p>
+    {/if}
     <div class="actions">
-      <button class="btn" on:click={declineAge}>Cancel</button>
-      <button class="btn primary" on:click={confirmAge}>I'm 18 or older</button>
+      <button class="btn" on:click={notNow} disabled={termsBusy}>Not now</button>
+      <button class="btn primary" on:click={agreeToTerms} disabled={termsBusy}>
+        {termsBusy ? 'Saving…' : "I'm 18+, agree and go live"}
+      </button>
     </div>
   </div>
 </Modal>
@@ -752,7 +2012,8 @@
 
 <style>
   .live-host {
-    max-width: 40rem;
+    width: 100%;
+    max-width: 56rem;
     margin: 0 auto;
     display: flex;
     flex-direction: column;
@@ -774,18 +2035,73 @@
   .small {
     font-size: 0.8125rem;
   }
+  /*
+   * The stage. Its width is always the full column (width: 100%), and its
+   * height is set explicitly rather than derived from an aspect ratio: an
+   * aspect ratio capped by max-height made Safari shrink the WIDTH to keep
+   * the ratio, which left the video left-aligned with a gap on the right.
+   * The video inside is `contain`, so the host sees exactly the frame
+   * viewers get, on black.
+   */
   .stage {
     position: relative;
+    width: 100%;
+    scroll-margin-top: var(--header-h, 4rem);
     background: #000;
     border-radius: 0.75rem;
     overflow: hidden;
-    aspect-ratio: 16 / 9;
+    /* Desktop: as tall as the window allows, leaving room for the panel. */
+    height: min(calc(100dvh - var(--header-h, 4rem) - 13rem), 42rem);
+    min-height: 16rem;
   }
-  @media (orientation: portrait) and (max-width: 640px) {
+  .stage.on-air {
+    height: min(calc(100dvh - var(--header-h, 4rem) - 6rem), 48rem);
+  }
+  @media (max-width: 640px) {
+    /* Phones: edge to edge (cancel the page's 1rem side padding) and most
+       of the height. The bottom nav (4rem plus the home bar) stays below. */
+    .live-host {
+      width: calc(100% + 2rem);
+      max-width: none;
+      margin: -0.75rem -1rem 0;
+      gap: 0.75rem;
+    }
     .stage {
-      aspect-ratio: 3 / 4;
-      /* Leave room for the title, the buttons and the bottom nav. */
-      max-height: 50vh;
+      border-radius: 0;
+      height: calc(
+        100dvh - var(--header-h, 4rem) - 4rem - env(safe-area-inset-bottom, 0px) - 22rem
+      );
+      min-height: 14rem;
+    }
+    .stage.on-air {
+      height: calc(
+        100dvh - var(--header-h, 4rem) - 4rem - env(safe-area-inset-bottom, 0px) - 3.5rem
+      );
+    }
+    .panel,
+    .help,
+    .ended {
+      padding: 0 1rem;
+    }
+  }
+  @media (orientation: landscape) and (max-height: 500px) {
+    /* A phone on its side: edge to edge, the full height between the
+       header and the bottom nav; the title scrolls below it. */
+    .live-host {
+      width: calc(100% + 2rem);
+      max-width: none;
+      margin: -0.75rem -1rem 0;
+    }
+    .stage,
+    .stage.on-air {
+      height: calc(100dvh - var(--header-h, 4rem) - 4rem - env(safe-area-inset-bottom, 0px));
+      min-height: 11rem;
+      border-radius: 0;
+    }
+    .panel,
+    .help,
+    .ended {
+      padding: 0 max(1rem, env(safe-area-inset-left, 0px));
     }
   }
   .stage.collapsed {
@@ -794,7 +2110,7 @@
   video {
     width: 100%;
     height: 100%;
-    object-fit: cover;
+    object-fit: contain;
     display: block;
   }
   video.mirrored {
@@ -803,7 +2119,7 @@
   .badge {
     position: absolute;
     top: 0.75rem;
-    left: 0.75rem;
+    left: max(0.75rem, env(safe-area-inset-left, 0px));
     display: inline-flex;
     align-items: center;
     gap: 0.4rem;
@@ -822,6 +2138,253 @@
     height: 0.5rem;
     border-radius: 9999px;
     background: #ef4444;
+  }
+  .overlay-bar {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 1.5rem max(0.75rem, env(safe-area-inset-right, 0px)) 0.75rem
+      max(0.75rem, env(safe-area-inset-left, 0px));
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0));
+  }
+  .spacer {
+    flex: 1;
+  }
+  .icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.75rem;
+    height: 2.75rem;
+    border-radius: 9999px;
+    color: #fff;
+    background: rgba(255, 255, 255, 0.18);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+  }
+  .icon-btn:disabled {
+    opacity: 0.5;
+  }
+  /* An overlay switched off: dimmer, with the slashed icon. */
+  .icon-btn.off {
+    color: rgba(255, 255, 255, 0.7);
+    background: rgba(0, 0, 0, 0.35);
+  }
+  /* Muted: hard to miss. */
+  .icon-btn.muted-mic {
+    background: #fff;
+    color: #dc2626;
+    border-color: #fff;
+  }
+  .mic-off {
+    color: #fca5a5;
+  }
+  .share-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    min-height: 2.75rem;
+    padding: 0 1rem;
+    border-radius: 9999px;
+    color: #fff;
+    font-weight: 600;
+    font-size: 0.875rem;
+    background: rgba(255, 255, 255, 0.18);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+  }
+  .share-btn.active {
+    background: #fff;
+    color: #111;
+    border-color: #fff;
+  }
+  .share-btn:disabled {
+    opacity: 0.6;
+  }
+  /* "You're sharing your screen": across the top of the picture, the
+     Live badge moves down under it. */
+  .share-banner {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.55rem 0.9rem;
+    background: #1d4ed8;
+    color: #fff;
+    font-size: 0.8125rem;
+    line-height: 1.3;
+  }
+  .share-text {
+    display: flex;
+    flex-wrap: wrap;
+    column-gap: 0.6rem;
+  }
+  .share-text span {
+    opacity: 0.9;
+  }
+  .stage.sharing .badge {
+    top: 3.25rem;
+  }
+  .camera-lost {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+  }
+  .end-btn {
+    min-height: 2.75rem;
+    padding: 0 1.4rem;
+    border-radius: 9999px;
+    background: #dc2626;
+    color: #fff;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+  }
+  .end-btn:disabled {
+    opacity: 0.6;
+  }
+  .live-panel {
+    gap: 0.5rem;
+  }
+  .watching {
+    font-size: 0.875rem;
+    font-weight: 600;
+  }
+  .zaps {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #f59e0b;
+  }
+  .switch-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.65rem;
+    padding: 0.65rem 0.75rem;
+    border-radius: 0.75rem;
+    background: var(--color-input-bg);
+    border: 1px solid var(--color-input-border);
+    cursor: pointer;
+  }
+  .switch-row input {
+    margin-top: 0.2rem;
+    width: 1.1rem;
+    height: 1.1rem;
+    accent-color: #dc2626;
+    /* The forms plugin paints a checked box with currentColor. */
+    color: #dc2626;
+    flex-shrink: 0;
+  }
+  .switch-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    font-size: 0.9375rem;
+  }
+  .host-side {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  /* A tab's hidden panel stays mounted (the chat keeps listening). */
+  .host-side [hidden] {
+    display: none !important;
+  }
+  .host-chat {
+    height: 26rem;
+    min-height: 18rem;
+  }
+  .tabs {
+    display: flex;
+    gap: 0.25rem;
+    padding: 0.25rem;
+    border-radius: 9999px;
+    background: var(--color-input-bg);
+    border: 1px solid var(--color-input-border);
+    align-self: flex-start;
+    margin: 0 1rem;
+  }
+  .tabs button {
+    padding: 0.5rem 1.25rem;
+    border-radius: 9999px;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--color-caption);
+  }
+  .tabs button.active {
+    background: var(--color-text-primary);
+    color: var(--color-bg-primary);
+  }
+  @media (max-width: 640px) {
+    .host-recipe,
+    .host-chat {
+      padding: 0 0.75rem;
+    }
+  }
+  /* Wide screens: the side panel sits beside the video, as tall as the
+     stage; the recipe scrolls inside it. */
+  @media (min-width: 1100px) {
+    .live-host.with-side {
+      max-width: 90rem;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 23rem;
+      column-gap: 1rem;
+      align-items: start;
+    }
+    .live-host.with-side > :not(.host-side) {
+      grid-column: 1;
+    }
+    .live-host.with-side .host-side {
+      grid-column: 2;
+      grid-row: 1 / span 4;
+      height: min(calc(100dvh - var(--header-h, 4rem) - 6rem), 48rem);
+      min-height: 24rem;
+    }
+    .host-side .tabs {
+      margin: 0;
+      flex-shrink: 0;
+    }
+    .host-side .host-chat,
+    .host-side .host-recipe {
+      flex: 1 1 0;
+      min-height: 0;
+      height: auto;
+    }
+    .host-side .host-recipe {
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
+  }
+  .hint {
+    position: absolute;
+    top: 3.1rem;
+    left: max(0.75rem, env(safe-area-inset-left, 0px));
+    right: max(0.75rem, env(safe-area-inset-right, 0px));
+    max-width: 22rem;
+    display: flex;
+    align-items: flex-start;
+    gap: 0.4rem;
+    padding: 0.35rem 0.4rem 0.35rem 0.65rem;
+    border-radius: 0.6rem;
+    background: rgba(0, 0, 0, 0.55);
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 0.6875rem;
+    line-height: 1.35;
+  }
+  .hint-close {
+    flex-shrink: 0;
+    padding: 0.2rem;
+    border-radius: 9999px;
+    color: #fff;
   }
   .panel,
   .help,
@@ -844,9 +2407,17 @@
     gap: 0.4rem;
     font-size: 0.9375rem;
   }
-  .ended {
-    align-items: flex-start;
-    padding: 2rem 0;
+  /* Centered, with ordinary page padding on every width. Declared with the
+     padding here (not in the phone rule above) so nothing overrides it. */
+  .live-host .ended {
+    align-items: center;
+    text-align: center;
+    gap: 0.5rem;
+    padding: 3rem 1rem;
+  }
+  .ended .done {
+    margin-top: 1rem;
+    min-width: 9rem;
   }
   .field {
     display: flex;
@@ -870,6 +2441,9 @@
   }
   .live-title {
     font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .notice {
     font-size: 0.9375rem;
@@ -896,16 +2470,21 @@
     cursor: not-allowed;
   }
   .btn.primary {
-    flex: 1;
     border: 0;
     background: #dc2626;
     color: #fff;
   }
-  .btn.danger {
-    flex: 1;
-    border: 0;
-    background: var(--color-text-primary);
-    color: var(--color-bg-primary);
+  .access-note {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    max-width: 32rem;
+  }
+  .member-link {
+    display: inline-flex;
+    align-items: center;
+    align-self: flex-start;
+    text-decoration: none;
   }
   .link {
     align-self: flex-start;

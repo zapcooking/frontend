@@ -9,6 +9,163 @@
 
 export type LiveStatus = 'created' | 'live' | 'ended';
 
+/** The signed-in account's latest access request, as the server reports it. */
+export interface OwnAccessRequest {
+  status: 'none' | 'pending' | 'approved' | 'declined';
+  /** When a declined account may ask again (unix seconds); null = it may ask now. */
+  retry_at: number | null;
+}
+
+/** The hosting agreement, as the server reports it for the signer. */
+export interface TermsState {
+  /** The current LIVE_TERMS_VERSION. */
+  version: string;
+  /** Whether the signer has agreed to that version. */
+  accepted: boolean;
+}
+
+export type HostingStatus =
+  | {
+      known: true;
+      approved: boolean;
+      request: OwnAccessRequest;
+      /** Null when the server did not say (the create route still decides). */
+      terms: TermsState | null;
+    }
+  /** Could not be answered: the page goes ahead and the create route decides. */
+  | { known: false };
+
+/**
+ * Can the signed-in account host right now (staged rollout)? Signed
+ * (NIP-98): the server only answers about the signer.
+ */
+export async function fetchHostingStatus(
+  sign: SignRequest,
+  fetchFn: typeof fetch = fetch
+): Promise<HostingStatus> {
+  const url = `${origin()}/api/live/hosting`;
+  let authorization: string;
+  try {
+    authorization = await sign({ method: 'GET', url });
+  } catch {
+    return { known: false };
+  }
+  try {
+    const res = await fetchFn(url, { headers: { Authorization: authorization } });
+    if (!res.ok) return { known: false };
+    const data = (await res.json()) as {
+      approved?: unknown;
+      request?: { status?: unknown; retry_at?: unknown };
+      terms?: { version?: unknown; accepted?: unknown };
+    };
+    if (typeof data.approved !== 'boolean') return { known: false };
+    const status = data.request?.status;
+    const terms =
+      typeof data.terms?.version === 'string' &&
+      data.terms.version &&
+      typeof data.terms.accepted === 'boolean'
+        ? { version: data.terms.version, accepted: data.terms.accepted }
+        : null;
+    return {
+      known: true,
+      approved: data.approved,
+      request: {
+        status:
+          status === 'pending' || status === 'approved' || status === 'declined' ? status : 'none',
+        retry_at: typeof data.request?.retry_at === 'number' ? data.request.retry_at : null
+      },
+      terms
+    };
+  } catch {
+    return { known: false };
+  }
+}
+
+export type AccessRequestOutcome =
+  | { kind: 'sent' }
+  | { kind: 'approved' } // already on the list: nothing to ask
+  | { kind: 'already_pending' }
+  | { kind: 'declined_recently'; retryAt: number | null }
+  | { kind: 'membership_required' }
+  | { kind: 'sign_failed' }
+  | { kind: 'unavailable' };
+
+/** "Request access": saves a request in the admin's queue, with an optional note. */
+export async function requestHostingAccess(
+  note: string,
+  sign: SignRequest,
+  fetchFn: typeof fetch = fetch
+): Promise<AccessRequestOutcome> {
+  const url = `${origin()}/api/live/hosting`;
+  const bodyString = JSON.stringify({ note });
+  let authorization: string;
+  try {
+    authorization = await sign({ method: 'POST', url, bodyString });
+  } catch {
+    return { kind: 'sign_failed' };
+  }
+  try {
+    const res = await fetchFn(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: authorization },
+      body: bodyString
+    });
+    const data = (await readError(res)) as { error?: string; approved?: boolean; retry_at?: unknown };
+    if (res.ok) return data.approved ? { kind: 'approved' } : { kind: 'sent' };
+    if (data.error === 'already_pending') return { kind: 'already_pending' };
+    if (data.error === 'declined_recently') {
+      return {
+        kind: 'declined_recently',
+        retryAt: typeof data.retry_at === 'number' ? data.retry_at : null
+      };
+    }
+    if (data.error === 'membership_required') return { kind: 'membership_required' };
+    return { kind: 'unavailable' };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
+export type AcceptTermsOutcome =
+  | { kind: 'accepted' }
+  /** The terms moved on since the dialog opened: show them again with this version. */
+  | { kind: 'changed'; version: string }
+  | { kind: 'membership_required' }
+  | { kind: 'sign_failed' }
+  | { kind: 'unavailable' };
+
+/** "I'm 18+, agree and go live": records the agreement to `version` on the server. */
+export async function acceptLiveTerms(
+  version: string,
+  sign: SignRequest,
+  fetchFn: typeof fetch = fetch
+): Promise<AcceptTermsOutcome> {
+  const url = `${origin()}/api/live/terms`;
+  const bodyString = JSON.stringify({ version });
+  let authorization: string;
+  try {
+    authorization = await sign({ method: 'POST', url, bodyString });
+  } catch {
+    return { kind: 'sign_failed' };
+  }
+  try {
+    const res = await fetchFn(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: authorization },
+      body: bodyString
+    });
+    const data = (await readError(res)) as { error?: string; version?: unknown };
+    if (res.ok) return { kind: 'accepted' };
+    if (data.error === 'terms_changed' && typeof data.version === 'string' && data.version) {
+      return { kind: 'changed', version: data.version };
+    }
+    if (data.error === 'membership_required') return { kind: 'membership_required' };
+    return { kind: 'unavailable' };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
 /** Signs a NIP-98 Authorization header for one request. */
 export type SignRequest = (opts: {
   method: string;
@@ -26,13 +183,17 @@ export type CreateOutcome =
   | { ok: true; session: HostSession }
   /** The host already has a session open (another tab or device). */
   | { ok: false; reason: 'already_active'; id: string | null }
+  /** The host has not agreed to the current hosting terms: show the dialog. */
+  | { ok: false; reason: 'terms_required'; version: string | null }
   | {
       ok: false;
       reason:
-        | 'not_allowed' // not on the host list
+        | 'blocked' // blocked from hosting by the admin
+        | 'not_approved' // 'approved' rollout mode and not on the list
         | 'membership_required' // confirmed non-member
         | 'membership_unavailable' // could not be checked: NOT "not a member"
         | 'live_off' // switched off by an admin
+        | 'live_full' // the open-session cap (all hosts) is reached
         | 'rate_limited'
         | 'sign_failed' // the signer refused or is unavailable
         | 'auth_failed'
@@ -92,10 +253,20 @@ export async function createLiveSession(
         reason: 'already_active',
         id: typeof body.id === 'string' ? body.id : null
       };
-    case 'not_allowed':
+    case 'terms_required': {
+      const version = (body as { version?: unknown }).version;
+      return {
+        ok: false,
+        reason: 'terms_required',
+        version: typeof version === 'string' && version ? version : null
+      };
+    }
+    case 'blocked':
+    case 'not_approved':
     case 'membership_required':
     case 'membership_unavailable':
     case 'live_off':
+    case 'live_full':
     case 'rate_limited':
     case 'auth_failed':
       return { ok: false, reason: body.error };
@@ -166,14 +337,176 @@ export async function publishOffer(
   return { ok: false, failure: classifyPublishReply(res.status, body.error) };
 }
 
+/** The host's after-the-stream counts (see /api/live/<id>/stats). */
+export interface LiveStats {
+  peakWatching: number;
+  joins: number;
+}
+
+function readStats(data: unknown): LiveStats | null {
+  const d = data as { peak_watching?: unknown; joins?: unknown } | null;
+  return d &&
+    Number.isSafeInteger(d.peak_watching) &&
+    Number.isSafeInteger(d.joins) &&
+    (d.peak_watching as number) >= 0 &&
+    (d.joins as number) >= 0
+    ? { peakWatching: d.peak_watching as number, joins: d.joins as number }
+    : null;
+}
+
+/**
+ * End with the host token. `ended` is true when the server says the
+ * session is ended; `stats` carries the after-the-stream counts when this
+ * call ended it (null otherwise, or when they could not be read).
+ */
+export async function endLiveSessionWithStats(
+  session: HostSession,
+  fetchFn: typeof fetch = fetch
+): Promise<{ ended: boolean; stats: LiveStats | null }> {
+  try {
+    const res = await fetchFn(`/api/live/${session.id}/end`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session.token}` }
+    });
+    if (res.status !== 200) return { ended: false, stats: null };
+    let stats: LiveStats | null = null;
+    try {
+      stats = readStats(await res.json());
+    } catch {
+      /* ended; the counts are optional */
+    }
+    return { ended: true, stats };
+  } catch {
+    return { ended: false, stats: null };
+  }
+}
+
 /** End with the host token. True when the server says the session is ended. */
 export async function endLiveSession(
   session: HostSession,
   fetchFn: typeof fetch = fetch
 ): Promise<boolean> {
+  return (await endLiveSessionWithStats(session, fetchFn)).ended;
+}
+
+/**
+ * The after-the-stream counts, signed by the host (for a stream that was
+ * ended elsewhere: time limit, admin, another device). Null on any failure.
+ */
+export async function fetchLiveStats(
+  id: string,
+  sign: SignRequest,
+  fetchFn: typeof fetch = fetch
+): Promise<LiveStats | null> {
+  const url = `${origin()}/api/live/${id}/stats`;
   try {
-    const res = await fetchFn(`/api/live/${session.id}/end`, {
+    const authorization = await sign({ method: 'GET', url });
+    const res = await fetchFn(url, { headers: { Authorization: authorization } });
+    if (!res.ok) return null;
+    return readStats(await res.json());
+  } catch {
+    return null;
+  }
+}
+
+/** How many are watching now, or null when it cannot be read. */
+export async function readWatchingNow(
+  id: string,
+  fetchFn: typeof fetch = fetch
+): Promise<number | null> {
+  try {
+    const res = await fetchFn(`/api/live/${id}/watching`, { cache: 'no-store' });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { watching?: unknown };
+    return typeof data.watching === 'number' && Number.isSafeInteger(data.watching)
+      ? data.watching
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The ended screen's summary, in plain words:
+ *   "30 people joined, with up to 12 watching at once. You got 2,100 sats in zaps."
+ * The "at once" number never exceeds the people who joined (a reload can
+ * briefly count one person twice). Sats are left out when there are none.
+ */
+export function endedStatsLine(stats: LiveStats, sats: number): string {
+  const joins = stats.joins;
+  const peak = joins > 0 ? Math.min(stats.peakWatching, joins) : stats.peakWatching;
+  let line: string;
+  if (joins === 0) {
+    line = 'Nobody tuned in this time.';
+  } else {
+    line = `${joins.toLocaleString()} ${joins === 1 ? 'person' : 'people'} joined`;
+    if (joins > 1 && peak > 1) line += `, with up to ${peak.toLocaleString()} watching at once.`;
+    else if (joins > 1 && peak <= 1) line += ', one at a time.';
+    else line += '.';
+  }
+  if (Number.isFinite(sats) && sats >= 1) {
+    const n = Math.floor(sats);
+    line += ` You got ${n.toLocaleString()} ${n === 1 ? 'sat' : 'sats'} in zaps.`;
+  }
+  return line;
+}
+
+/**
+ * Record the session's "Live now" note so viewers can find its comments
+ * and zaps. True when the server has it (now or already).
+ */
+export async function recordLiveNote(
+  session: HostSession,
+  noteId: string,
+  fetchFn: typeof fetch = fetch
+): Promise<boolean> {
+  try {
+    const res = await fetchFn(`/api/live/${session.id}/note`, {
       method: 'POST',
+      headers: { Authorization: `Bearer ${session.token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ note_id: noteId })
+    });
+    return res.status === 200;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Leave the pre-signed "ended" announcement with the server, which
+ * publishes it when the session ends without this page (tab closed,
+ * connection lost, the time limit). `relays` is where the live one went.
+ * True when the server holds it.
+ */
+export async function holdEndedEvent(
+  session: HostSession,
+  event: unknown,
+  relays: readonly string[],
+  fetchFn: typeof fetch = fetch
+): Promise<boolean> {
+  try {
+    const res = await fetchFn(`/api/live/${session.id}/ended-event`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session.token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ event, relays })
+    });
+    return res.status === 200;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Have the server forget the held "ended" announcement: a newer live one
+ * went out without a twin, so the held one can no longer end the stream.
+ */
+export async function dropHeldEndedEvent(
+  session: HostSession,
+  fetchFn: typeof fetch = fetch
+): Promise<boolean> {
+  try {
+    const res = await fetchFn(`/api/live/${session.id}/ended-event`, {
+      method: 'DELETE',
       headers: { Authorization: `Bearer ${session.token}` }
     });
     return res.status === 200;

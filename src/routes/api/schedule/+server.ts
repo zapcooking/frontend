@@ -2,7 +2,11 @@
  * Scheduled Posts API — create + list.
  *
  * POST /api/schedule
- *   Body: { event: <complete signed Nostr event>, relay_mode: 'all' | 'pantry' }
+ *   Body: { event: <complete signed Nostr event>, relay_mode: 'all' | 'pantry',
+ *           relays?: string[], replaces?: <event id> }
+ *   `relays` (optional, at most 4) are the author's own relays; in 'all'
+ *   mode the sweep broadcasts to them as well as its floor relays. They
+ *   are validated and ignored (not stored) in 'pantry' mode.
  *   The event is signed CLIENT-SIDE with created_at set to the future
  *   publish time — the server never holds keys and cannot alter the
  *   event (the signature covers everything). Validation runs the spec
@@ -12,9 +16,39 @@
  *   scheduleCrypto.server.ts) and inserted as status='pending' for the
  *   Phase 2 cron sweep to broadcast at publish_at.
  *
- * GET /api/schedule
- *   The caller's rows (all statuses), newest publish_at first, capped
- *   at 100, decrypted server-side — clients render their own previews.
+ *   `replaces` (optional) moves or edits a scheduled post in one step:
+ *   the new event is stored and the caller's pending row with that id
+ *   is cancelled in ONE D1 transaction, so the post is never both
+ *   scheduled twice and never lost. The old row must be the caller's
+ *   and still pending (404 not_found / 409 not_replaceable otherwise,
+ *   nothing stored). A replace is exempt from the pending quota (net
+ *   zero) and from the creates-per-hour cap; it has its own cap
+ *   (MAX_MOVES_PER_HOUR). The 201 echoes `replaced: <old id>` so a
+ *   client can tell this server honoured the field.
+ *
+ *   REVIVAL. The event id is a hash of the author, time, kind, tags and
+ *   content, so scheduling the same post for the same time again (move
+ *   a post Monday → Tuesday → Monday, or cancel it and schedule it
+ *   again unchanged) arrives with the id of a row that already exists
+ *   as `cancelled`. That row is revived rather than refused: back to
+ *   pending with this request's event, relay mode and relays, attempts
+ *   and last_error cleared, and created_at set to now so the hourly
+ *   caps count it like any create. Only `cancelled` is revived. `failed`
+ *   is final and `sent` must never go out twice: both keep
+ *   409 already_scheduled.
+ *
+ * GET /api/schedule[?status=pending|publishing|sent|failed|cancelled]
+ *   The caller's rows, newest publish_at first, capped at 100,
+ *   decrypted server-side — clients render their own previews. With no
+ *   filter, every status EXCEPT cancelled: cancelled rows pile up with
+ *   every reschedule and would push live rows out of the cap. They are
+ *   still returned by ?status=cancelled. `truncated: true` is added
+ *   when the cap cut the result. The query string is not part of the
+ *   NIP-98 `u` match (normalizeUrl drops it), so a filtered request
+ *   signs the bare URL.
+ *
+ * The full client contract, with every error code, is
+ * docs/schedule-contract.md — change the two together.
  *
  * Both require NIP-98 auth. Failures collapse to a coarse
  * 401 { error: 'auth_failed', detail: <broad category> } — the
@@ -33,19 +67,24 @@ import {
   encryptScheduledEvent,
   decryptScheduledEvent
 } from '$lib/scheduleCrypto.server';
+import { parseScheduleRelays, storedScheduleRelays } from '$lib/scheduleRelays';
 import {
   SCHEDULABLE_KINDS,
+  PANTRY_SCHEDULABLE_KINDS,
+  SCHEDULE_STATUSES,
   MIN_LEAD_SECONDS,
   MAX_LEAD_SECONDS,
   MAX_EVENT_BYTES,
   POLL_CLOSE_MARGIN_SECONDS,
   MAX_PENDING_PER_PUBKEY,
   MAX_CREATES_PER_HOUR,
+  MAX_MOVES_PER_HOUR,
   LIST_LIMIT,
   RELAY_MODES,
   authFailedResponse,
   pollCloseTimestamp,
   type RelayMode,
+  type ScheduleStatus,
   type ScheduledEventRow
 } from '$lib/scheduleApi.server';
 
@@ -54,6 +93,39 @@ function getScheduleConfig(platform: Readonly<App.Platform> | undefined) {
     db: platform?.env?.SCHEDULER_DB,
     encKeyHex: platform?.env?.SCHEDULE_ENC_KEY || env.SCHEDULE_ENC_KEY
   };
+}
+
+type SchedulerDb = NonNullable<ReturnType<typeof getScheduleConfig>['db']>;
+
+/**
+ * 409 for an event that is already stored, with what a retrying client
+ * needs to know: the row's status, and `replaced` when this row took the
+ * place of another.
+ *
+ * `replaced` is the retried replace's proof that its swap is done, so it
+ * is only given when it is true NOW: the row it names is no longer
+ * pending. (A row can be revived on its own after being replaced; naming
+ * it then would tell a client the post it is trying to replace is gone
+ * when it is still scheduled.)
+ */
+async function alreadyScheduled(
+  db: SchedulerDb,
+  pubkey: string,
+  row: { status: string; replaces?: string | null },
+  requested: string | null
+): Promise<Response> {
+  let replaced: string | null = null;
+  if (row.replaces && (requested === null || requested === row.replaces)) {
+    const old = await db
+      .prepare('SELECT status FROM scheduled_events WHERE id = ?1 AND pubkey = ?2')
+      .bind(row.replaces, pubkey)
+      .first<{ status: string }>();
+    if (old?.status !== 'pending') replaced = row.replaces;
+  }
+  return json(
+    { error: 'already_scheduled', status: row.status, ...(replaced ? { replaced } : {}) },
+    { status: 409 }
+  );
 }
 
 export const POST: RequestHandler = async ({ request, platform }) => {
@@ -87,7 +159,7 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     } catch {
       return json({ error: 'bad_request' }, { status: 400 });
     }
-    const { event, relay_mode } = body ?? {};
+    const { event, relay_mode, relays: relaysField, replaces: replacesField } = body ?? {};
     if (
       !event ||
       typeof event !== 'object' ||
@@ -97,10 +169,27 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       return json({ error: 'bad_request' }, { status: 400 });
     }
 
+    // Optional: the id of the caller's pending row this event replaces.
+    // Absent or null is a plain create. Anything else that is not an
+    // event id is a client bug, refused before anything is looked up.
+    let replaces: string | null = null;
+    if (replacesField !== undefined && replacesField !== null) {
+      if (typeof replacesField !== 'string' || !/^[0-9a-f]{64}$/.test(replacesField)) {
+        return json({ error: 'bad_request' }, { status: 400 });
+      }
+      replaces = replacesField;
+    }
+
     if (!RELAY_MODES.includes(relay_mode as RelayMode)) {
       return json({ error: 'bad_relay_mode' }, { status: 400 });
     }
     const relayMode = relay_mode as RelayMode;
+
+    // Validated in every mode, so a bad list is never silently
+    // accepted; used only in 'all' mode (pantry rows go to pantry alone).
+    const parsedRelays = parseScheduleRelays(relaysField);
+    if (!parsedRelays.ok) return json({ error: 'bad_relays' }, { status: 400 });
+    const relays = relayMode === 'all' ? parsedRelays.relays : [];
 
     // verifyEvent recomputes the id hash and schnorr-verifies the sig.
     const ev = event as NostrEvent;
@@ -114,7 +203,17 @@ export const POST: RequestHandler = async ({ request, platform }) => {
 
     if (ev.pubkey !== auth.pubkey) return json({ error: 'pubkey_mismatch' }, { status: 400 });
 
+    // A row cannot replace itself: the swap would cancel the very row it
+    // stores.
+    if (replaces === ev.id) return json({ error: 'bad_request' }, { status: 400 });
+
     if (!SCHEDULABLE_KINDS.includes(ev.kind)) return json({ error: 'bad_kind' }, { status: 400 });
+
+    // Schedulable, but pantry would reject it from the keyless sweep
+    // (see PANTRY_SCHEDULABLE_KINDS) — refuse now rather than fail later.
+    if (relayMode === 'pantry' && !PANTRY_SCHEDULABLE_KINDS.includes(ev.kind)) {
+      return json({ error: 'kind_not_allowed_for_relay_mode' }, { status: 400 });
+    }
 
     const now = Math.floor(Date.now() / 1000);
     if (
@@ -137,23 +236,72 @@ export const POST: RequestHandler = async ({ request, platform }) => {
       return json({ error: 'poll_closes_before_publish' }, { status: 400 });
     }
 
-    const pending = await db
-      .prepare("SELECT COUNT(*) AS c FROM scheduled_events WHERE pubkey = ?1 AND status = 'pending'")
-      .bind(auth.pubkey)
-      .first<{ c: number }>();
-    if ((pending?.c ?? 0) >= MAX_PENDING_PER_PUBKEY) {
-      return json({ error: 'quota_exceeded' }, { status: 400 });
-    }
+    // Already scheduled? Answer that BEFORE the quota and rate checks,
+    // with the row's current status: a client retrying after a dropped
+    // response must learn its first attempt landed, not be told it is
+    // over a limit that the first attempt itself filled. Scoped to the
+    // auth pubkey like every other lookup (the id commits to the
+    // pubkey, so this is the caller's own row or nothing). A row that
+    // itself replaced another says which, so a retried replace learns
+    // the swap happened.
+    const existing = await db
+      .prepare('SELECT status, replaces FROM scheduled_events WHERE id = ?1 AND pubkey = ?2')
+      .bind(ev.id, auth.pubkey)
+      .first<{ status: string; replaces?: string | null }>();
+    // A cancelled row with this id is the same post, scheduled again for
+    // the same time: it is revived below. Anything else already stored
+    // is answered as before.
+    const revive = existing?.status === 'cancelled';
+    if (existing && !revive) return alreadyScheduled(db, auth.pubkey, existing, replaces);
 
-    // Rolling-hour create cap, counted by ROW created_at (schedule
-    // time, not publish time) across ALL statuses — cancelled rows
-    // still count, so a cancel-and-recreate loop can't bypass it.
-    const recent = await db
-      .prepare('SELECT COUNT(*) AS c FROM scheduled_events WHERE pubkey = ?1 AND created_at > ?2')
-      .bind(auth.pubkey, now - 3600)
-      .first<{ c: number }>();
-    if ((recent?.c ?? 0) >= MAX_CREATES_PER_HOUR) {
-      return json({ error: 'rate_limited' }, { status: 429 });
+    if (replaces) {
+      // Scoped to the auth pubkey: a missing row and someone else's row
+      // are the same 404, as on DELETE.
+      const old = await db
+        .prepare('SELECT status FROM scheduled_events WHERE id = ?1 AND pubkey = ?2')
+        .bind(replaces, auth.pubkey)
+        .first<{ status: string }>();
+      if (!old) return json({ error: 'not_found' }, { status: 404 });
+      if (old.status !== 'pending') {
+        return json({ error: 'not_replaceable', status: old.status }, { status: 409 });
+      }
+
+      // A replace is net zero on pending rows, so the pending quota does
+      // not apply, and it does not spend one of the hour's creates. It
+      // has its own rolling-hour cap, counted the same way (row
+      // created_at, every status).
+      const moves = await db
+        .prepare(
+          'SELECT COUNT(*) AS c FROM scheduled_events WHERE pubkey = ?1 AND created_at > ?2 AND replaces IS NOT NULL'
+        )
+        .bind(auth.pubkey, now - 3600)
+        .first<{ c: number }>();
+      if ((moves?.c ?? 0) >= MAX_MOVES_PER_HOUR) {
+        return json({ error: 'rate_limited', limit: 'moves' }, { status: 429 });
+      }
+    } else {
+      const pending = await db
+        .prepare("SELECT COUNT(*) AS c FROM scheduled_events WHERE pubkey = ?1 AND status = 'pending'")
+        .bind(auth.pubkey)
+        .first<{ c: number }>();
+      if ((pending?.c ?? 0) >= MAX_PENDING_PER_PUBKEY) {
+        return json({ error: 'quota_exceeded' }, { status: 400 });
+      }
+
+      // Rolling-hour create cap, counted by ROW created_at (schedule
+      // time, not publish time) across ALL statuses — cancelled rows
+      // still count, so a cancel-and-recreate loop can't bypass it.
+      // Rows that replaced another are counted under the moves cap
+      // above instead.
+      const recent = await db
+        .prepare(
+          'SELECT COUNT(*) AS c FROM scheduled_events WHERE pubkey = ?1 AND created_at > ?2 AND replaces IS NULL'
+        )
+        .bind(auth.pubkey, now - 3600)
+        .first<{ c: number }>();
+      if ((recent?.c ?? 0) >= MAX_CREATES_PER_HOUR) {
+        return json({ error: 'rate_limited' }, { status: 429 });
+      }
     }
 
     // ── Validated: encrypt and insert ────────────────────────────────
@@ -161,26 +309,112 @@ export const POST: RequestHandler = async ({ request, platform }) => {
     const key = await importScheduleKey(encKeyHex);
     const { ciphertext, iv } = await encryptScheduledEvent(key, serialized);
 
+    const storedRelays = relays.length > 0 ? JSON.stringify(relays) : null;
+
+    // Put this event in place as a pending row: a new row, or the
+    // caller's cancelled row with the same id brought back. For a
+    // replace (`onlyWhilePending` = the old row's id) either form does
+    // nothing unless that old row is still the caller's pending row.
+    const place = (onlyWhilePending: string | null) => {
+      const guard = onlyWhilePending
+        ? `EXISTS (SELECT 1 FROM scheduled_events WHERE id = ?10 AND pubkey = ?2 AND status = 'pending')`
+        : '1';
+      const sql = revive
+        ? `UPDATE scheduled_events
+              SET kind = ?3, publish_at = ?4, relay_mode = ?5, ciphertext = ?6, iv = ?7,
+                  status = 'pending', attempts = 0, last_error = NULL, sent_at = NULL,
+                  created_at = ?8, updated_at = ?8, relays = ?9, replaces = ?10
+            WHERE id = ?1 AND pubkey = ?2 AND status = 'cancelled' AND ${guard}`
+        : `INSERT INTO scheduled_events
+             (id, pubkey, kind, publish_at, relay_mode, ciphertext, iv, status, attempts, created_at, updated_at, relays, replaces)
+           SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, 'pending', 0, ?8, ?8, ?9, ?10
+            WHERE ${guard}`;
+      return db
+        .prepare(sql)
+        .bind(ev.id, auth.pubkey, ev.kind, ev.created_at, relayMode, ciphertext, iv, now, storedRelays, onlyWhilePending);
+    };
+    const currentRow = (id: string) =>
+      db
+        .prepare('SELECT status, replaces FROM scheduled_events WHERE id = ?1 AND pubkey = ?2')
+        .bind(id, auth.pubkey)
+        .first<{ status: string; replaces?: string | null }>();
+
     try {
-      await db
-        .prepare(
-          `INSERT INTO scheduled_events
-             (id, pubkey, kind, publish_at, relay_mode, ciphertext, iv, status, attempts, created_at, updated_at)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'pending', 0, ?8, ?8)`
-        )
-        .bind(ev.id, auth.pubkey, ev.kind, ev.created_at, relayMode, ciphertext, iv, now)
-        .run();
+      if (replaces) {
+        // Both statements run in one D1 transaction (batch), and each is
+        // conditional on the other's precondition: the new row is put in
+        // place only while the old one is still the caller's pending
+        // row, and the old one is cancelled only once the new row is
+        // there, pending, as its replacement. So either both happen or
+        // neither does. If the sweep claimed the old row after the
+        // lookup above, neither does, and the caller is told the post is
+        // already going out.
+        const [placed, cancelled] = await db.batch([
+          place(replaces),
+          db
+            .prepare(
+              `UPDATE scheduled_events
+                  SET status = 'cancelled', updated_at = ?3
+                WHERE id = ?1 AND pubkey = ?2 AND status = 'pending'
+                  AND EXISTS (
+                    SELECT 1 FROM scheduled_events
+                     WHERE id = ?4 AND pubkey = ?2 AND replaces = ?1 AND status = 'pending'
+                  )`
+            )
+            .bind(replaces, auth.pubkey, now, ev.id)
+        ]);
+        const didPlace = (placed.meta?.changes ?? 0) === 1;
+        const didCancel = (cancelled.meta?.changes ?? 0) === 1;
+        if (!didPlace && !didCancel) {
+          const old = await currentRow(replaces);
+          if (!old) return json({ error: 'not_found' }, { status: 404 });
+          if (old.status !== 'pending') {
+            return json({ error: 'not_replaceable', status: old.status }, { status: 409 });
+          }
+          // The old row is untouched and still pending, so it was the
+          // new row that could not be placed: another request revived it
+          // a moment ago.
+          const raced = await currentRow(ev.id);
+          return alreadyScheduled(db, auth.pubkey, raced ?? { status: 'pending' }, replaces);
+        }
+        if (didPlace !== didCancel) {
+          // Cannot happen inside one transaction; never report a swap
+          // that only half happened.
+          throw new Error(`replace was not atomic (place ${didPlace}, cancel ${didCancel})`);
+        }
+      } else {
+        const placed = await place(null).run();
+        if ((placed.meta?.changes ?? 0) !== 1) {
+          // Only a revival can place nothing: the row stopped being
+          // cancelled between the lookup and now (another request revived
+          // it first).
+          const raced = await currentRow(ev.id);
+          return alreadyScheduled(db, auth.pubkey, raced ?? { status: 'pending' }, replaces);
+        }
+      }
     } catch (err) {
       // id is the event id (PRIMARY KEY) — the same signed event can't
       // be scheduled twice. A re-scheduled edit is a NEW signed event.
+      // Reached only when two requests for the same event race past
+      // the lookup above; the winner's row was inserted a moment ago.
+      // (A replace that hits this rolled back whole: its old row is
+      // untouched by THIS request.)
       if (err instanceof Error && /UNIQUE|PRIMARY KEY/i.test(err.message)) {
-        return json({ error: 'already_scheduled' }, { status: 409 });
+        const raced = await currentRow(ev.id);
+        return alreadyScheduled(db, auth.pubkey, raced ?? { status: 'pending' }, replaces);
       }
       throw err;
     }
 
     return json(
-      { id: ev.id, publish_at: ev.created_at, relay_mode: relayMode, status: 'pending' },
+      {
+        id: ev.id,
+        publish_at: ev.created_at,
+        relay_mode: relayMode,
+        relays,
+        status: 'pending',
+        ...(replaces ? { replaced: replaces } : {})
+      },
       { status: 201 }
     );
   } catch (err) {
@@ -203,24 +437,48 @@ export const GET: RequestHandler = async ({ request, platform }) => {
       return authFailedResponse(auth.reason);
     }
 
-    const { results } = await db
-      .prepare(
-        `SELECT id, publish_at, relay_mode, status, attempts, last_error, sent_at, ciphertext, iv
-           FROM scheduled_events
-          WHERE pubkey = ?1
-          ORDER BY publish_at DESC, created_at DESC
-          LIMIT ?2`
-      )
-      .bind(auth.pubkey, LIST_LIMIT)
-      .all<ScheduledEventRow>();
+    // Optional ?status= filter. Absent → every status except cancelled.
+    const statusParam = new URL(request.url).searchParams.get('status');
+    if (statusParam !== null && !SCHEDULE_STATUSES.includes(statusParam as ScheduleStatus)) {
+      return json({ error: 'bad_status' }, { status: 400 });
+    }
+
+    const columns =
+      'id, publish_at, relay_mode, relays, status, attempts, last_error, sent_at, ciphertext, iv';
+    // One row past the cap is fetched so the response can say when the
+    // cap cut the result.
+    const { results } =
+      statusParam === null
+        ? await db
+            .prepare(
+              `SELECT ${columns}
+                 FROM scheduled_events
+                WHERE pubkey = ?1 AND status != 'cancelled'
+                ORDER BY publish_at DESC, created_at DESC
+                LIMIT ?2`
+            )
+            .bind(auth.pubkey, LIST_LIMIT + 1)
+            .all<ScheduledEventRow>()
+        : await db
+            .prepare(
+              `SELECT ${columns}
+                 FROM scheduled_events
+                WHERE pubkey = ?1 AND status = ?3
+                ORDER BY publish_at DESC, created_at DESC
+                LIMIT ?2`
+            )
+            .bind(auth.pubkey, LIST_LIMIT + 1, statusParam)
+            .all<ScheduledEventRow>();
+    const truncated = results.length > LIST_LIMIT;
 
     const key = await importScheduleKey(encKeyHex);
     const items = [];
-    for (const row of results) {
+    for (const row of results.slice(0, LIST_LIMIT)) {
       items.push({
         id: row.id,
         publish_at: row.publish_at,
         relay_mode: row.relay_mode,
+        relays: storedScheduleRelays(row.relays),
         status: row.status,
         attempts: row.attempts,
         last_error: row.last_error ?? null,
@@ -229,7 +487,7 @@ export const GET: RequestHandler = async ({ request, platform }) => {
       });
     }
 
-    return json({ items });
+    return json(truncated ? { items, truncated: true } : { items });
   } catch (err) {
     console.error('[Schedule] GET failed:', err);
     return json({ error: 'internal' }, { status: 500 });

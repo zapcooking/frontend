@@ -1,8 +1,10 @@
 /** Tests for the Go live host page's logic: API outcomes, reconnect policy, device helpers. */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
+  acceptLiveTerms,
   classifyPublishReply,
   createLiveSession,
+  fetchHostingStatus,
   endLiveSession,
   endLiveSessionSigned,
   publishOffer,
@@ -18,20 +20,29 @@ import {
   type StopReason
 } from './reconnect';
 import {
+  audioSwitches,
   cameraAttempts,
   classifyMediaError,
   clearStoredSession,
   detectPlatform,
-  hasConfirmedAge,
   isConstraintFailure,
+  liveDurationLine,
+  loadPinnedMessage,
   loadStoredSession,
+  storePinnedMessage,
   mediaHelp,
   readRecipeHandoff,
-  rememberAgeConfirmed,
   setMicrophoneEnabled,
   storeSession
 } from './hostDevice';
 import { LIVE_MAX_PUBLISH_ATTEMPTS } from '../config';
+import {
+  canShareScreen,
+  classifyShareError,
+  displayMediaAttempts,
+  shareHint,
+  shareProblemMessage
+} from './screenShare';
 
 const ID = 'a'.repeat(32);
 const TOKEN = 'b'.repeat(64);
@@ -84,10 +95,11 @@ describe('createLiveSession', () => {
 
   it('maps every refusal to its own reason', async () => {
     const cases: [number, unknown, string][] = [
-      [403, { error: 'not_allowed' }, 'not_allowed'],
+      [403, { error: 'blocked' }, 'blocked'],
       [403, { error: 'membership_required' }, 'membership_required'],
       [503, { error: 'membership_unavailable' }, 'membership_unavailable'],
       [503, { error: 'live_off' }, 'live_off'],
+      [503, { error: 'live_full' }, 'live_full'],
       [429, { error: 'rate_limited' }, 'rate_limited'],
       [401, { error: 'auth_failed', detail: 'event' }, 'auth_failed'],
       [400, { error: 'bad_title' }, 'bad_request'],
@@ -114,6 +126,15 @@ describe('createLiveSession', () => {
     expect(out).toEqual({ ok: false, reason: 'already_active', id: ID });
   });
 
+  it('reports terms_required with the version to ask about', async () => {
+    const out = await createLiveSession({ title: 't', recipeA: null }, sign, (async () =>
+      reply(403, { error: 'terms_required', version: '2026-11-15' })) as any);
+    expect(out).toEqual({ ok: false, reason: 'terms_required', version: '2026-11-15' });
+    const bare = await createLiveSession({ title: 't', recipeA: null }, sign, (async () =>
+      reply(403, { error: 'terms_required' })) as any);
+    expect(bare).toEqual({ ok: false, reason: 'terms_required', version: null });
+  });
+
   it('reports a refused signature and a network failure without throwing', async () => {
     const refused = await createLiveSession({ title: 't', recipeA: null }, async () => {
       throw new Error('user rejected');
@@ -123,6 +144,57 @@ describe('createLiveSession', () => {
       throw new TypeError('Failed to fetch');
     }) as any);
     expect(offline).toEqual({ ok: false, reason: 'unavailable' });
+  });
+});
+
+describe('acceptLiveTerms', () => {
+  beforeEach(() => sign.mockClear());
+
+  it('signs and sends exactly { version } to /api/live/terms', async () => {
+    const fetchFn = vi.fn(async () => reply(200, { ok: true, version: '2026-11-15' }));
+    expect(await acceptLiveTerms('2026-11-15', sign, fetchFn as any)).toEqual({ kind: 'accepted' });
+    const [url, init] = fetchFn.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url.endsWith('/api/live/terms')).toBe(true);
+    expect(init.body).toBe(JSON.stringify({ version: '2026-11-15' }));
+    const signed = (sign.mock.calls[0] as unknown as [{ method: string; bodyString?: string }])[0];
+    expect(signed).toMatchObject({ method: 'POST', bodyString: init.body });
+  });
+
+  it('maps each refusal, and never throws', async () => {
+    const at = (status: number, body: unknown) =>
+      acceptLiveTerms('v1', sign, (async () => reply(status, body)) as any);
+    expect(await at(409, { error: 'terms_changed', version: 'v2' })).toEqual({
+      kind: 'changed',
+      version: 'v2'
+    });
+    expect(await at(409, { error: 'terms_changed' })).toEqual({ kind: 'unavailable' });
+    expect(await at(403, { error: 'membership_required' })).toEqual({
+      kind: 'membership_required'
+    });
+    expect(await at(503, { error: 'membership_unavailable' })).toEqual({ kind: 'unavailable' });
+    expect(await at(500, 'not json')).toEqual({ kind: 'unavailable' });
+    const refused = await acceptLiveTerms('v1', async () => {
+      throw new Error('user rejected');
+    });
+    expect(refused).toEqual({ kind: 'sign_failed' });
+    const offline = await acceptLiveTerms('v1', sign, (async () => {
+      throw new TypeError('Failed to fetch');
+    }) as any);
+    expect(offline).toEqual({ kind: 'unavailable' });
+  });
+});
+
+describe('fetchHostingStatus terms', () => {
+  it('reads the terms state, and null when the server does not give it', async () => {
+    const base = { approved: true, request: { status: 'none', retry_at: null } };
+    const withTerms = await fetchHostingStatus(sign, (async () =>
+      reply(200, { ...base, terms: { version: 'v1', accepted: false } })) as any);
+    expect(withTerms).toMatchObject({ known: true, terms: { version: 'v1', accepted: false } });
+    const without = await fetchHostingStatus(sign, (async () => reply(200, base)) as any);
+    expect(without).toMatchObject({ known: true, terms: null });
+    const odd = await fetchHostingStatus(sign, (async () =>
+      reply(200, { ...base, terms: { version: '', accepted: 'yes' } })) as any);
+    expect(odd).toMatchObject({ known: true, terms: null });
   });
 });
 
@@ -152,7 +224,7 @@ describe('publishOffer', () => {
     expect(classifyPublishReply(503, 'live_off')).toBe('off');
     expect(classifyPublishReply(429, 'publish_limit')).toBe('limit');
     expect(classifyPublishReply(401, 'auth_failed')).toBe('auth');
-    expect(classifyPublishReply(403, 'not_allowed')).toBe('auth');
+    expect(classifyPublishReply(403, 'blocked')).toBe('auth');
     expect(classifyPublishReply(422, 'offer_rejected')).toBe('rejected');
     expect(classifyPublishReply(400, 'bad_offer')).toBe('rejected');
   });
@@ -514,17 +586,7 @@ describe('device helpers', () => {
     }
   });
 
-  it('remembers the 18+ confirmation per account, on this device', () => {
-    const storage = memoryStorage();
-    expect(hasConfirmedAge(PUBKEY, storage)).toBe(false);
-    expect(rememberAgeConfirmed(PUBKEY, storage)).toBe(true);
-    expect(hasConfirmedAge(PUBKEY, storage)).toBe(true);
-    expect(hasConfirmedAge('d'.repeat(64), storage)).toBe(false);
-    expect(hasConfirmedAge('', storage)).toBe(false);
-    expect(hasConfirmedAge(PUBKEY, undefined)).toBe(false);
-  });
-
-  it('asks again, and does not throw, when storage is unavailable', () => {
+  it('does not throw when storage is unavailable', () => {
     const broken = {
       getItem: () => {
         throw new Error('denied');
@@ -536,8 +598,6 @@ describe('device helpers', () => {
         throw new Error('denied');
       }
     };
-    expect(hasConfirmedAge(PUBKEY, broken)).toBe(false);
-    expect(rememberAgeConfirmed(PUBKEY, broken)).toBe(false);
     expect(loadStoredSession(broken, PUBKEY)).toBeNull();
     expect(() =>
       storeSession(broken, { id: ID, token: TOKEN, pubkey: PUBKEY, title: 't', attempts: 1 })
@@ -560,6 +620,21 @@ describe('device helpers', () => {
     expect(loadStoredSession(storage, PUBKEY)).toBeNull();
   });
 
+  it('keeps the pinned chat message id for its own session only', () => {
+    const storage = memoryStorage();
+    const EVENT = 'e'.repeat(64);
+    expect(loadPinnedMessage(storage, ID)).toBeNull();
+    storePinnedMessage(storage, ID, EVENT);
+    expect(loadPinnedMessage(storage, ID)).toBe(EVENT);
+    expect(loadPinnedMessage(storage, 'f'.repeat(32))).toBeNull();
+    storage.data.set('zc_live_host_pinned', JSON.stringify({ session: ID, id: 'short' }));
+    expect(loadPinnedMessage(storage, ID)).toBeNull();
+    storage.data.set('zc_live_host_pinned', 'not json');
+    expect(loadPinnedMessage(storage, ID)).toBeNull();
+    expect(loadPinnedMessage(undefined, ID)).toBeNull();
+    expect(() => storePinnedMessage(undefined, ID, EVENT)).not.toThrow();
+  });
+
   it('rejects a stored session that is malformed', () => {
     const storage = memoryStorage();
     for (const raw of [
@@ -580,7 +655,7 @@ describe('device helpers', () => {
     expect(ok).toEqual({ recipeA: `30023:${PUBKEY}:sunday-loaf`, title: 'Sunday loaf' });
     expect(readRecipeHandoff(new URLSearchParams({ a: `35000:${PUBKEY}:premium` }))).toEqual({
       recipeA: `35000:${PUBKEY}:premium`,
-      title: 'Live cook-along'
+      title: 'Live from Zap Cooking'
     });
     expect(
       readRecipeHandoff(new URLSearchParams({ a: `1:${PUBKEY}:note`, title: 'x' }))
@@ -591,5 +666,97 @@ describe('device helpers', () => {
       readRecipeHandoff(new URLSearchParams({ a: `30023:${PUBKEY}:x`, title: 'y'.repeat(300) }))!
         .title.length
     ).toBe(120);
+  });
+});
+
+describe('liveDurationLine', () => {
+  it('says how long the host was live', () => {
+    expect(liveDurationLine(12)).toBe('You were live for less than a minute');
+    expect(liveDurationLine(60)).toBe('You were live for 1 minute');
+    expect(liveDurationLine(12 * 60 + 40)).toBe('You were live for 12 minutes');
+    expect(liveDurationLine(3600)).toBe('You were live for 1 hour');
+    expect(liveDurationLine(3600 + 5 * 60)).toBe('You were live for 1 hour 5 minutes');
+    expect(liveDurationLine(2 * 3600 + 60)).toBe('You were live for 2 hours 1 minute');
+  });
+  it('says nothing when there is nothing sensible to say', () => {
+    expect(liveDurationLine(null)).toBeNull();
+    expect(liveDurationLine(-5)).toBeNull();
+    expect(liveDurationLine(Number.NaN)).toBeNull();
+  });
+});
+
+describe('screen share helpers', () => {
+  const named = (name: string, message = '') => Object.assign(new Error(message), { name });
+
+  it('offers sharing only on desktop, with the API and a mouse or trackpad', () => {
+    expect(canShareScreen({ platform: 'other', hasGetDisplayMedia: true, finePointer: true })).toBe(
+      true
+    );
+    expect(
+      canShareScreen({ platform: 'other', hasGetDisplayMedia: false, finePointer: true })
+    ).toBe(false);
+    expect(
+      canShareScreen({ platform: 'other', hasGetDisplayMedia: true, finePointer: false })
+    ).toBe(false);
+    expect(canShareScreen({ platform: 'ios', hasGetDisplayMedia: true, finePointer: true })).toBe(
+      false
+    );
+    expect(
+      canShareScreen({ platform: 'android', hasGetDisplayMedia: true, finePointer: true })
+    ).toBe(false);
+  });
+
+  it('asks for audio and excludes this tab first, then asks for less', () => {
+    const [first, second, last] = displayMediaAttempts();
+    expect(first.audio).toBe(true);
+    expect((first as Record<string, unknown>).selfBrowserSurface).toBe('exclude');
+    expect(second).toEqual({ video: true, audio: true });
+    expect(last).toEqual({ video: true });
+  });
+
+  it('classifies share errors', () => {
+    expect(classifyShareError(named('NotAllowedError', 'Permission denied'))).toBe('cancelled');
+    expect(classifyShareError(named('NotAllowedError', 'Permission denied by system'))).toBe(
+      'system_blocked'
+    );
+    expect(classifyShareError(named('AbortError'))).toBe('cancelled');
+    expect(classifyShareError(named('TypeError'))).toBe('retry');
+    expect(classifyShareError(named('OverconstrainedError'))).toBe('retry');
+    expect(classifyShareError(named('NotReadableError'))).toBe('other');
+    expect(classifyShareError(null)).toBe('other');
+  });
+
+  it('says nothing for a cancel, and how to fix a system block', () => {
+    expect(shareProblemMessage('cancelled')).toBeNull();
+    expect(shareProblemMessage('system_blocked')).toMatch(/Screen & System Audio Recording/);
+    expect(shareProblemMessage('other')).toMatch(/try again/);
+  });
+
+  it('warns more strongly about a whole screen', () => {
+    expect(shareHint('window')).toBe('Share one window or tab, not your whole screen.');
+    expect(shareHint(undefined)).toBe('Share one window or tab, not your whole screen.');
+    expect(shareHint('monitor')).toMatch(/whole screen, including notifications/);
+  });
+});
+
+describe('audioSwitches (Mute button)', () => {
+  it('camera, or sharing without tab audio: one track, on only when both allow', () => {
+    const f = (micMuted: boolean, soundOn: boolean) =>
+      audioSwitches({ mixing: false, micMuted, soundOn });
+    expect(f(false, true)).toEqual({ mic: true, sent: true });
+    expect(f(true, true)).toEqual({ mic: false, sent: false });
+    expect(f(false, false)).toEqual({ mic: false, sent: false });
+    expect(f(true, false)).toEqual({ mic: false, sent: false });
+  });
+
+  it('sharing with tab audio: Mute silences only the microphone, the page rule silences all', () => {
+    expect(audioSwitches({ mixing: true, micMuted: true, soundOn: true })).toEqual({
+      mic: false,
+      sent: true
+    });
+    expect(audioSwitches({ mixing: true, micMuted: false, soundOn: false })).toEqual({
+      mic: true,
+      sent: false
+    });
   });
 });

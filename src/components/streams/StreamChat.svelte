@@ -1,13 +1,26 @@
 <script lang="ts">
   /**
-   * NIP-53 live chat (kind 1311) for one stream. History pages backward
-   * with an "Older messages" button, a live subscription appends new
-   * messages, and posting signs through the app's NDK signer into the
+   * Live chat for one stream: NIP-53 live chat (kind 1311 on the stream's
+   * address). A Go live session's address is built from its host and
+   * session id, so every session has a chat, with or without a "Live now"
+   * note. Its messages are written as kind 1311 only; kind 1 replies to
+   * the note (from apps that only reply to it) are read and shown too
+   * (see $lib/streams/chat). Go live adds: comments from commenters the host
+   * (or the admin, everywhere) has hidden are left out for everyone, read
+   * from our server ($lib/live/hiddenClient); the host gets Hide on each
+   * comment and the admin also "Hide everywhere", both with an Unhide list;
+   * any signed-in viewer can report a comment (the existing report path);
+   * and once the stream has ended the chat is read-only. The viewer's own
+   * (private) mute list keeps applying on top. History pages backward
+   * through an "older" link in the header bar, a live subscription appends
+   * new messages, and posting signs through the app's NDK signer into the
    * stream's relays. Chat profiles read straight from relays (newest
    * kind 0 wins), with Sidecar-style stable pseudonyms as the fallback.
    */
-  import { onDestroy, tick } from 'svelte';
+  import { createEventDispatcher, onDestroy, tick } from 'svelte';
   import { get } from 'svelte/store';
+  import ArrowsIn from 'phosphor-svelte/lib/ArrowsIn';
+  import ArrowsOutSimple from 'phosphor-svelte/lib/ArrowsOutSimple';
   import { page } from '$app/stores';
   import { NDKEvent, NDKRelaySet } from '@nostr-dev-kit/ndk';
   import type { SimplePool } from 'nostr-tools/pool';
@@ -30,40 +43,117 @@
     chatTemplate,
     fetchChatPage,
     fetchChatProfiles,
+    goLiveChatScope,
     subscribeChat,
-    type ChatProfile
+    type ChatProfile,
+    type ChatScope,
+    type ChatTarget
   } from '$lib/streams/chat';
   import { pseudonym } from '$lib/streams/parse';
+  import { goLiveZapTargets, targetFilters } from '$lib/streams/target';
+  import { userPublickey } from '$lib/nostr';
+  import {
+    fetchHiddenAuthors,
+    setHiddenAuthor,
+    type HiddenAuthor,
+    type HiddenScope
+  } from '$lib/live/hiddenClient';
+  import { isAdmin } from '$lib/adminAuth';
+  import { signNip98AuthHeader } from '$lib/nip98';
+  import { showToast } from '$lib/toast';
+  import EyeSlashIcon from 'phosphor-svelte/lib/EyeSlash';
+  import ProhibitIcon from 'phosphor-svelte/lib/Prohibit';
+  import FlagIcon from 'phosphor-svelte/lib/Flag';
+  import LiveReport from './LiveReport.svelte';
   import { mentionedPubkeys, tokenizeChatText, type ChatSegment } from '$lib/streams/chatText';
   import { dayDividerLabel, formatChatTime, isBeforeToday } from '$lib/streams/chatTime';
-  import { DISCOVERY_RELAYS, RECEIPT_RELAYS } from '$lib/streams/relays';
+  import { DISCOVERY_RELAYS, chatReceiptRelays, goLiveChatRelays } from '$lib/streams/relays';
+  import { isGoLiveItem } from '$lib/streams/goLive';
   import { resolveAuthorPubkey, zapReceiptRelayUrls } from '$lib/nip65Routing';
   import type { NostrEventLike, StreamItem } from '$lib/streams/types';
+  import {
+    closeOverlayFeed,
+    COMMENTS_KEPT,
+    openOverlayFeed,
+    pushOverlayZap,
+    setOverlayComments,
+    setOverlayProfiles,
+    type OverlayProfile
+  } from '$lib/live/overlay/overlayFeed';
 
   export let item: StreamItem;
   export let pool: SimplePool;
   /**
-   * Top senders by verified sats, from the page's tally scan. Rendered as
-   * the strip under the chat header, Sidecar-style.
+   * Top senders by verified sats, from the page's tally scan. Rendered
+   * under the video by StreamView; here it only drives the batched
+   * profile lookups that zap rows in the chat reuse for names.
    */
   export let topZappers: { pubkey: string; sats: number }[] = [];
+  /** The stream has ended: the chat is shown read-only. */
+  export let closed = false;
+  /** The chat is taking the full content width (docked video or user choice). */
+  export let expanded = false;
+  /** Show the expand/contract toggle (only meaningful beside a video column). */
+  export let expandable = false;
+
+  /** Verified zaps seen by the chat so far (the Go live host page shows them). */
+  const dispatch = createEventDispatcher<{
+    zaps: { sats: number; count: number };
+    toggleExpand: void;
+  }>();
+  function reportZaps() {
+    dispatch('zaps', { sats: Math.floor(totals.msats / 1000), count: totals.count });
+  }
 
   const PAGE_SIZE = 50;
   const HISTORY_CAP = 1000;
 
   // Plain declarations: openChat() runs during component init, before any
   // `$:` reactive statement would have fired.
-  let address = item.key;
-  let sources = [...new Set([...(item.relays || []), ...DISCOVERY_RELAYS])];
+  const goLive = isGoLiveItem(item);
+  /** Go live: the session's address, its host, and its note (once there is one). */
+  function scopeOf(): ChatScope | null {
+    return goLive ? goLiveChatScope(item.host, item.sessionId, item.noteId) : null;
+  }
+  let scope = scopeOf();
+  /** What the chat reads and writes: the Go live scope, or the stream's address. */
+  let chatTarget: ChatTarget = scope ?? item.key;
+  /**
+   * What zap receipts may point at. A Go live session: its "Live now"
+   * note (when there is one) and its address; both count, each payment
+   * once. A NIP-53 stream: its address.
+   */
+  function zapTargetsOf(): string[] {
+    return goLive ? goLiveZapTargets(item.host, item.sessionId, item.noteId) : [item.key];
+  }
+  let zapTargets = zapTargetsOf();
+  const sameTargets = (a: string[], b: string[]) => a.join('|') === b.join('|');
+  /** The note id the open chat was built for. */
+  let openedNote: string | null = goLive ? (item.noteId ?? null) : null;
+  // A Go live session names no relays of its own: its chat uses the shared
+  // list its zap receipts are read from. A NIP-53 stream keeps its own.
+  let sources = isGoLiveItem(item)
+    ? goLiveChatRelays()
+    : [...new Set([...(item.relays || []), ...DISCOVERY_RELAYS])];
   let model = new ChatMessages(item.key);
   let rows: TimelineRow[] = [];
   let loading = true;
   let historyBusy = false;
   let historyComplete = false;
+  /** Where the next older page starts (from the last page read); null: no older history. */
+  let historyNext: number | null | undefined = undefined;
   let notice = '';
   let noticeTimer: ReturnType<typeof setTimeout> | null = null;
   let sending = false;
   let draft = '';
+  let draftInput: HTMLTextAreaElement | null = null;
+  /** One row until the text needs more; capped by max-h-32. */
+  function growDraftInput(el: HTMLTextAreaElement) {
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 128)}px`;
+  }
+  // A sent or cleared draft shrinks the composer back to its one-row base.
+  $: if (draftInput && !draft) draftInput.style.height = '';
   let replyTo: NostrEventLike | null = null;
   let log: HTMLElement | null = null;
   let sub: { close: () => void } | null = null;
@@ -104,10 +194,12 @@
    * row and stays out of the timeline.
    */
   async function acceptReceipt(event: NostrEventLike): Promise<boolean> {
+    if (!zapTargets.length) return false;
     const provider = await resolveChatProvider();
     if (!provider) return false;
     const accepted = await totals.accept(event, {
-      address,
+      // Read after the wait: a note that arrived meanwhile only adds a target.
+      address: zapTargets,
       recipient: item.host,
       provider,
       verify: verifyEvent as never,
@@ -135,7 +227,7 @@
    * own zap's receipt lands there first — if the chat listened on the
    * generic aggregator set alone, zaps you just sent could go unseen live.
    */
-  let receiptSources: string[] = [...sources, ...RECEIPT_RELAYS];
+  let receiptSources: string[] = chatReceiptRelays(item.relays || []);
 
   async function widenReceiptSources() {
     try {
@@ -182,11 +274,91 @@
     return { event, sats, sender, comment };
   }
 
+  /** Go live: commenters hidden by the host or the admin (our server). */
+  let hiddenList: HiddenAuthor[] = [];
+  $: isHost = goLive && !!$userPublickey && $userPublickey === item.host;
+  $: isAdminViewer = goLive && isAdmin($userPublickey);
+  $: canModerate = isHost || isAdminViewer;
+  let hiddenOpen = false;
+
+  async function loadHidden() {
+    if (!goLive || !item.sessionId) return;
+    const found = await fetchHiddenAuthors(item.sessionId);
+    if (!found) return; // could not tell: keep what is applied
+    hiddenList = found;
+    scheduleProfiles(found.map((h) => h.pubkey));
+    repaint();
+  }
+
+  // A hide reaches viewers who are already watching within half a minute.
+  const hiddenTimer = setInterval(() => {
+    if (typeof document === 'undefined' || !document.hidden) void loadHidden();
+  }, 30_000);
+
+  let hiding = new Set<string>();
+  async function setHidden(pubkey: string, hidden: boolean, scope: HiddenScope) {
+    const key = `${scope}:${pubkey}`;
+    if (hiding.has(key) || !item.sessionId) return;
+    hiding = new Set([...hiding, key]);
+    const outcome = await setHiddenAuthor({
+      sessionId: item.sessionId,
+      pubkey,
+      hidden,
+      scope,
+      sign: (req) => signNip98AuthHeader(get(ndk), req)
+    });
+    hiding.delete(key);
+    hiding = hiding;
+    if (outcome === 'ok' || outcome === 'ok_unlogged') {
+      const others = hiddenList.filter((h) => !(h.pubkey === pubkey && h.scope === scope));
+      hiddenList = hidden ? [...others, { pubkey, scope }] : others;
+      repaint();
+      showToast(
+        'success',
+        hidden
+          ? scope === 'global'
+            ? `${displayName(pubkey)} is hidden from every Go live chat.`
+            : `${displayName(pubkey)} is hidden from your live chats.`
+          : `${displayName(pubkey)} is no longer hidden.`
+      );
+      if (outcome === 'ok_unlogged') {
+        showToast('error', 'Done, but the action log entry could not be written.');
+      }
+    } else {
+      showToast(
+        'error',
+        outcome === 'sign_failed'
+          ? 'The request was not signed. Approve it in your signer and try again.'
+          : outcome === 'forbidden'
+            ? 'Only the host or an admin can do that.'
+            : outcome === 'full'
+              ? 'The hidden list is full.'
+              : 'That did not go through. Check your connection and try again.'
+      );
+    }
+  }
+
+  /** The comment whose author menu is open. */
+  let menuFor: string | null = null;
+  function toggleMenu(id: string) {
+    menuFor = menuFor === id ? null : id;
+  }
+
+  let reportOpen = false;
+  let reportComment: { id: string; pubkey: string } | null = null;
+  async function report(event: NostrEventLike) {
+    // Reporting a comment needs a signed-in viewer (as commenting does).
+    if (!(await requireAuth({ kind: 'post', reason: 'Sign in to report a comment' }))) return;
+    reportComment = { id: event.id, pubkey: event.pubkey };
+    reportOpen = true;
+  }
+
   function timelineFromModel(): TimelineRow[] {
     const muted = get(mutedPubkeys);
+    const hiddenAuthors = new Set(hiddenList.map((h) => h.pubkey));
     const messages = model
       .rows()
-      .filter((e) => !muted.has(e.pubkey))
+      .filter((e) => !muted.has(e.pubkey) && !hiddenAuthors.has(e.pubkey))
       .map((event) => ({ event }));
     const zaps = [...receipts.values()].map(receiptRow).filter((row): row is TimelineRow => !!row);
     return [...messages, ...zaps].sort(
@@ -196,16 +368,13 @@
 
   // userPublickey can be restored while the passkey vault is locked —
   // signedIn reflects an actual usable session.
-  $: signingIn = !get(signedIn);
+  // Subscribed, not read once: the chat can mount before a saved session
+  // is restored (the Go live page loads fast), and must then show the
+  // composer as soon as the viewer is signed in.
+  $: signingIn = !$signedIn;
 
   // Top-zapper chips show real names: fold them into the batched lookups.
   $: scheduleProfiles(topZappers.map((z) => z.pubkey));
-
-  function compact(n: number): string {
-    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-    if (n >= 1_000) return `${(n / 1_000).toFixed(n >= 10_000 ? 0 : 1)}K`;
-    return String(n);
-  }
 
   function setNotice(text: string, duration = 0) {
     if (noticeTimer) clearTimeout(noticeTimer);
@@ -249,16 +418,93 @@
       const found = await fetchChatProfiles({ pool, sources, keys });
       for (const [key, profile] of found) profiles.set(key, profile);
       rows = rows; // repaint names/avatars
+      publishOverlay();
     } catch {
       // Profile misses keep pseudonyms.
     }
     if (profileKeysPending.size && !profileTimer) profileTimer = setTimeout(flushProfiles, 250);
   }
 
+  // ── On-video overlays (Go live only) ──────────────────────────────
+  // The live comments this chat shows, and the zaps it verified, are
+  // handed to the overlays through `overlayFeed`. Same filter as the log:
+  // muted and hidden commenters never reach the overlay.
+  /** The chat opened (unix s): only comments from then on go on screen. */
+  let openedAt = Math.floor(Date.now() / 1000);
+  /** When this device first saw each live comment (ms). */
+  let commentSeenAt = new Map<string, number>();
+  let overlayTarget: string | null = null;
+
+  function overlayText(text: string): string {
+    return segmentsOf(text)
+      .map((seg) => (seg.type === 'mention' ? `@${displayName(seg.pubkey)}` : seg.text))
+      .join('');
+  }
+
+  function overlayProfile(pubkey: string): OverlayProfile {
+    return { name: displayName(pubkey), picture: profiles.get(pubkey)?.picture ?? null };
+  }
+
+  function publishOverlay() {
+    if (!overlayTarget) return;
+    const now = Date.now();
+    const live = rows
+      .filter((row) => row.event.kind !== 9735 && row.event.created_at >= openedAt - 10)
+      .slice(-COMMENTS_KEPT);
+    const comments = live.map((row) => {
+      let at = commentSeenAt.get(row.event.id);
+      if (at == null) {
+        at = now;
+        commentSeenAt.set(row.event.id, at);
+      }
+      return {
+        id: row.event.id,
+        pubkey: row.event.pubkey,
+        text: overlayText(row.event.content),
+        at
+      };
+    });
+    if (commentSeenAt.size > 500) {
+      const keep = new Set(comments.map((c) => c.id));
+      for (const id of commentSeenAt.keys()) if (!keep.has(id)) commentSeenAt.delete(id);
+    }
+    setOverlayComments(overlayTarget, comments);
+    publishOverlayProfiles(comments.map((c) => c.pubkey));
+  }
+
+  let overlayZapSenders = new Set<string>();
+  function publishOverlayProfiles(extra: string[] = []) {
+    if (!overlayTarget) return;
+    const out: Record<string, OverlayProfile> = {};
+    for (const pk of new Set([...extra, ...overlayZapSenders])) out[pk] = overlayProfile(pk);
+    setOverlayProfiles(overlayTarget, out);
+  }
+
+  /** A verified zap that arrived live: animate it (sender named only if shown in the chat). */
+  function publishOverlayZap(event: NostrEventLike) {
+    if (!overlayTarget || event.created_at < openedAt - 10) return;
+    const row = receiptRow(event);
+    if (!row?.sats) return;
+    const hiddenAuthors = new Set(hiddenList.map((h) => h.pubkey));
+    const sender =
+      row.sender && !get(mutedPubkeys).has(row.sender) && !hiddenAuthors.has(row.sender)
+        ? row.sender
+        : null;
+    if (sender) {
+      overlayZapSenders.add(sender);
+      if (overlayZapSenders.size > 100)
+        overlayZapSenders = new Set([...overlayZapSenders].slice(-50));
+      scheduleProfiles([sender]);
+    }
+    pushOverlayZap(overlayTarget, { id: event.id, sats: row.sats, sender, at: Date.now() });
+    publishOverlayProfiles(rows.slice(-COMMENTS_KEPT).map((r) => r.event.pubkey));
+  }
+
   function repaint(forceScroll = false) {
     const logEl = log;
     const wasAtBottom = !logEl || logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 80;
     rows = timelineFromModel();
+    publishOverlay();
     scheduleProfiles([
       ...new Set([
         ...rows.map((row) => row.sender || row.event.pubkey),
@@ -274,14 +520,23 @@
 
   /** Recent receipts so the log opens with the zap history, like Sidecar. */
   async function loadReceipts() {
+    const address = zapTargets;
+    if (!address.length) return;
     try {
-      const events = (await pool.querySync(
-        receiptSources,
-        { kinds: [9735], '#a': [address], limit: 200 } as Filter,
-        { maxWait: 5000 }
-      )) as unknown as NostrEventLike[];
+      // One query per target (the note, the address); a receipt both
+      // return is taken once (by id here, by payment in the total).
+      const pages = await Promise.all(
+        targetFilters(address).map(
+          (fragment) =>
+            pool.querySync(receiptSources, { kinds: [9735], ...fragment, limit: 200 } as Filter, {
+              maxWait: 5000
+            }) as unknown as Promise<NostrEventLike[]>
+        )
+      );
+      const events = [...new Map(pages.flat().map((e) => [e.id, e])).values()];
       for (const event of events) {
         if (await acceptReceipt(event)) receipts.set(event.id, event);
+        reportZaps();
       }
       repaint();
     } catch {
@@ -291,26 +546,26 @@
 
   function subscribeReceipts() {
     receiptSub?.close();
-    const closer = pool.subscribeMany(
-      receiptSources,
-      {
-        kinds: [9735],
-        '#a': [address],
-        since: Math.floor(Date.now() / 1000) - 10
-      } as Filter,
-      {
+    receiptSub = null;
+    const address = zapTargets;
+    if (!address.length) return;
+    const since = Math.floor(Date.now() / 1000) - 10;
+    const closers = targetFilters(address).map((fragment) =>
+      pool.subscribeMany(receiptSources, { kinds: [9735], ...fragment, since } as Filter, {
         onevent: (event: unknown) => {
           const e = event as NostrEventLike;
           acceptReceipt(e).then((ok) => {
             if (ok) {
+              reportZaps();
               receipts.set(e.id, e);
               repaint();
+              publishOverlayZap(e);
             }
           });
         }
-      } as never
+      } as never)
     );
-    receiptSub = { close: () => closer.close() };
+    receiptSub = { close: () => closers.forEach((closer) => closer.close()) };
   }
 
   async function scrollToBottom() {
@@ -325,28 +580,40 @@
     // Preserve the reader's position across a prepended history page.
     const logEl = log;
     const anchor = logEl ? logEl.scrollHeight - logEl.scrollTop : null;
-    const oldest = model.rows()[0];
+    const reading = model;
     try {
       const pageResult = await fetchChatPage({
         pool,
         sources,
-        address,
+        address: chatTarget,
         signal: new AbortController().signal,
-        until: latest || !oldest ? undefined : oldest.created_at - 1,
+        // Older history starts where the last page says it stopped, not at
+        // the oldest message held: a few old note replies would otherwise
+        // skip the chat between them and the newest page.
+        until: latest || historyNext == null ? undefined : historyNext,
         pageSize: PAGE_SIZE
       });
+      // The chat moved on (a note arrived) while this page was loading.
+      if (reading !== model) return;
       for (const event of pageResult.events) model.accept(event, verifyEvent);
-      historyComplete = pageResult.complete && !pageResult.events.length;
+      historyNext = pageResult.next;
+      historyComplete = pageResult.complete && pageResult.next === null;
       await tick();
       // Keep the reader's place when a page prepends above the viewport.
       if (logEl && anchor != null && !latest) logEl.scrollTop = logEl.scrollHeight - anchor;
-      if (!pageResult.complete) setNotice('Some chat relays are unavailable — retrying…', 7000);
+      // Go live reads a longer shared relay list: one slow relay among
+      // them is not worth a notice while the others answered.
+      if (!pageResult.complete && (!goLive || pageResult.answered === 0)) {
+        setNotice('Some chat relays are unavailable — retrying…', 7000);
+      }
       repaint();
     } catch {
       setNotice('Could not load chat. Try again.', 7000);
     } finally {
       loading = false;
       historyBusy = false;
+      // A note arrived mid-read: that page was for the old chat. Read again.
+      if (reading !== model) void load(true);
     }
   }
 
@@ -355,8 +622,19 @@
     sub = null;
     receiptSub?.close();
     receiptSub = null;
-    address = item.key;
-    model = new ChatMessages(address);
+    scope = scopeOf();
+    openedNote = goLive ? (item.noteId ?? null) : null;
+    chatTarget = scope ?? item.key;
+    zapTargets = zapTargetsOf();
+    model = new ChatMessages(chatTarget);
+    historyNext = undefined;
+    openedAt = Math.floor(Date.now() / 1000);
+    commentSeenAt = new Map();
+    overlayZapSenders = new Set();
+    if (overlayTarget) closeOverlayFeed(overlayTarget);
+    overlayTarget = scope ? scope.address : null;
+    if (overlayTarget) openOverlayFeed(overlayTarget);
+    hiddenList = [];
     rows = [];
     receipts = new Map();
     loading = true;
@@ -364,11 +642,18 @@
     replyTo = null;
     load(true);
     loadReceipts();
+    void loadHidden();
     widenReceiptSources();
+    subscribeMessages();
+    subscribeReceipts();
+  }
+
+  function subscribeMessages() {
+    sub?.close();
     sub = subscribeChat({
       pool,
       sources,
-      address,
+      address: chatTarget,
       onEvent: (event) => {
         const atBottom = !log || log.scrollHeight - log.scrollTop - log.clientHeight < 80;
         if (model.accept(event, verifyEvent)) {
@@ -377,29 +662,68 @@
         }
       }
     });
-    subscribeReceipts();
+  }
+
+  /**
+   * Go live: the "Live now" note's id became known (or changed) while the
+   * chat was open. The chat itself stays as it is: the messages on screen
+   * are kept, the note's replies are read as well from here on, and zap
+   * receipts on the note are read as well as those on the address.
+   */
+  function noteChanged() {
+    openedNote = goLive ? (item.noteId ?? null) : null;
+    const next = scopeOf();
+    if (!next) return;
+    scope = next;
+    chatTarget = next;
+    const held = model.rows();
+    model = new ChatMessages(next);
+    for (const event of held) model.accept(event, verifyEvent);
+    historyNext = undefined;
+    subscribeMessages();
+    void load(true);
+    // The note is one more thing zaps may point at. The total and the
+    // rows already shown (zaps to the address) are kept; the note's
+    // receipts are added to the same total.
+    if (!sameTargets(zapTargetsOf(), zapTargets)) {
+      zapTargets = zapTargetsOf();
+      void loadReceipts();
+      subscribeReceipts();
+    }
+    repaint();
   }
 
   openChat();
 
+  // The page refreshes `item` every few seconds; only a new note id matters.
+  $: currentNote = goLive ? (item.noteId ?? null) : null;
+  $: if (currentNote !== openedNote) noteChanged();
+
   async function send() {
     const text = draft.trim();
     const ndkInstance = get(ndk);
-    if (!text || sending || !ndkInstance) return;
+    // `closed` is rechecked after every wait: the stream can end while a
+    // sign-in or an external signer is pending, and a reply must not go out
+    // after the chat says it is closed.
+    if (!text || sending || !ndkInstance || closed) return;
     const ok = await requireAuth({ kind: 'post', reason: 'post in live chat' });
-    if (!ok) return;
+    if (!ok || closed) return;
     sending = true;
     setNotice('Sending…');
     try {
       // Reply to the message the user selected — not that message's own
       // parent (chatReplyParent would climb the thread).
       const template = chatTemplate(
-        address,
+        chatTarget,
         text,
         replyTo ? { id: replyTo.id, pubkey: replyTo.pubkey } : null
       );
       const event = new NDKEvent(ndkInstance, template as never);
       await event.sign();
+      if (closed) {
+        setNotice('This live stream has ended. The chat is closed.', 7000);
+        return;
+      }
       await Promise.race([
         event.publish(NDKRelaySet.fromRelayUrls(sources, ndkInstance, true)),
         new Promise<never>((_, reject) =>
@@ -419,7 +743,8 @@
   }
 
   function replyKey(event: NostrEventLike): string {
-    const parent = chatReplyParent(event);
+    // The note's own id is every note reply's root, never a parent.
+    const parent = chatReplyParent(event, scope?.noteId ?? null);
     return parent?.id || '';
   }
 
@@ -430,77 +755,105 @@
     receiptSub = null;
     if (noticeTimer) clearTimeout(noticeTimer);
     if (profileTimer) clearTimeout(profileTimer);
+    clearInterval(hiddenTimer);
+    if (overlayTarget) closeOverlayFeed(overlayTarget);
   });
 </script>
 
 <section
-  class="flex h-full min-h-0 flex-col rounded-xl"
+  class="flex h-full min-h-0 flex-col overflow-hidden rounded-xl"
   style="background-color: var(--color-bg-primary); border: 1px solid var(--color-input-border);"
 >
   <header
-    class="flex items-center justify-between border-b px-3 py-2"
+    class="flex items-center justify-between border-b px-3 py-1.5"
     style="border-color: var(--color-input-border); background-color: color-mix(in srgb, var(--color-bg-secondary) 70%, transparent);"
   >
-    <h2 class="text-sm font-semibold" style="color: var(--color-text-primary);">Live chat</h2>
-    <span class="text-xs" style="color: var(--color-caption);">
+    <h2
+      class="!text-xs font-semibold uppercase !tracking-wide"
+      style="color: var(--color-caption);"
+    >
+      Live chat
+    </h2>
+    <span class="flex items-center gap-1.5 text-xs" style="color: var(--color-caption);">
       {rows.length > 0 ? `${rows.length} messages` : ''}
+      {#if !historyComplete && rows.length < HISTORY_CAP}
+        {#if rows.length > 0}<span aria-hidden="true">·</span>{/if}
+        <button
+          type="button"
+          class="underline hover:opacity-80 disabled:opacity-50 cursor-pointer"
+          style="color: var(--color-caption);"
+          disabled={historyBusy || loading}
+          aria-label="Load older messages"
+          on:click={() => load(false)}
+        >
+          {historyBusy ? 'loading…' : 'older'}
+        </button>
+      {/if}
+      {#if canModerate && hiddenList.length}
+        <button
+          type="button"
+          class="rounded px-1.5 py-0.5 underline hover:opacity-80"
+          aria-expanded={hiddenOpen}
+          on:click={() => (hiddenOpen = !hiddenOpen)}
+        >
+          Hidden ({hiddenList.length})
+        </button>
+      {/if}
+      {#if expandable}
+        <button
+          type="button"
+          class="rounded p-1 hover:opacity-80 cursor-pointer"
+          style="color: var(--color-caption);"
+          aria-pressed={expanded}
+          aria-label="Toggle chat panel size"
+          title={expanded ? 'Collapse chat' : 'Expand chat'}
+          on:click={() => dispatch('toggleExpand')}
+        >
+          {#if expanded}
+            <ArrowsIn size={16} />
+          {:else}
+            <ArrowsOutSimple size={16} />
+          {/if}
+        </button>
+      {/if}
     </span>
   </header>
 
-  {#if topZappers.length}
-    <!-- Top zappers strip (Sidecar parity): ranked senders with pfp + sats. -->
-    <div
-      class="flex gap-1.5 overflow-x-auto border-b px-3 py-2"
+  {#if canModerate && hiddenOpen && hiddenList.length}
+    <!-- Who is hidden, with Unhide. The host can unhide their own list;
+         the admin can unhide anyone. -->
+    <ul
+      class="max-h-40 overflow-y-auto border-b px-3 py-2 text-xs"
       style="border-color: var(--color-input-border);"
-      aria-label="Top zappers"
+      aria-label="Hidden from the chat"
     >
-      {#each topZappers as zapper, i (zapper.pubkey)}
-        {@const name = displayName(zapper.pubkey)}
-        <button
-          type="button"
-          class="flex shrink-0 items-center gap-1 rounded-full py-0.5 pl-0.5 pr-2 text-xs transition-colors hover:bg-accent-gray cursor-pointer"
-          style="background-color: var(--color-bg-secondary);"
-          title={'#' + (i + 1) + ' ' + name + ' — ' + zapper.sats.toLocaleString() + ' sats'}
-          on:click={() => openProfilePreview(zapper.pubkey)}
-        >
-          <span
-            class="chat-avatar-placeholder overflow-hidden rounded-full"
-            style="width:20px;height:20px"
-          >
-            <Avatar
-              pubkey={zapper.pubkey}
-              src={profiles.get(zapper.pubkey)?.picture || null}
-              size={20}
-              alt={name}
-              interactive={false}
-            />
+      {#each hiddenList as h (h.scope + h.pubkey)}
+        <li class="flex items-center justify-between gap-2 py-1">
+          <span class="min-w-0 truncate" style="color: var(--color-text-primary);">
+            {displayName(h.pubkey)}
+            <span style="color: var(--color-caption);">
+              · {h.scope === 'global' ? 'everywhere' : isHost ? 'your chats' : 'this host'}
+            </span>
           </span>
-          <span class="max-w-24 truncate" style="color: var(--color-text-primary);">{name}</span>
-          <span class="font-semibold tabular-nums text-amber-500">
-            {compact(zapper.sats)}
-          </span>
-        </button>
+          {#if h.scope === 'host' || isAdminViewer}
+            <button
+              type="button"
+              class="shrink-0 rounded-full px-2 py-0.5 hover:bg-accent-gray disabled:opacity-40"
+              style="color: var(--color-primary);"
+              disabled={hiding.has(`${h.scope}:${h.pubkey}`)}
+              on:click={() => setHidden(h.pubkey, false, h.scope)}>Unhide</button
+            >
+          {/if}
+        </li>
       {/each}
-    </div>
+    </ul>
   {/if}
 
-  <div class="px-3 pt-2">
     {#if rows.length >= HISTORY_CAP}
-      <p class="mb-2 text-center text-xs" style="color: var(--color-caption);">
+      <p class="px-3 pb-1 text-center text-xs" style="color: var(--color-caption);">
         This chat has too many messages to load further history.
       </p>
-    {:else if !historyComplete}
-      <button
-        type="button"
-        class="mb-2 w-full rounded-lg py-1 text-xs transition-colors hover:bg-accent-gray disabled:opacity-50 cursor-pointer"
-        style="border: 1px solid var(--color-input-border); color: var(--color-caption);"
-        disabled={historyBusy || loading}
-        on:click={() => load(false)}
-      >
-        {historyBusy ? 'Loading…' : 'Older messages'}
-      </button>
     {/if}
-  </div>
 
   <div bind:this={log} class="flex-1 overflow-y-auto px-3 pb-2" aria-label="Stream chat">
     {#if loading}
@@ -547,7 +900,22 @@
             {/if}
           </p>
           {#if row.comment}
-            <p class="mt-0.5 text-sm leading-snug break-words" dir="auto">{#each segmentsOf(row.comment) as segment}{#if segment.type === 'mention'}<button type="button" class="chat-mention" title={displayName(segment.pubkey)} on:click={() => openProfilePreview(segment.pubkey)}>@{displayName(segment.pubkey)}</button>{:else if segment.type === 'link'}<a class="chat-link" href={segment.href} target="_blank" rel="noopener noreferrer nofollow ugc">{segment.text}</a>{:else if segment.type === 'ref'}<a class="chat-link" href={segment.href}>{segment.text}</a>{:else}{segment.text}{/if}{/each}</p>
+            <p class="mt-0.5 text-sm leading-snug break-words" dir="auto">
+              {#each segmentsOf(row.comment) as segment}{#if segment.type === 'mention'}<button
+                    type="button"
+                    class="chat-mention"
+                    title={displayName(segment.pubkey)}
+                    on:click={() => openProfilePreview(segment.pubkey)}
+                    >@{displayName(segment.pubkey)}</button
+                  >{:else if segment.type === 'link'}<a
+                    class="chat-link"
+                    href={segment.href}
+                    target="_blank"
+                    rel="noopener noreferrer nofollow ugc">{segment.text}</a
+                  >{:else if segment.type === 'ref'}<a class="chat-link" href={segment.href}
+                    >{segment.text}</a
+                  >{:else}{segment.text}{/if}{/each}
+            </p>
           {/if}
         </article>
       {:else}
@@ -566,30 +934,57 @@
               ↳ {displayName(parent.event.pubkey)}
             </button>
           {/if}
-          <div id={`chat-${event.id}`} class="group flex items-start gap-2">
-            <span
+          <div id={`chat-${event.id}`} class="group relative flex items-start gap-2">
+            <!-- Name and avatar open the commenter menu (profile, report, hide). -->
+            <button
+              type="button"
               class="chat-avatar-placeholder mt-0.5 shrink-0 overflow-hidden rounded-full"
               style="width:24px;height:24px"
+              aria-haspopup="menu"
+              aria-expanded={menuFor === event.id}
+              aria-label="Options for {displayName(event.pubkey)}"
+              on:click|stopPropagation={() => toggleMenu(event.id)}
             >
               <Avatar
                 pubkey={event.pubkey}
                 src={profiles.get(event.pubkey)?.picture || null}
                 size={24}
                 alt={displayName(event.pubkey)}
+                interactive={false}
               />
-            </span>
+            </button>
             <div class="min-w-0 flex-1">
               <p class="text-xs leading-snug break-words">
-                <span
-                  class="font-semibold"
+                <button
+                  type="button"
+                  class="font-semibold hover:underline"
                   style="color: var(--color-text-primary);"
-                  title={displayName(event.pubkey)}>{displayName(event.pubkey)}</span
+                  title={displayName(event.pubkey)}
+                  aria-haspopup="menu"
+                  aria-expanded={menuFor === event.id}
+                  on:click|stopPropagation={() => toggleMenu(event.id)}
+                  >{displayName(event.pubkey)}</button
                 >
                 <span style="color: var(--color-caption);">
                   {formatChatTime(event.created_at)}
                 </span>
               </p>
-              <p class="text-sm leading-snug break-words" dir="auto">{#each segmentsOf(event.content) as segment}{#if segment.type === 'mention'}<button type="button" class="chat-mention" title={displayName(segment.pubkey)} on:click={() => openProfilePreview(segment.pubkey)}>@{displayName(segment.pubkey)}</button>{:else if segment.type === 'link'}<a class="chat-link" href={segment.href} target="_blank" rel="noopener noreferrer nofollow ugc">{segment.text}</a>{:else if segment.type === 'ref'}<a class="chat-link" href={segment.href}>{segment.text}</a>{:else}{segment.text}{/if}{/each}</p>
+              <p class="text-sm leading-snug break-words" dir="auto">
+                {#each segmentsOf(event.content) as segment}{#if segment.type === 'mention'}<button
+                      type="button"
+                      class="chat-mention"
+                      title={displayName(segment.pubkey)}
+                      on:click={() => openProfilePreview(segment.pubkey)}
+                      >@{displayName(segment.pubkey)}</button
+                    >{:else if segment.type === 'link'}<a
+                      class="chat-link"
+                      href={segment.href}
+                      target="_blank"
+                      rel="noopener noreferrer nofollow ugc">{segment.text}</a
+                    >{:else if segment.type === 'ref'}<a class="chat-link" href={segment.href}
+                      >{segment.text}</a
+                    >{:else}{segment.text}{/if}{/each}
+              </p>
             </div>
             <button
               type="button"
@@ -614,15 +1009,75 @@
                 <path d="m10 5-7 6 7 6M3 11h10a8 8 0 0 1 8 8" />
               </svg>
             </button>
+            {#if menuFor === event.id}
+              <div
+                class="chat-menu"
+                role="menu"
+                aria-label="Options for {displayName(event.pubkey)}"
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  on:click={() => {
+                    menuFor = null;
+                    openProfilePreview(event.pubkey);
+                  }}>View profile</button
+                >
+                {#if goLive && event.pubkey !== $userPublickey}
+                  <button
+                    type="button"
+                    role="menuitem"
+                    on:click={() => {
+                      menuFor = null;
+                      report(event);
+                    }}><FlagIcon size={14} /> Report</button
+                  >
+                {/if}
+                {#if canModerate && event.pubkey !== item.host}
+                  <button
+                    type="button"
+                    role="menuitem"
+                    disabled={hiding.has(`host:${event.pubkey}`)}
+                    on:click={() => {
+                      menuFor = null;
+                      setHidden(event.pubkey, true, 'host');
+                    }}
+                    ><EyeSlashIcon size={14} />
+                    {isHost ? 'Hide from my live chats' : 'Hide from this host’s chats'}</button
+                  >
+                {/if}
+                {#if isAdminViewer && event.pubkey !== item.host}
+                  <button
+                    type="button"
+                    role="menuitem"
+                    disabled={hiding.has(`global:${event.pubkey}`)}
+                    on:click={() => {
+                      menuFor = null;
+                      setHidden(event.pubkey, true, 'global');
+                    }}><ProhibitIcon size={14} /> Hide everywhere</button
+                  >
+                {/if}
+              </div>
+            {/if}
           </div>
         </article>
       {/if}
     {/each}
   </div>
 
-  <footer class="border-t px-3 py-2" style="border-color: var(--color-input-border);">
-    {#if signingIn}
-      <p class="text-xs" style="color: var(--color-caption);">
+  {#if notice}
+    <!-- Status sits between the last comment and the input, inside the
+         frame, so it never breaks the composer's flush bottom corners. -->
+    <p class="mx-3 mb-1 text-xs" style="color: var(--color-caption);" role="status">{notice}</p>
+  {/if}
+
+  <footer class="border-t" style="border-color: var(--color-input-border);">
+    {#if closed}
+      <p class="px-3 py-2 text-xs" style="color: var(--color-caption);">
+        This live stream has ended. The chat is closed.
+      </p>
+    {:else if signingIn}
+      <p class="px-3 py-2 text-xs" style="color: var(--color-caption);">
         <a
           class="underline hover:opacity-80"
           href={`/login?redirect=${encodeURIComponent($page.url.pathname)}`}>Sign in</a
@@ -631,7 +1086,7 @@
     {:else}
       {#if replyTo}
         <div
-          class="mb-1 flex items-center justify-between gap-2 rounded px-2 py-1 text-xs"
+          class="mx-3 mt-2 mb-1 flex items-center justify-between gap-2 rounded px-2 py-1 text-xs"
           style="background-color: var(--color-bg-secondary);"
         >
           <span class="truncate" style="color: var(--color-caption);">
@@ -647,17 +1102,20 @@
         </div>
       {/if}
       <div class="flex items-end">
-        <!-- Composer per the Messages-panel pattern: attached orange send
-             button, NIP-57-style focus ring on the shared accent. -->
+        <!-- Composer unified with the panel frame: the input row is flush
+             with the panel's bottom edge, the orange send button fills the
+             right end, and focus shows the shared accent as an inset ring. -->
         <textarea
           bind:value={draft}
-          rows="2"
+          bind:this={draftInput}
+          rows="1"
           maxlength="4000"
           placeholder="Type a message..."
           aria-label="Write a message"
-          class="chat-input input min-w-0 flex-1 resize-none text-sm min-h-[42px] max-h-32 transition-colors duration-200"
-          style="background-color: var(--color-input-bg); border-radius: 0.75rem 0 0 0.75rem; border: 1px solid rgba(249, 115, 22, 0.35); border-right: none;"
+          class="chat-input input min-w-0 flex-1 resize-none border-0 !rounded-none text-sm min-h-[42px] max-h-32 overflow-y-auto transition-colors duration-200"
+          style="background-color: var(--color-input-bg);"
           disabled={sending}
+          on:input={(e) => growDraftInput(e.currentTarget)}
           on:keydown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
@@ -667,7 +1125,7 @@
         ></textarea>
         <button
           type="button"
-          class="self-stretch rounded-l-none rounded-r-xl p-2.5 transition-colors cursor-pointer disabled:opacity-40"
+          class="self-stretch p-2.5 transition-colors cursor-pointer disabled:opacity-40"
           style="background-color: var(--color-primary); color: #ffffff;"
           disabled={sending || !draft.trim()}
           aria-label="Send message"
@@ -683,11 +1141,24 @@
         </button>
       </div>
     {/if}
-    {#if notice}
-      <p class="mt-1 text-xs" style="color: var(--color-caption);" role="status">{notice}</p>
-    {/if}
   </footer>
 </section>
+
+<svelte:window
+  on:click={() => (menuFor = null)}
+  on:keydown={(e) => {
+    if (e.key === 'Escape') menuFor = null;
+  }}
+/>
+
+{#if goLive && item.sessionId}
+  <LiveReport
+    sessionId={item.sessionId}
+    comment={reportComment}
+    trigger={false}
+    bind:open={reportOpen}
+  />
+{/if}
 
 <style>
   /* Placeholder avatars: a blue-grey tile from the active theme's own
@@ -704,6 +1175,37 @@
   }
   :global(html.dark) .chat-avatar-placeholder :global(svg path) {
     fill: color-mix(in srgb, #94a3b8 85%, var(--color-bg-secondary));
+  }
+
+  .chat-menu {
+    position: absolute;
+    left: 1.75rem;
+    top: 1.25rem;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    min-width: 12rem;
+    padding: 0.25rem;
+    border-radius: 0.6rem;
+    background: var(--color-bg-primary);
+    border: 1px solid var(--color-input-border);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  }
+  .chat-menu button {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.45rem 0.6rem;
+    border-radius: 0.4rem;
+    font-size: 0.8125rem;
+    text-align: left;
+    color: var(--color-text-primary);
+  }
+  .chat-menu button:hover {
+    background: var(--color-input-bg);
+  }
+  .chat-menu button:disabled {
+    opacity: 0.5;
   }
 
   .chat-input:focus {

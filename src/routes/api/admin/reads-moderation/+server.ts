@@ -11,7 +11,7 @@
  */
 
 import { json, type RequestHandler } from '@sveltejs/kit';
-import { ADMIN_PUBKEY } from '$lib/adminAuth';
+import { ADMIN_PUBKEYS } from '$lib/adminAuth';
 import { verifyNip98 } from '$lib/nip98.server';
 import {
 	addBlockedPubkey,
@@ -50,7 +50,7 @@ function sanitizeLists(raw: unknown): ReadsModerationLists | null {
 }
 
 export const GET: RequestHandler = async ({ request, platform }) => {
-	const auth = await verifyNip98(request, { expectedPubkey: ADMIN_PUBKEY });
+	const auth = await verifyNip98(request, { expectedPubkeys: ADMIN_PUBKEYS });
 	if (!auth.ok) {
 		return json({ error: 'forbidden' }, { status: 403 });
 	}
@@ -65,7 +65,7 @@ export const GET: RequestHandler = async ({ request, platform }) => {
 export const POST: RequestHandler = async ({ request, platform }) => {
 	const bodyBytes = new Uint8Array(await request.arrayBuffer());
 	const auth = await verifyNip98(request, {
-		expectedPubkey: ADMIN_PUBKEY,
+		expectedPubkeys: ADMIN_PUBKEYS,
 		bodyBytes
 	});
 	if (!auth.ok) {

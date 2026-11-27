@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, createEventDispatcher } from 'svelte';
+  import { viewportPanel } from '$lib/actions/viewportPanel';
   import { goto } from '$app/navigation';
   import SparkleIcon from 'phosphor-svelte/lib/Sparkle';
   import LeafIcon from 'phosphor-svelte/lib/Leaf';
@@ -7,6 +8,9 @@
   import { openCheffy } from '$lib/stores/cheffyChat';
 
   export let open: boolean = false;
+  /** Which way the menu opens: 'right' in the header strip, 'left' in the
+      sidebar's user bar (drops down into the viewport). */
+  export let panelAlign: 'right' | 'left' = 'right';
 
   const dispatch = createEventDispatcher();
   let panelEl: HTMLDivElement;
@@ -77,7 +81,14 @@
 </script>
 
 {#if open}
-  <div bind:this={panelEl} class="intelligence-menu" role="menu" aria-label="Kitchen help">
+  <div
+    bind:this={panelEl}
+    class="intelligence-menu"
+    class:intelligence-menu-left={panelAlign === 'left'}
+    use:viewportPanel={{ enabled: panelAlign === 'left' }}
+    role="menu"
+    aria-label="Kitchen help"
+  >
     <div class="header-row">
       <span class="eyebrow">Kitchen help</span>
     </div>
@@ -103,6 +114,12 @@
 {/if}
 
 <style>
+  /* Left placement (sidebar user bar): the viewportPanel action fixes
+       the position; this marker class only carries the max-width cap. */
+  .intelligence-menu-left {
+    max-width: calc(100vw - 24px);
+  }
+
   .intelligence-menu {
     position: absolute;
     top: calc(100% + 8px);

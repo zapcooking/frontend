@@ -7,27 +7,24 @@
  * membership lookup and the host list are stubbed.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
 import { finalizeEvent, generateSecretKey, getPublicKey, type EventTemplate } from 'nostr-tools';
 import { normalizeUrl, sha256Hex } from '$lib/nip98';
-import { createLiveDatabase } from '../../../test/liveDatabase';
+import { ADMIN_PUBKEY } from '$lib/adminAuth';
+import { acceptTerms, approveHosts, createLiveDatabase } from '../../../test/liveDatabase';
+import { LIVE_TERMS_VERSION } from '$lib/live/config';
+import { createKvFake } from '../../../test/liveStreamStub';
 
 const mocks = vi.hoisted(() => ({
-  checkMembership: vi.fn(),
-  hosts: [] as string[]
+  checkMembership: vi.fn()
 }));
 vi.mock('$lib/membershipApi.server', () => ({ checkMembership: mocks.checkMembership }));
-vi.mock('$lib/live/config', async () => {
-  const actual = (await vi.importActual('$lib/live/config')) as typeof import('$lib/live/config');
-  return {
-    ...actual,
-    isLiveHost: (pubkey: string | null | undefined) => actual.isLiveHost(pubkey, mocks.hosts)
-  };
-});
 
-import { POST as createRoute } from './+server';
+import { POST as createRoute, GET as listRoute } from './+server';
 import { GET as readRoute } from './[id]/+server';
 import { POST as endRoute } from './[id]/end/+server';
+import { POST as noteRoute } from './[id]/note/+server';
 import {
   createSession,
   endSession,
@@ -67,6 +64,7 @@ const PRIVATE_FIELDS = [
   'publish_lock_at',
   'guest_joins',
   'cap_refusals',
+  'pass_rejoins',
   'disconnected_streak',
   'end_reason'
 ];
@@ -136,8 +134,8 @@ const rowCount = () => db.raw.prepare('SELECT COUNT(*) AS c FROM live_sessions')
 
 beforeEach(() => {
   db = createLiveDatabase();
+  approveHosts(db, HOST, OTHER);
   platformEnv = { SCHEDULER_DB: db, MEMBERSHIP_ENABLED: 'true', RELAY_API_SECRET: 'relay-secret' };
-  mocks.hosts = [HOST];
   mocks.checkMembership.mockReset().mockResolvedValue({ state: 'active', found: true });
 });
 
@@ -162,8 +160,111 @@ describe('migration 0004', () => {
   });
 });
 
+describe('migration 0005', () => {
+  const sql = readFileSync('migrations/scheduler/0005_add_live_pass_rejoins.sql', 'utf8')
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('--'))
+    .join('\n')
+    .trim();
+
+  it('only adds pass_rejoins to live_sessions, with a default of 0', () => {
+    expect(sql).toBe(
+      'ALTER TABLE live_sessions ADD COLUMN pass_rejoins INTEGER NOT NULL DEFAULT 0;'
+    );
+  });
+
+  it('gives a row created before it 0', () => {
+    const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite');
+    const old = new DatabaseSync(':memory:');
+    old.exec(readFileSync('migrations/scheduler/0004_create_live_sessions.sql', 'utf8'));
+    old
+      .prepare(
+        "INSERT INTO live_sessions (id, host_pubkey, title, host_token_hash, created_at) VALUES ('a', 'b', 't', 'h', 1)"
+      )
+      .run();
+    old.exec(readFileSync('migrations/scheduler/0005_add_live_pass_rejoins.sql', 'utf8'));
+    expect(old.prepare('SELECT pass_rejoins FROM live_sessions').get().pass_rejoins).toBe(0);
+  });
+});
+
+describe('migration 0007', () => {
+  const sql = readFileSync('migrations/scheduler/0007_live_rollout_and_safety.sql', 'utf8')
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('--'))
+    .join('\n');
+
+  it('only creates live_ tables and indexes, plus the one seed row', () => {
+    expect(sql).not.toMatch(/\b(ALTER|DROP|DELETE|UPDATE|REPLACE)\b/i);
+    expect(sql).not.toMatch(/\bREFERENCES\b/i);
+    const tables = [...sql.matchAll(/CREATE\s+TABLE\s+(\w+)/gi)].map((m) => m[1]);
+    expect(tables.sort()).toEqual(
+      [
+        'live_access_requests',
+        'live_actions',
+        'live_approved_hosts',
+        'live_blocked_hosts',
+        'live_holds',
+        'live_reports'
+      ].sort()
+    );
+    const indexes = [...sql.matchAll(/CREATE\s+(?:UNIQUE\s+)?INDEX\s+(\w+)/gi)].map((m) => m[1]);
+    for (const name of indexes) expect(name.startsWith('live_')).toBe(true);
+    expect([...sql.matchAll(/INSERT\s+INTO\s+(\w+)/gi)].map((m) => m[1])).toEqual([
+      'live_approved_hosts'
+    ]);
+  });
+
+  it('seeds the approved list with the admin key only', () => {
+    const rows = db.raw.prepare('SELECT pubkey, added_by FROM live_approved_hosts').all();
+    expect(rows).toContainEqual({ pubkey: ADMIN_PUBKEY, added_by: 'migration' });
+    // (beforeEach approves this file's test hosts on top of the seed)
+    const fresh = createLiveDatabase();
+    expect(fresh.raw.prepare('SELECT pubkey FROM live_approved_hosts').all()).toEqual([
+      { pubkey: ADMIN_PUBKEY }
+    ]);
+  });
+
+  it('allows one report per reporter per target (the stream, or each comment)', () => {
+    const ins = (comment: string | null) =>
+      db.raw
+        .prepare(
+          "INSERT OR IGNORE INTO live_reports (id, session_id, reporter_hash, reason, comment_id, created_at) VALUES (?, 's', 'h', 'spam', ?, 1)"
+        )
+        .run(crypto.randomUUID(), comment).changes;
+    expect(ins(null)).toBe(1);
+    expect(ins(null)).toBe(0);
+    expect(ins('c1')).toBe(1);
+    expect(ins('c1')).toBe(0);
+    expect(ins('c2')).toBe(1);
+  });
+
+  it('allows one pending access request per account, and more once decided', () => {
+    const ins = (status: string) =>
+      db.raw
+        .prepare(
+          "INSERT INTO live_access_requests (id, pubkey, status, created_at) VALUES (?, 'p', ?, 1)"
+        )
+        .run(crypto.randomUUID(), status);
+    ins('pending');
+    expect(() => ins('pending')).toThrow(/UNIQUE/);
+    ins('declined');
+    ins('approved');
+    expect(db.raw.prepare('SELECT COUNT(*) AS c FROM live_access_requests').get().c).toBe(3);
+  });
+
+  it('refuses an unknown report reason', () => {
+    expect(() =>
+      db.raw
+        .prepare(
+          "INSERT INTO live_reports (id, session_id, reporter_hash, reason, created_at) VALUES ('x', 's', 'h', 'nsfw', 1)"
+        )
+        .run()
+    ).toThrow(/CHECK/);
+  });
+});
+
 describe('POST /api/live (create)', () => {
-  it('creates a session for an allowed, active-member host', async () => {
+  it('creates a session for an active-member host', async () => {
     const { res, data } = await create({ title: '  Sunday sourdough  ' });
     expect(res.status).toBe(201);
     expect(Object.keys(data).sort()).toEqual(['host_token', 'id', 'status']);
@@ -208,18 +309,118 @@ describe('POST /api/live (create)', () => {
     expect(mocks.checkMembership).not.toHaveBeenCalled();
   });
 
-  it('refuses a signer who is not on the host list', async () => {
-    const { res, data } = await create(undefined, { secretKey: otherSk });
+  it("'approved' mode (the default): refuses an active member who is not on the list", async () => {
+    db.raw.prepare('DELETE FROM live_approved_hosts WHERE pubkey = ?').run(OTHER);
+    const { res, data } = await create({ title: 'Theirs' }, { secretKey: otherSk });
     expect(res.status).toBe(403);
-    expect(data).toEqual({ error: 'not_allowed' });
+    expect(data).toEqual({ error: 'not_approved' });
     expect(rowCount()).toBe(0);
-    expect(mocks.checkMembership).not.toHaveBeenCalled();
+    // An approved member still hosts.
+    expect((await create()).res.status).toBe(201);
   });
 
-  it('refuses everyone when the host list is empty (the feature is dark)', async () => {
-    mocks.hosts = [];
-    expect((await create()).res.status).toBe(403);
+  it("'approved' mode still requires an active membership", async () => {
+    mocks.checkMembership.mockResolvedValue({ state: 'inactive', found: true });
+    expect((await create()).data).toEqual({ error: 'membership_required' });
+  });
+
+  it("'members' mode: any active member hosts, on the list or not", async () => {
+    db.raw.prepare('DELETE FROM live_approved_hosts WHERE pubkey = ?').run(OTHER);
+    const kv = createKvFake();
+    kv.data.set('live:hosting_mode', 'members');
+    platformEnv.GATED_CONTENT = kv;
+    const { res, data } = await create({ title: 'Theirs' }, { secretKey: otherSk });
+    expect(res.status).toBe(201);
+    expect(rowOf(data.id).host_pubkey).toBe(OTHER);
+  });
+
+  it('reads an unknown or unreadable mode as approved', async () => {
+    db.raw.prepare('DELETE FROM live_approved_hosts WHERE pubkey = ?').run(OTHER);
+    const kv = createKvFake();
+    kv.data.set('live:hosting_mode', 'everyone');
+    platformEnv.GATED_CONTENT = kv;
+    expect((await create({ title: 'x' }, { secretKey: otherSk })).data).toEqual({
+      error: 'not_approved'
+    });
+    kv.data.set('live:hosting_mode', 'members');
+    kv.failReads = true;
+    expect((await create({ title: 'x' }, { secretKey: otherSk })).data).toEqual({
+      error: 'not_approved'
+    });
+  });
+
+  it('refuses a blocked host with 403 blocked and inserts nothing', async () => {
+    db.raw.prepare('INSERT INTO live_blocked_hosts (pubkey, created_at) VALUES (?, 1)').run(HOST);
+    const { res, data } = await create();
+    expect(res.status).toBe(403);
+    expect(data).toEqual({ error: 'blocked' });
     expect(rowCount()).toBe(0);
+    // Another member is not affected by HOST's block.
+    expect((await create({ title: 'Theirs' }, { secretKey: otherSk })).res.status).toBe(201);
+  });
+
+  it('refuses with 403 terms_required until the host agrees to the current terms', async () => {
+    db.raw.prepare('DELETE FROM live_terms_acceptance WHERE pubkey = ?').run(HOST);
+    const { res, data } = await create();
+    expect(res.status).toBe(403);
+    expect(data).toEqual({ error: 'terms_required', version: LIVE_TERMS_VERSION });
+    expect(rowCount()).toBe(0);
+    // An agreement to an earlier version does not count: a bump asks again.
+    db.raw
+      .prepare(
+        "INSERT INTO live_terms_acceptance (pubkey, terms_version, accepted_at) VALUES (?, '2000-01-01', 1)"
+      )
+      .run(HOST);
+    expect((await create()).data.error).toBe('terms_required');
+    acceptTerms(db, HOST);
+    expect((await create()).res.status).toBe(201);
+  });
+
+  it('refuses with 503 live_full at the open-session cap, counting every host', async () => {
+    platformEnv.LIVE_MAX_OPEN_SESSIONS = '1';
+    expect((await create()).res.status).toBe(201);
+    const full = await create({ title: 'Theirs' }, { secretKey: otherSk });
+    expect(full.res.status).toBe(503);
+    expect(full.data).toEqual({ error: 'live_full' });
+    expect(rowCount()).toBe(1);
+  });
+
+  it('frees a place under the cap when a session ends', async () => {
+    platformEnv.LIVE_MAX_OPEN_SESSIONS = '1';
+    const first = await create();
+    expect((await end(first.data.id, { auth: `Bearer ${first.data.host_token}` })).res.status).toBe(
+      200
+    );
+    expect((await create({ title: 'Theirs' }, { secretKey: otherSk })).res.status).toBe(201);
+  });
+
+  it('defaults the cap to 20 and ignores an unusable value', async () => {
+    platformEnv.LIVE_MAX_OPEN_SESSIONS = 'lots';
+    for (let i = 0; i < 20; i++) {
+      db.raw
+        .prepare(
+          "INSERT INTO live_sessions (id, host_pubkey, title, host_token_hash, status, created_at) VALUES (?, ?, 't', 'h', 'live', 1)"
+        )
+        .run(i.toString(16).padStart(32, '0'), 'f'.repeat(62) + i.toString(16).padStart(2, '0'));
+    }
+    const { res, data } = await create();
+    expect(res.status).toBe(503);
+    expect(data).toEqual({ error: 'live_full' });
+  });
+
+  it('reports rate_limited, not live_full, when both apply', async () => {
+    platformEnv.LIVE_MAX_OPEN_SESSIONS = '1';
+    for (let i = 0; i < 6; i++) {
+      db.raw
+        .prepare(
+          "INSERT INTO live_sessions (id, host_pubkey, title, host_token_hash, status, created_at, ended_at) VALUES (?, ?, 't', '', 'ended', ?, ?)"
+        )
+        .run(i.toString(16).padStart(32, '0'), HOST, Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000));
+    }
+    expect((await create({ title: 'Theirs' }, { secretKey: otherSk })).res.status).toBe(201);
+    const { res, data } = await create();
+    expect(res.status).toBe(429);
+    expect(data).toEqual({ error: 'rate_limited' });
   });
 
   it('answers 503, not "not a member", when membership cannot be checked', async () => {
@@ -435,9 +636,9 @@ describe('POST /api/live (create)', () => {
 
 describe('createSession', () => {
   it('reports already_active only for the one-active-session index', async () => {
-    const first = await createSession(db, { hostPubkey: HOST, title: 'One', recipeA: null });
+    const first = await createSession(db, { mode: 'members', hostPubkey: HOST, title: 'One', recipeA: null });
     expect(first.ok).toBe(true);
-    const second = await createSession(db, { hostPubkey: HOST, title: 'Two', recipeA: null });
+    const second = await createSession(db, { mode: 'members', hostPubkey: HOST, title: 'Two', recipeA: null });
     expect(second).toEqual({ ok: false, reason: 'already_active' });
   });
 
@@ -448,10 +649,10 @@ describe('createSession', () => {
       return buf;
     });
     try {
-      const first = await createSession(db, { hostPubkey: HOST, title: 'One', recipeA: null });
+      const first = await createSession(db, { mode: 'members', hostPubkey: HOST, title: 'One', recipeA: null });
       expect(first.ok).toBe(true);
       await expect(
-        createSession(db, { hostPubkey: OTHER, title: 'Two', recipeA: null })
+        createSession(db, { mode: 'members', hostPubkey: OTHER, title: 'Two', recipeA: null })
       ).rejects.toThrow(/UNIQUE constraint failed: live_sessions\.id/);
     } finally {
       spy.mockRestore();
@@ -461,7 +662,7 @@ describe('createSession', () => {
 
   it('rethrows any other constraint error', async () => {
     await expect(
-      createSession(db, { hostPubkey: HOST, title: null as any, recipeA: null })
+      createSession(db, { mode: 'members', hostPubkey: HOST, title: null as any, recipeA: null })
     ).rejects.toThrow(/NOT NULL constraint failed: live_sessions\.title/);
     expect(rowCount()).toBe(0);
   });
@@ -473,7 +674,7 @@ describe('createSession', () => {
     const now = nowSec();
     for (let i = 0; i < 6; i++) insert.run(`${i}`.repeat(32), HOST, now - 60 * (i + 1));
     expect(
-      await createSession(db, { hostPubkey: HOST, title: 'Seventh', recipeA: null, now })
+      await createSession(db, { mode: 'members', hostPubkey: HOST, title: 'Seventh', recipeA: null, now })
     ).toEqual({
       ok: false,
       reason: 'rate_limited'
@@ -481,11 +682,11 @@ describe('createSession', () => {
     expect(rowCount()).toBe(6);
     // Another host is unaffected, and the window slides.
     expect(
-      (await createSession(db, { hostPubkey: OTHER, title: 'Other', recipeA: null, now })).ok
+      (await createSession(db, { mode: 'members', hostPubkey: OTHER, title: 'Other', recipeA: null, now })).ok
     ).toBe(true);
     expect(
       (
-        await createSession(db, {
+        await createSession(db, { mode: 'members',
           hostPubkey: HOST,
           title: 'Later',
           recipeA: null,
@@ -504,11 +705,11 @@ describe('createSession', () => {
     const now = nowSec();
     for (let i = 0; i < 5; i++) insert.run(`${i}`.repeat(32), HOST, now - 60 * (i + 1));
 
-    const sixth = await createSession(db, { hostPubkey: HOST, title: 'Sixth', recipeA: null, now });
+    const sixth = await createSession(db, { mode: 'members', hostPubkey: HOST, title: 'Sixth', recipeA: null, now });
     expect(sixth.ok).toBe(true);
     // The host ends it before the second create's insert runs.
     if (sixth.ok) await endSession(db, sixth.session.id, 'host', now);
-    const seventh = await createSession(db, {
+    const seventh = await createSession(db, { mode: 'members',
       hostPubkey: HOST,
       title: 'Seventh',
       recipeA: null,
@@ -519,7 +720,7 @@ describe('createSession', () => {
   });
 
   it('reports already_active, not rate_limited, when both would apply below the limit', async () => {
-    const first = await createSession(db, {
+    const first = await createSession(db, { mode: 'members',
       hostPubkey: HOST,
       title: 'One',
       recipeA: null,
@@ -527,7 +728,7 @@ describe('createSession', () => {
     });
     expect(first.ok).toBe(true);
     expect(
-      await createSession(db, { hostPubkey: HOST, title: 'Two', recipeA: null, maxPerHour: 2 })
+      await createSession(db, { mode: 'members', hostPubkey: HOST, title: 'Two', recipeA: null, maxPerHour: 2 })
     ).toEqual({
       ok: false,
       reason: 'already_active'
@@ -560,7 +761,6 @@ describe('createSession', () => {
     });
     try {
       expect((await create()).res.status).toBe(201);
-      mocks.hosts = [HOST, OTHER];
       const clash = await create({ title: 'Clash' }, { secretKey: otherSk });
       expect(clash.res.status).toBe(500);
       expect(clash.data).toEqual({ error: 'internal' });
@@ -592,6 +792,7 @@ describe('GET /api/live/<id> (read)', () => {
         'ended_at',
         'host_pubkey',
         'id',
+        'note_id',
         'recipe_a',
         'started_at',
         'status',
@@ -636,12 +837,88 @@ describe('GET /api/live/<id> (read)', () => {
   });
 });
 
+const NOTE = 'e'.repeat(64);
+async function setNote(id: string, token: string | null, body: unknown = { note_id: NOTE }) {
+  const headers = new Headers({ 'Content-Type': 'application/json' });
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+  const res = await noteRoute({
+    request: new Request(`${ORIGIN}/api/live/${id}/note`, {
+      method: 'POST',
+      headers,
+      body: typeof body === 'string' ? body : JSON.stringify(body)
+    }),
+    params: { id },
+    platform: { env: platformEnv }
+  } as any);
+  return { res, data: await res.json() };
+}
+
+describe('migration 0006', () => {
+  const sql = readFileSync('migrations/scheduler/0006_add_live_note_id.sql', 'utf8')
+    .split('\n')
+    .filter((line) => !line.trim().startsWith('--'))
+    .join('\n');
+
+  it('is additive: one nullable column and one live_ table, nothing dropped or changed', () => {
+    expect(sql).toContain('ALTER TABLE live_sessions ADD COLUMN note_id TEXT;');
+    expect(sql).not.toMatch(/\b(DROP|DELETE|UPDATE|INSERT|REPLACE|RENAME)\b/i);
+    const created = [...sql.matchAll(/CREATE\s+TABLE\s+(\w+)/gi)].map((m) => m[1]);
+    expect(created).toEqual(['live_hidden_authors']);
+    expect((sql.match(/ALTER TABLE/gi) ?? []).length).toBe(1);
+  });
+});
+
+describe('POST /api/live/<id>/note', () => {
+  it('records the note once with the host token, and the session shows it', async () => {
+    const created = await create();
+    expect((await read(created.data.id)).data.note_id).toBeNull();
+    const { res, data } = await setNote(created.data.id, created.data.host_token);
+    expect(res.status).toBe(200);
+    expect(data).toEqual({ id: created.data.id, note_id: NOTE });
+    expect((await read(created.data.id)).data.note_id).toBe(NOTE);
+    // The same id again is fine; a different one is refused.
+    expect((await setNote(created.data.id, created.data.host_token)).res.status).toBe(200);
+    const other = await setNote(created.data.id, created.data.host_token, {
+      note_id: 'f'.repeat(64)
+    });
+    expect(other.res.status).toBe(409);
+    expect(other.data.error).toBe('note_already_set');
+    expect(rowOf(created.data.id).note_id).toBe(NOTE);
+  });
+
+  it('refuses without the host token, or with the wrong one', async () => {
+    const created = await create();
+    expect((await setNote(created.data.id, null)).res.status).toBe(401);
+    expect((await setNote(created.data.id, 'a'.repeat(64))).res.status).toBe(401);
+    expect(rowOf(created.data.id).note_id).toBeNull();
+  });
+
+  it('refuses a malformed note id or body', async () => {
+    const created = await create();
+    const token = created.data.host_token;
+    for (const body of [{ note_id: 'abc' }, { note_id: 'E'.repeat(64) }, {}, 'not json']) {
+      expect((await setNote(created.data.id, token, body)).res.status).toBe(400);
+    }
+    expect((await setNote(created.data.id, token, 'x'.repeat(2000))).res.status).toBe(413);
+  });
+
+  it('refuses once the session has ended, and for an unknown session', async () => {
+    const created = await create();
+    await end(created.data.id, { auth: `Bearer ${created.data.host_token}` });
+    const late = await setNote(created.data.id, created.data.host_token);
+    expect(late.res.status).toBe(409);
+    expect(late.data.error).toBe('ended');
+    expect((await setNote('0'.repeat(32), created.data.host_token)).res.status).toBe(404);
+  });
+});
+
 describe('POST /api/live/<id>/end', () => {
   it('ends the session with the host token and expires the token', async () => {
     const created = await create();
     const { res, data } = await end(created.data.id, { auth: `Bearer ${created.data.host_token}` });
     expect(res.status).toBe(200);
-    expect(data).toEqual({ id: created.data.id, status: 'ended' });
+    // The ending call carries the host's after-the-stream counts.
+    expect(data).toEqual({ id: created.data.id, status: 'ended', peak_watching: 0, joins: 0 });
 
     const row = rowOf(created.data.id);
     expect(row.status).toBe('ended');
@@ -696,7 +973,6 @@ describe('POST /api/live/<id>/end', () => {
 
   it("refuses another session's token", async () => {
     const mine = await create();
-    mocks.hosts = [HOST, OTHER];
     const theirs = await create({ title: 'Theirs' }, { secretKey: otherSk });
     const { res } = await end(mine.data.id, { auth: `Bearer ${theirs.data.host_token}` });
     expect(res.status).toBe(401);
@@ -821,5 +1097,78 @@ describe('POST /api/live/<id>/end', () => {
       const { res } = await end(id, { auth: `Bearer ${'a'.repeat(64)}` });
       expect(res.status).toBe(404);
     }
+  });
+});
+
+describe('GET /api/live (list)', () => {
+  async function list() {
+    const res = await listRoute({ platform: { env: platformEnv } } as any);
+    const text = await res.text();
+    return { res, text, data: JSON.parse(text) };
+  }
+
+  it('lists live sessions only, newest first, in the public shape', async () => {
+    const thirdHostSk = generateSecretKey();
+    approveHosts(db, getPublicKey(thirdHostSk));
+    const a = await create({ title: 'Older' });
+    const b = await create({ title: 'Newer' }, { secretKey: otherSk });
+    const c = await create({ title: 'Not started' }, { secretKey: thirdHostSk });
+    db.raw
+      .prepare(
+        "UPDATE live_sessions SET status = 'live', started_at = ?, cf_input_uid = 'INPUTUIDSECRET', cf_play_url = 'https://customer-x.cloudflarestream.com/INPUTUIDSECRET/webRTC/play', guest_joins = 9 WHERE id = ?"
+      )
+      .run(1000, a.data.id);
+    db.raw
+      .prepare("UPDATE live_sessions SET status = 'live', started_at = ? WHERE id = ?")
+      .run(2000, b.data.id);
+
+    const { res, data, text } = await list();
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Cache-Control')).toBe('public, max-age=10');
+    expect(data.sessions.map((x: any) => x.id)).toEqual([b.data.id, a.data.id]);
+    expect(data.sessions.map((x: any) => x.id)).not.toContain(c.data.id);
+    expect(Object.keys(data.sessions[0]).sort()).toEqual(
+      [
+        'created_at',
+        'ended_at',
+        'host_pubkey',
+        'id',
+        'note_id',
+        'recipe_a',
+        'started_at',
+        'status',
+        'title',
+        'watching'
+      ].sort()
+    );
+    // No presence binding in tests: the count reads as unknown.
+    expect(data.sessions[0].watching).toBeNull();
+    expect(text).not.toMatch(
+      /INPUTUIDSECRET|cloudflarestream|guest_joins|host_token|peak_watching|"joins"/
+    );
+  });
+
+  it('omits ended sessions', async () => {
+    const a = await create({ title: 'Done' });
+    db.raw
+      .prepare(
+        "UPDATE live_sessions SET status = 'ended', started_at = 1, ended_at = 2 WHERE id = ?"
+      )
+      .run(a.data.id);
+    expect((await list()).data.sessions).toEqual([]);
+  });
+
+  it('is empty while Go live is switched off', async () => {
+    const a = await create({ title: 'Live' });
+    db.raw
+      .prepare("UPDATE live_sessions SET status = 'live', started_at = 1 WHERE id = ?")
+      .run(a.data.id);
+    platformEnv.GATED_CONTENT = { get: async (k: string) => (k === 'live:off' ? '1' : null) };
+    expect((await list()).data.sessions).toEqual([]);
+  });
+
+  it('answers 500 without a database', async () => {
+    delete platformEnv.SCHEDULER_DB;
+    expect((await list()).res.status).toBe(500);
   });
 });

@@ -10,12 +10,22 @@
   import { showToast } from '$lib/toast';
   import { PENDING_MESSAGE } from '$lib/wallet/paymentOutcome';
   import CustomAvatar from './CustomAvatar.svelte';
+  import { profileFor } from '$lib/profileStore';
+  import { canOfferZapToProfile } from '$lib/zapOffer';
 
   export let event: NDKEvent;
   export let onZapClick: (() => void) | undefined = undefined; // Callback for zap button click (fallback when one-tap not available)
   export let showPills: boolean = false; // Whether to show zapper pills (pill format with pfp + amount)
   export let maxPills: number = 3; // Maximum number of zapper pills to show
   export let onlyPills: boolean = false; // When true with showPills, render only the pills row (for layout above action icons)
+
+  // Zap-offer gate: a zap needs the recipient's lightning address (lud16).
+  // While the author's profile hasn't resolved, or resolves without one,
+  // hide the whole affordance — bolt AND count (matches iOS) — instead of
+  // offering a tap that always fails at send time. Offer-gating only: the
+  // zap send path (zapManager) is unchanged.
+  $: profileState = event.pubkey ? profileFor(event.pubkey) : null;
+  $: zapOffered = canOfferZapToProfile($profileState);
 
   const store = getEngagementStore(event.id);
   let showZappersModal = false;
@@ -276,7 +286,10 @@
   $: totalSats = Math.floor($store.zaps.totalAmount / 1000);
 </script>
 
-{#if onlyPills && ($store.loading || $store.zaps.topZappers.length === 0)}
+{#if !zapOffered}
+  <!-- Author has no lightning address (or profile still resolving): a zap
+       would fail at send, so nothing renders — no bolt, no count. -->
+{:else if onlyPills && ($store.loading || $store.zaps.topZappers.length === 0)}
   <!-- Pills-only slot: nothing when loading or no zappers -->
 {:else if $store.loading}
   <div

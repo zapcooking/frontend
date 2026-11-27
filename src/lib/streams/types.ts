@@ -54,12 +54,51 @@ export interface StreamItem {
   viewers: number | null;
   /** Relays the announcement asks readers to use. */
   relays: string[];
+  /** NIP-75: the announcement's `goal` tag — the kind 9041 goal event id. */
+  goal?: string | null;
   /** The `p` tag marked `host`, falling back to the announcement author. */
   host: string;
+  /**
+   * Where the stream comes from. Absent or `'nostr'`: a NIP-53 kind 30311
+   * announcement with a media URL. `'zapcooking'`: a Go live session on Zap
+   * Cooking's own server, played over WebRTC through /api/live/<id>/join.
+   * It has no announcement and no URL (`url` is null, `key` is
+   * `zc:<session id>`).
+   */
+  source?: 'nostr' | 'zapcooking';
+  /** Go live session id (source `'zapcooking'` only). */
+  sessionId?: string;
+  /** Attached recipe address `<kind>:<pubkey>:<d>` (source `'zapcooking'` only). */
+  recipeA?: string | null;
+  /**
+   * Go live only: the "Live now" note's event id. A zap sent from here
+   * targets it (else the session's address; totals count both), and its
+   * replies are read into the chat (which itself hangs off the address).
+   */
+  noteId?: string | null;
+}
+
+/** A saved stream. Addressable streams keep their `30311:…` key; pasted links use `url:<https url>`. */
+export interface StreamBookmark {
+  key: string;
+  url: string | null;
+  title: string;
+  image: string | null;
+  host: string | null;
+  relays: string[];
 }
 
 /** Where the player currently renders. One surface owns the video at a time. */
 export type PlayerSurface = 'page' | 'dock' | 'popout' | null;
 
 /** Playback engine status surfaced to whichever surface is playing. */
-export type StreamPlayStatus = 'idle' | 'connecting' | 'buffering' | 'playing' | 'unavailable';
+export type StreamPlayStatus =
+  | 'idle'
+  | 'connecting'
+  | 'buffering'
+  | 'playing'
+  | 'unavailable'
+  /** The broadcast is over (Go live: the session ended). */
+  | 'ended'
+  /** Go live: the guest cap is reached for this session. */
+  | 'full';
