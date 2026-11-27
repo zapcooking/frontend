@@ -1,6 +1,7 @@
 import { writable, derived, get } from 'svelte/store';
 import { browser } from '$app/environment';
 import { ndk, userPublickey } from '$lib/nostr';
+import { onAccountDataReset } from '$lib/sessionCleanup';
 import {
   canCreateNostrBackup,
   getNostrBackupBlocker,
@@ -88,6 +89,14 @@ const lastEnvelopeById = new Map<number, EncryptedData>();
 let pendingEncrypted: PendingEncryptedWallet[] = [];
 
 let plaintextFallbackWarned = false;
+
+// Bumped on every account wipe (logout, NIP-46 disconnect, user change).
+// Async work started under an older generation — an envelope decrypt in
+// flight, a queued persist of the previous account's list — must not
+// land in or rewrite the wiped state: a decrypted NWC string belonging
+// to the PREVIOUS account arriving after the reset would put someone
+// else's wallet back on screen.
+let accountGeneration = 0;
 
 // Set when a save kept an NWC string in plaintext because the session
 // couldn't encrypt yet (auth still restoring on page load). The startup
@@ -261,9 +270,11 @@ function scheduleEnvelopeDecrypt(): void {
 }
 
 async function decryptPendingEnvelopes(pubkey: string): Promise<void> {
+  const generation = accountGeneration;
   const stillPending: PendingEncryptedWallet[] = [];
   let merged = false;
   for (const pending of pendingEncrypted) {
+    if (generation !== accountGeneration) return;
     try {
       const { plaintext, source } = await decryptWithSource(
         pubkey,
@@ -271,6 +282,7 @@ async function decryptPendingEnvelopes(pubkey: string): Promise<void> {
         pending.data.method,
         { legacy: 'prompt' }
       );
+      if (generation !== accountGeneration) return;
       if (source !== 'session') {
         // Legacy-encrypted envelope (#897). Merging re-saves it through
         // persistWallets, which encrypts under the session key (or keeps
@@ -290,6 +302,7 @@ async function decryptPendingEnvelopes(pubkey: string): Promise<void> {
       );
     }
   }
+  if (generation !== accountGeneration) return;
   pendingEncrypted = stillPending;
   if (merged) walletsDecrypted.update((n) => n + 1);
 }
@@ -643,3 +656,41 @@ function initialSetupCheckPending(): boolean {
   }
 }
 export const walletSetupCheckPending = writable(initialSetupCheckPending());
+
+/**
+ * Drop every trace of the previous account's wallet state.
+ *
+ * The wallet list lives in ONE global storage key, so a different Nostr
+ * account authenticating on this browser would otherwise keep rendering
+ * the previous account's wallets — with a lightning address and cached
+ * balance that can never sync, since the Spark mnemonic and NWC
+ * envelopes are encrypted per pubkey. Registered with sessionCleanup so
+ * every account wipe (logout, NIP-46 disconnect, user change) resets
+ * storage and memory together.
+ */
+function resetWalletsForUserChange(): void {
+  accountGeneration++;
+  if (decryptTimer) {
+    clearInterval(decryptTimer);
+    decryptTimer = null;
+  }
+  if (migrationTimer) {
+    clearInterval(migrationTimer);
+    migrationTimer = null;
+  }
+  plaintextMigrationPending = false;
+  // Drop a queued save of the previous account's list before
+  // wallets.set([]) schedules the empty one — the chain would otherwise
+  // write the old list (plus its still-encrypted envelopes, see
+  // persistWallets) back under the wiped key.
+  latestPendingSave = null;
+  pendingEncrypted = [];
+  lastEnvelopeById.clear();
+  wallets.set([]);
+  walletBalance.set(null);
+  walletLastSync.set(null);
+  walletRestoring.set(false);
+  walletSetupCheckPending.set(false);
+}
+
+onAccountDataReset(resetWalletsForUserChange);

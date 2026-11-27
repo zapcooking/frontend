@@ -55,6 +55,7 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { fetchSparkBackupEvents } from './backupEventFetch';
 import { settleLegacySparkBackup } from '$lib/wallet/legacyBackupNotice';
+import { onAccountDataReset } from '$lib/sessionCleanup';
 
 /**
  * Dynamically import bip39 with Buffer polyfill
@@ -612,6 +613,17 @@ export async function disconnectWallet(): Promise<void> {
     _eventListenerId = null;
   }
 }
+
+// The Spark SDK session, balances and lightning address belong to one
+// account. Registered so any account wipe (logout, NIP-46 disconnect, a
+// different pubkey authenticating) tears the SDK down — otherwise a
+// switched Nostr account inherits the previous one's lightning address
+// and a balance that can never sync, since the mnemonic is encrypted
+// per pubkey. disconnectWallet's store resets also remove the
+// spark_lightning_address localStorage key via the store subscription.
+onAccountDataReset(() => {
+  void disconnectWallet();
+});
 
 /**
  * Sends a payment via the Spark wallet.

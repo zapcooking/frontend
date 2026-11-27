@@ -12,7 +12,7 @@ import { nip19, getPublicKey, generateSecretKey } from 'nostr-tools';
 import * as nip44 from 'nostr-tools/nip44';
 import * as nip04 from 'nostr-tools/nip04';
 import { fetchNip46UserPubkey, sendNip46Rpc } from './nip46Rpc';
-import { clearAccountData } from './sessionCleanup';
+import { clearAccountData, clearAccountDataForUserChange } from './sessionCleanup';
 import { markFreshAccount } from './savedList';
 import { Nip44LocalSigner } from './nip44LocalSigner';
 import {
@@ -222,6 +222,17 @@ export class AuthManager {
   // Update auth state and notify listeners
   private updateState(updates: Partial<AuthState>) {
     this.authState = { ...this.authState, ...updates };
+
+    // A session actually authenticating (restore or interactive sign-in)
+    // with a pubkey this device last saw under a different account means
+    // the previous account's data is still here without its owner — wipe
+    // it BEFORE any listener renders the new session. Restore failures
+    // and locked-vault browsing never produce isAuthenticated + publicKey,
+    // so they cannot reach this (see sessionCleanup for the gate list).
+    if (this.authState.isAuthenticated && this.authState.publicKey) {
+      clearAccountDataForUserChange(this.authState.publicKey);
+    }
+
     this.listeners.forEach((listener) => listener(this.authState));
 
     // Update NDK instance with new signer if authenticated

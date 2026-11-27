@@ -17,7 +17,9 @@ vi.mock('$app/environment', () => ({ browser: true }));
 // IndexedDB modules into the mocked-NDK environment.
 vi.mock('$lib/sessionCleanup', () => ({
   clearAccountData: vi.fn().mockResolvedValue(undefined),
-  clearAccountLocalStorage: vi.fn()
+  clearAccountLocalStorage: vi.fn(),
+  clearAccountDataForUserChange: vi.fn(() => false),
+  onAccountDataReset: vi.fn(() => () => {})
 }));
 
 vi.mock('@nostr-dev-kit/ndk', async () => {
