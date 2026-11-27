@@ -207,3 +207,37 @@ describe('BUD-10 blossom references', () => {
     expect(found.some((r) => r.url && !r.url.startsWith('blossom:'))).toBe(false);
   });
 });
+
+describe('legacy NIP-08 #[index] mentions', () => {
+  const legacyMentions = (text: string) =>
+    scanNostrRefs(text).filter((r) => r.type === 'legacy-mention');
+
+  it('scans #[N] tokens with their tags-array index', () => {
+    const text = 'Congratulations to:\n#[1]\n#[2]\n#[39]';
+    const found = legacyMentions(text);
+    expect(found).toHaveLength(3);
+    expect(found.map((r) => r.tagIndex)).toEqual([1, 2, 39]);
+    expect(found.map((r) => r.content)).toEqual(['#[1]', '#[2]', '#[39]']);
+    expect(text.slice(found[2].index, found[2].index + found[2].content.length)).toBe('#[39]');
+  });
+
+  it('does not swallow hashtags', () => {
+    // The hashtag path requires a word character after '#'; the bracket
+    // must never leak into it and vice versa.
+    const found = scanNostrRefs('#nostr #[0] #[12]');
+    expect(found.filter((r) => r.type === 'legacy-mention').map((r) => r.tagIndex)).toEqual([0, 12]);
+    const hashtag = found.find((r) => r.type === 'nostr');
+    expect(hashtag).toBeUndefined(); // hashtags are the renderer's job, not the scanner's
+  });
+
+  it('ignores non-numeric brackets', () => {
+    expect(legacyMentions('#[1a] #[] #[x]')).toHaveLength(0);
+  });
+
+  it('never carves a token out of a URL', () => {
+    const text = 'https://example.com/post#[3] more';
+    const found = scanNostrRefs(text);
+    expect(found.filter((r) => r.type === 'legacy-mention')).toHaveLength(0);
+    expect(urls(text)).toHaveLength(1);
+  });
+});

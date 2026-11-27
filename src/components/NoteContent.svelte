@@ -246,7 +246,7 @@
   }
 
   // Parse content and create clickable links for URLs, hashtags, and nostr references
-  function parseContent(text: string) {
+  function parseContent(text: string, tags?: string[][]) {
     const hashtagRegex = /#[\w]+/g;
 
     const parts = [];
@@ -316,6 +316,40 @@
           data: match.data,
           key: `nostr-${keyCounter++}`
         });
+      } else if (match.type === 'legacy-mention') {
+        // Legacy NIP-08 mention: `#[N]` points at tags[N] — the pre-NIP-27
+        // convention (Damus-era 2023 clients) older notes still use, e.g.
+        // badge posts listing people as #[1]…#[39]. A resolvable p tag
+        // re-enters the pipeline as an ordinary npub part (profile link);
+        // an e tag as a note part (embed). Anything else — out of range,
+        // malformed, t-tags — stays literal text.
+        const tag = tags?.[match.tagIndex ?? -1];
+        const value = tag?.[1];
+        if (tag?.[0] === 'p' && value) {
+          const npub = nip19.npubEncode(value);
+          parts.push({
+            type: 'nostr',
+            content: npub,
+            prefix: 'npub1',
+            data: npub.slice('npub1'.length),
+            key: `nostr-${keyCounter++}`
+          });
+        } else if (tag?.[0] === 'e' && value) {
+          const note = nip19.noteEncode(value);
+          parts.push({
+            type: 'nostr',
+            content: note,
+            prefix: 'note1',
+            data: note.slice('note1'.length),
+            key: `nostr-${keyCounter++}`
+          });
+        } else {
+          parts.push({
+            type: 'text',
+            content: match.content,
+            key: `text-${keyCounter++}`
+          });
+        }
       }
 
       lastIndex = match.index + match.content.length;
@@ -397,7 +431,7 @@
   // Truncation lives in $lib/noteTruncate so it's unit-testable and shares
   // the scanner as its source of truth for what counts as a linkable token.
   $: displayContent = shouldCollapse && !isExpanded ? truncateAtUrlBoundary(content, maxLength) : content;
-  $: finalParsedContent = splitLightningInvoices(parseContent(displayContent));
+  $: finalParsedContent = splitLightningInvoices(parseContent(displayContent, event?.tags));
   // Whitespace, including zero-width / BOM characters that String.trim() leaves
   // behind but that still occupy a line box under white-space: pre-wrap.
   const WHITESPACE_ONLY = /^[\s\u200B\u200C\u200D\u2060\uFEFF]*$/;
