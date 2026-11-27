@@ -79,6 +79,10 @@ export function buildNotePreview(content: string, options: NotePreviewOptions = 
   let assembled = '';
   let last = 0;
   for (const ref of scanNostrRefs(text)) {
+    // Legacy NIP-08 #[index] tokens stay literal in previews: resolving one
+    // needs the quoted event's tags, which the preview doesn't carry.
+    if (ref.type === 'legacy-mention') continue;
+
     // Scheme-less domains stay: "see zap.cooking/pow" reads fine as prose,
     // and a fuzzy match is an inference (mirrors the inline-link rule in
     // NoteContent). Explicit http(s) URLs go — they render as cards/media

@@ -18,7 +18,7 @@ import tlds from 'tlds';
 export interface ScannedRef {
   index: number;
   content: string;
-  type: 'url' | 'nostr';
+  type: 'url' | 'nostr' | 'legacy-mention';
   url?: string;
   /**
    * True for scheme-less fuzzy matches ("see zap.cooking/pow"). The renderer
@@ -29,6 +29,14 @@ export interface ScannedRef {
   bare?: boolean;
   prefix?: string;
   data?: string;
+  /**
+   * Legacy NIP-08 mentions only: the tags-array index the token points at.
+   * `#[3]` means "the tag at position 3 of this event's tags" — a
+   * pre-NIP-27 convention (Damus-era 2023 clients) those notes still use.
+   * Resolving the index to a pubkey/id needs the event's tags, so that
+   * happens in the renderer.
+   */
+  tagIndex?: number;
 }
 
 /**
@@ -37,6 +45,13 @@ export interface ScannedRef {
  */
 const REF_RE =
   /(https?:\/\/[^\s]+)|(blossom:[^\s]+)|nostr:(nevent1|note1|npub1|nprofile1|naddr1|noffer1)([023456789acdefghjklmnpqrstuvwxyz]+)|\b(nevent1|note1|npub1|nprofile1|naddr1|noffer1)([023456789acdefghjklmnpqrstuvwxyz]{6,})/g;
+
+/**
+ * Legacy NIP-08 mention: `#[12]` points at index 12 of the event's tags
+ * array. The hashtag regex in every renderer requires a word character
+ * right after `#`, so these never collide with `#hashtag` tokens.
+ */
+const LEGACY_MENTION_RE = /(?<!\w)#\[(\d+)\]/g;
 
 /**
  * Does a bech32 token actually decode?
@@ -143,6 +158,25 @@ export function scanNostrRefs(text: string): ScannedRef[] {
       (r) => bare.index < r.index + r.content.length && r.index < bare.index + bare.content.length
     );
     if (!overlaps) out.push(bare);
+  }
+
+  // Legacy NIP-08 `#[index]` mentions, merged in like the bare-domain pass.
+  // Overlaps with an already-found reference are dropped (a `#[3]` inside a
+  // URL stays part of the URL), and the renderer resolves each surviving
+  // index against the event's tags — indices that land on nothing stay text.
+  LEGACY_MENTION_RE.lastIndex = 0;
+  let legacy: RegExpExecArray | null;
+  while ((legacy = LEGACY_MENTION_RE.exec(text)) !== null) {
+    const mention: ScannedRef = {
+      index: legacy.index,
+      content: legacy[0],
+      type: 'legacy-mention',
+      tagIndex: parseInt(legacy[1], 10)
+    };
+    const overlaps = out.some(
+      (r) => mention.index < r.index + r.content.length && r.index < mention.index + mention.content.length
+    );
+    if (!overlaps) out.push(mention);
   }
 
   return out.sort((a, b) => a.index - b.index);
