@@ -40,7 +40,7 @@ html:root {
   --color-auth-on-action: var(--color-on-action);
   --color-auth-link: var(--color-primary);
   --color-import-link: var(--color-primary);
-  --color-hashtag-bg: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  --color-hashtag-bg: color-mix(in srgb, var(--color-primary) 7%, transparent);
   --color-hashtag-text: var(--color-primary);
   --color-hashtag-hover-bg: var(--color-action);
   --color-hashtag-hover-text: var(--color-on-action);
@@ -93,14 +93,19 @@ html:root.dark {
    the app stop reading as one shared rust across moods. */
 html:root:not([data-explore-theme]),
 html:root[data-explore-theme='original'] {
-  --color-primary: #ec4700;
+  /* Accent ink passes AA (4.5:1) on every app surface including inputs;
+     filled controls keep the brighter brand orange below. */
+  --color-primary: #c2410c;
   --explore-accent-text: #d43f00;
   --explore-action-bg: #ec4700;
   /* Explore's small import label keeps its readable ink; app controls retain
      the original white labels shown in the reference design. */
   --explore-action-ink: #111827;
   --color-on-action: #ffffff;
-  --color-action-hover: color-mix(in srgb, var(--color-action) 90%, #ffffff);
+  /* App-facing fills sit one step deeper so white labels pass AA (4.5:1);
+     Explore keeps the brighter brand orange via the explore-* vars above. */
+  --color-action: #d43f00;
+  --color-action-hover: #c2410c;
   /* These were distinct before themes: orange/amber tabs and compose button,
      a warmer active navigation icon, and a purple profile halo. */
   --color-feed-tab-start: var(--color-orange-500);
@@ -117,15 +122,18 @@ html:root[data-explore-theme='original'] {
   --color-auth-link: #c2410c;
   --color-import-link: var(--color-text-secondary);
   --color-hashtag-bg: #fff7ed;
-  --color-hashtag-text: #ea580c;
-  --color-hashtag-hover-bg: #f97316;
+  --color-hashtag-text: #c2410c;
+  --color-hashtag-hover-bg: #c2410c;
   --color-hashtag-hover-text: #ffffff;
 }
 html:root.dark:not([data-explore-theme]),
 html:root.dark[data-explore-theme='original'] {
-  --color-primary: #ff5722;
+  --color-primary: #ff9060;
   --explore-accent-text: #ff5722;
   --explore-action-bg: #ff5722;
+  /* App-facing fills match the dark auth pair so white labels pass AA. */
+  --color-action: #d43f00;
+  --color-action-hover: #c2410c;
   --zap-orange: #ff7a3d;
   --color-profile-highlight: #c084fc;
   /* A small lift within the original gray palette, with notes on a raised surface. */
@@ -134,7 +142,7 @@ html:root.dark[data-explore-theme='original'] {
   --color-auth-link: #f9a03f;
   --color-hashtag-bg: #37302d;
   --color-hashtag-text: #fb923c;
-  --color-hashtag-hover-bg: #ea580c;
+  --color-hashtag-hover-bg: #c2410c;
 }
 /* Warm Kitchen: the home kitchen — a linen towel, butter and a rust-red pot. */
 html:root:not(.dark)[data-explore-theme='warm-kitchen'] {
@@ -751,8 +759,8 @@ html:root[data-explore-theme='cast-iron'] {
   --color-bg-primary: #050404;
   --color-bg-secondary: #0e0c0b;
   --color-input-bg: #12100e;
-  --color-input-border: #d8d1c424;
-  --color-accent-gray: #d8d1c438;
+  --color-input-border: #d8d1c440;
+  --color-accent-gray: #302b25;
   --color-card-sunken: #0a0908;
   --color-explore-peach: #171310;
   --color-explore-sage: #131110;
@@ -774,8 +782,8 @@ html:root.dark[data-explore-theme='cast-iron'] {
   --color-bg-primary: #050404;
   --color-bg-secondary: #0e0c0b;
   --color-input-bg: #12100e;
-  --color-input-border: #d8d1c424;
-  --color-accent-gray: #d8d1c438;
+  --color-input-border: #d8d1c440;
+  --color-accent-gray: #302b25;
   --color-card-sunken: #0a0908;
   --color-explore-peach: #171310;
   --color-explore-sage: #131110;
@@ -839,13 +847,13 @@ html:root.dark[data-explore-theme='cast-iron'] {
 html:root:not(.dark)[data-explore-theme='bbq'] {
   --explore-accent-text: #9a3f10;
   --explore-pattern: #6b5d4722;
-  --explore-action-bg: #cf5a15;
+  --explore-action-bg: #b34a0e;
   --explore-action-ink: #ffffff;
-  --color-primary: #9a3f10;
+  --color-primary: #7e3608;
   --color-on-action: #ffffff;
   --color-text-primary: #33302a;
-  --color-text-secondary: #5f594c;
-  --color-caption: #5f594c;
+  --color-text-secondary: #544e3f;
+  --color-caption: #544e3f;
   --color-bg-primary: #e4d6b4;
   --color-bg-secondary: #efe6cd;
   --color-input-bg: #f6efdc;

@@ -227,7 +227,7 @@
       background-color 0.15s,
       color 0.15s;
     cursor: pointer;
-    color: var(--color-caption);
+    color: var(--color-text-secondary);
   }
 
   .action-btn:hover {
@@ -240,7 +240,7 @@
   }
 
   :global(.action-btn .icon) {
-    color: var(--color-caption);
+    color: var(--color-text-secondary);
   }
 
   .action-btn:hover :global(.icon) {

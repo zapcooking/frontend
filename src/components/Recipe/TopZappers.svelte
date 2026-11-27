@@ -76,13 +76,13 @@
         title="{zapper.totalSats} sats"
       >
         <CustomAvatar pubkey={zapper.pubkey} size={18} className="rounded-full" />
-        <span class="text-xs text-caption">{formatAmount(zapper.totalSats)}</span>
+        <span class="text-xs text-primary">{formatAmount(zapper.totalSats)}</span>
       </a>
     {/each}
 
     {#if hiddenCount > 0}
       <span
-        class="flex items-center h-6 px-2 rounded-full bg-accent-gray text-caption text-xs"
+        class="flex items-center h-6 px-2 rounded-full bg-accent-gray text-primary text-xs"
         title="{hiddenCount} more zappers ({hiddenTotal} sats)"
       >
         +{hiddenCount}

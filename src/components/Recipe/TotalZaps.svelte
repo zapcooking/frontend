@@ -83,6 +83,6 @@
 </script>
 
 <div class="flex gap-1.5 hover:bg-input rounded px-0.5 transition duration-300">
-  <LightningIcon size={24} class={totalZapAmount > 0 ? 'text-yellow-500' : 'text-caption'} weight={hasUserZapped ? "fill" : "regular"} />
+  <LightningIcon size={24} class={totalZapAmount > 0 ? 'text-yellow-500' : 'text-[var(--color-text-secondary)]'} weight={hasUserZapped ? "fill" : "regular"} />
   {#if loading}...{:else}{formatAmount(totalZapAmount)}{/if}
 </div>
