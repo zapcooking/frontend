@@ -4671,19 +4671,20 @@
                 {#each completedTxs as tx (tx.id)}
                   {@const isOnchainTx = !!tx.txid || !!tx.isOnchain}
                   {@const isConversion = !!tx.conversionFrom}
+                  {@const isSendConversion = isConversion && tx.type === 'outgoing'}
                   <div class="border-b" style="border-color: var(--color-input-border);">
                     <button
                       class="w-full py-4 flex items-center gap-4 text-left"
                       on:click={() => toggleTxDetails(tx.id)}
                     >
                       <div
-                        class="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 {isConversion
+                        class="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 {isConversion && !isSendConversion
                           ? 'bg-sky-500/20'
                           : tx.type === 'incoming'
                             ? 'bg-green-500/20'
                             : 'bg-primary/20'}"
                       >
-                        {#if isConversion}
+                        {#if isConversion && !isSendConversion}
                           <ArrowsLeftRightIcon size={20} class="text-sky-400" />
                         {:else if tx.type === 'incoming'}
                           <ArrowDownIcon size={20} class="text-[var(--color-success)]" />
@@ -4693,7 +4694,15 @@
                       </div>
                       <div class="flex-1 min-w-0">
                         <div class="font-medium text-primary-color">
-                          {tx.conversionFrom ? `Converted from ${tx.conversionFrom}` : tx.type === 'incoming' ? 'Received' : 'Sent'}
+                          {#if isSendConversion}
+                            Sent
+                          {:else if tx.conversionFrom}
+                            Converted from {tx.conversionFrom}
+                          {:else if tx.type === 'incoming'}
+                            Received
+                          {:else}
+                            Sent
+                          {/if}
                         </div>
                         {#if tx.comment}
                           <div class="text-sm text-caption truncate">
@@ -4706,16 +4715,18 @@
                       </div>
                       <div class="flex items-center gap-2 flex-shrink-0">
                         <div
-                          class="font-semibold text-right {isConversion
-                            ? 'text-sky-400'
-                            : tx.type === 'incoming'
-                              ? 'text-[var(--color-success)]'
-                              : 'text-orange-500'}"
+                          class="font-semibold text-right {isSendConversion
+                            ? 'text-orange-500'
+                            : isConversion
+                              ? 'text-sky-400'
+                              : tx.type === 'incoming'
+                                ? 'text-[var(--color-success)]'
+                                : 'text-orange-500'}"
                         >
                           {#if $balanceVisible}
-                            {isConversion ? '' : tx.type === 'incoming' ? '+' : '-'}{formatTransactionAmount(tx)}
+                            {isSendConversion ? '-' : isConversion ? '' : tx.type === 'incoming' ? '+' : '-'}{formatTransactionAmount(tx)}
                           {:else}
-                            {isConversion ? '' : tx.type === 'incoming' ? '+' : '-'}••• {tx.asset?.ticker || 'sats'}
+                            {isSendConversion ? '-' : isConversion ? '' : tx.type === 'incoming' ? '+' : '-'}••• {tx.asset?.ticker || 'sats'}
                           {/if}
                         </div>
                         <CaretDownIcon

@@ -10,6 +10,22 @@ function conversionSides(payment: any): any[] {
 }
 
 /**
+ * True when the conversion's destination is bitcoin — the payment ended as
+ * sats, so the row is sats-denominated and the token side of the conversion
+ * is what was *spent*, not what arrived. Rendering both legs of a USD-mode
+ * round-trip in the token makes them read as two identical "$12.61 USDB"
+ * credits with the sats leg's outcome invisible.
+ */
+export function conversionDestinedForBitcoin(payment: any): boolean {
+  const conversions = payment.conversionDetails?.conversions || payment.conversion_details?.conversions || [];
+  if (conversions.length === 0) return false;
+  return conversions.every((conversion: any) => {
+    const ticker = conversion?.to?.asset?.ticker;
+    return ticker === 'BTC' || ticker === 'Bitcoin';
+  });
+}
+
+/**
  * Spark keeps the original Lightning method for stable-balance receives. The
  * token amount is instead recorded on the token side of conversionDetails.
  */
