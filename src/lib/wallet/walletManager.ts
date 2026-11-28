@@ -71,6 +71,7 @@ import {
 } from '$lib/spark';
 import { userPublickey } from '$lib/nostr';
 import {
+  conversionDestinedForBitcoin,
   extractSparkPaymentAsset,
   extractSparkPaymentConversionFrom,
   extractSparkPaymentSats
@@ -923,9 +924,14 @@ function mapSparkPayment(p: any): Transaction {
     paymentType === 'RECEIVED' ||
     paymentType === 'receive' ||
     paymentType === 'incoming';
-  const asset = extractSparkPaymentAsset(p);
+  // A conversion destined for bitcoin is a sats row: "Converted from USDB"
+  // shows the sats the conversion produced (off the bitcoin leg), not the
+  // USDB that was spent. Denominating both legs in the token made a
+  // USD-mode round-trip read as two identical "$12.61 USDB" credits.
+  const toBitcoin = conversionDestinedForBitcoin(p);
+  const asset = toBitcoin ? undefined : extractSparkPaymentAsset(p);
   const conversionFrom = extractSparkPaymentConversionFrom(p);
-  const amountSat = extractSparkPaymentSats(p, !!asset);
+  const amountSat = extractSparkPaymentSats(p, !!asset || toBitcoin);
   let timestamp = p.createdAt || p.created_at || p.timestamp || p.time || 0;
   if (timestamp > 4102444800) timestamp = Math.floor(timestamp / 1000);
   const feesMsat = p.feesMsat || p.fees_msat || p.feesMSat || 0;
@@ -1045,7 +1051,7 @@ function mapSparkPayment(p: any): Transaction {
     description: p.description || p.memo || p.bolt11?.substring(0, 20),
     comment,
     timestamp: timestamp || Math.floor(Date.now() / 1000),
-    fees: asset ? undefined : feesSat,
+    fees: asset || conversionFrom ? undefined : feesSat,
     status,
     pubkey
   };
