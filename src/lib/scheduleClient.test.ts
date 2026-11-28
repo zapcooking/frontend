@@ -17,6 +17,11 @@ import {
   pickScheduleRelays,
   scheduleErrorCopy,
   SCHEDULE_STATUSES,
+  planMove,
+  signMove,
+  moveScheduled,
+  isSamePostMoved,
+  type ScheduledItem,
   type ScheduleClientDeps,
   type ScheduleErrorCode
 } from './scheduleClient';
@@ -72,6 +77,7 @@ function harness(replies: Reply[], extra: Partial<ScheduleClientDeps> = {}) {
     },
     getWriteRelays: async () => [],
     prepareSigner: async () => {},
+    rawSigner: async () => ({ pubkey: PUBKEY, sign: (event) => new NDKPrivateKeySigner(sk).sign(event as NDKRawEvent) }),
     now: () => NOW,
     ...extra
   };
@@ -626,11 +632,21 @@ describe('listScheduled', () => {
   for (const status of SCHEDULE_STATUSES) {
     it(`status: '${status}' is sent as ?status=${status}, while the auth header still signs the bare URL`, async () => {
       const { deps, calls, authCalls } = harness([{ status: 200, body: { items: [] } }]);
-      expect(await listScheduled({ status }, deps)).toEqual({ ok: true, items: [] });
+      expect(await listScheduled({ status }, deps)).toEqual({ ok: true, items: [], truncated: false });
       expect(calls[0].url).toBe(`${ORIGIN}/api/schedule?status=${status}`);
       expect(authCalls[0].url).toBe(`${ORIGIN}/api/schedule`);
     });
   }
+
+  it('truncated is true only when the server says the cap cut the result', async () => {
+    const cut = harness([{ status: 200, body: { items: [], truncated: true } }]);
+    expect(await listScheduled({}, cut.deps)).toEqual({ ok: true, items: [], truncated: true });
+    // Absent (the usual case, and any older server) or anything but true: not truncated.
+    for (const body of [{ items: [] }, { items: [], truncated: 'yes' }, { items: [], truncated: 1 }]) {
+      const { deps } = harness([{ status: 200, body }]);
+      expect(await listScheduled({}, deps)).toEqual({ ok: true, items: [], truncated: false });
+    }
+  });
 
   it('skips rows it cannot read instead of failing the whole list', async () => {
     const good = signed();
@@ -751,7 +767,7 @@ describe('scheduleErrorCopy', () => {
     'bad_kind', 'kind_not_allowed_for_relay_mode', 'bad_publish_time', 'too_large',
     'poll_closes_before_publish', 'already_scheduled', 'quota_exceeded', 'rate_limited', 'bad_status',
     'not_found', 'not_cancellable', 'not_replaceable', 'not_configured', 'internal', 'not_signed_in', 'sign_failed',
-    'signer_changed_event', 'network', 'unknown'
+    'signer_changed_event', 'expires_before_publish', 'move_changed_post', 'network', 'unknown'
   ];
 
   it('has plain copy for every code: a sentence, with no code names or underscores', () => {
@@ -771,7 +787,10 @@ describe('scheduleErrorCopy', () => {
     expect(inDoc.length).toBeGreaterThanOrEqual(19);
     for (const code of inDoc) expect(ALL, code).toContain(code);
     // …and nothing server-side is listed here that the contract does not have.
-    const clientOnly = ['not_signed_in', 'sign_failed', 'signer_changed_event', 'network', 'unknown'];
+    const clientOnly = [
+      'not_signed_in', 'sign_failed', 'signer_changed_event', 'expires_before_publish', 'move_changed_post',
+      'network', 'unknown'
+    ];
     expect(ALL.filter((c) => !clientOnly.includes(c)).sort()).toEqual([...new Set(inDoc)].sort());
   });
 
@@ -784,5 +803,475 @@ describe('scheduleErrorCopy', () => {
 
   it('the signer copy tells the person what to do next', () => {
     expect(scheduleErrorCopy({ code: 'signer_changed_event' })).toContain("can't be scheduled");
+  });
+});
+
+describe('scheduleEvent with replaces (reschedule)', () => {
+  const OLD = 'a'.repeat(64);
+  const created = (event: Event, extra: Record<string, unknown> = {}) => ({
+    status: 201,
+    body: { id: event.id, publish_at: event.created_at, relay_mode: 'all', relays: [], status: 'pending', ...extra }
+  });
+
+  it('sends `replaces` in the body and reports the swap when the server echoes it', async () => {
+    const event = signed();
+    const { deps, calls } = harness([created(event, { replaced: OLD })]);
+    const result = await scheduleEvent(event, { relayMode: 'all', relays: ['wss://a.example.com'], replaces: OLD }, deps);
+    expect(result).toMatchObject({ ok: true, id: event.id, replacement: 'replaced' });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].method).toBe('POST');
+    expect(calls[0].body).toEqual({ event, relay_mode: 'all', relays: ['wss://a.example.com'], replaces: OLD });
+  });
+
+  it('a plain schedule sends no `replaces` and reports no replacement', async () => {
+    const event = signed();
+    const { deps, calls } = harness([created(event)]);
+    const result = await scheduleEvent(event, { relayMode: 'all', relays: [] }, deps);
+    expect(result).toMatchObject({ ok: true });
+    expect(result).not.toHaveProperty('replacement');
+    expect(calls[0].body).not.toHaveProperty('replaces');
+  });
+
+  for (const status of ['publishing', 'sent', 'cancelled', 'failed'] as const) {
+    it(`409 not_replaceable (${status}) comes back with the status and its own copy; nothing else is called`, async () => {
+      const event = signed();
+      const { deps, calls } = harness([{ status: 409, body: { error: 'not_replaceable', status } }]);
+      const result = await scheduleEvent(event, { relayMode: 'all', relays: [], replaces: OLD }, deps);
+      expect(result).toEqual({ ok: false, code: 'not_replaceable', status });
+      expect(calls).toHaveLength(1);
+      if (!result.ok) {
+        const copy = scheduleErrorCopy(result);
+        expect(copy).not.toBe(scheduleErrorCopy({ code: 'not_replaceable' }));
+        expect(copy).toMatch(/[.]$/);
+      }
+    });
+  }
+
+  it('404 not_found: the original no longer exists', async () => {
+    const { deps } = harness([{ status: 404, body: { error: 'not_found' } }]);
+    expect(await scheduleEvent(signed(), { relayMode: 'all', relays: [], replaces: OLD }, deps)).toEqual({
+      ok: false,
+      code: 'not_found'
+    });
+  });
+
+  it('429 with limit: moves is told apart from the create limit, in the result and in the copy', async () => {
+    const { deps } = harness([{ status: 429, body: { error: 'rate_limited', limit: 'moves' } }]);
+    const result = await scheduleEvent(signed(), { relayMode: 'all', relays: [], replaces: OLD }, deps);
+    expect(result).toEqual({ ok: false, code: 'rate_limited', limit: 'moves' });
+    if (!result.ok) expect(scheduleErrorCopy(result)).toContain('moved a lot');
+    expect(scheduleErrorCopy({ code: 'rate_limited' })).toContain('scheduled a lot');
+  });
+
+  it('a retry that finds its own swap already done (409 already_scheduled with replaced) is a success', async () => {
+    const event = signed();
+    const { deps } = harness([{ status: 409, body: { error: 'already_scheduled', status: 'pending', replaced: OLD } }]);
+    expect(await scheduleEvent(event, { relayMode: 'all', relays: [], replaces: OLD }, deps)).toMatchObject({
+      ok: true,
+      alreadyScheduled: true,
+      replacement: 'replaced'
+    });
+  });
+
+  it('409 already_scheduled WITHOUT replaced: the post is scheduled, but the one to be replaced may still be', async () => {
+    const event = signed();
+    const { deps } = harness([{ status: 409, body: { error: 'already_scheduled', status: 'pending' } }]);
+    expect(await scheduleEvent(event, { relayMode: 'all', relays: [], replaces: OLD }, deps)).toMatchObject({
+      ok: true,
+      alreadyScheduled: true,
+      replacement: 'original_still_scheduled'
+    });
+  });
+
+  describe('a server that ignored `replaces` (201 without `replaced`)', () => {
+    it('cancels the original itself, so the post is not scheduled twice', async () => {
+      const event = signed();
+      const { deps, calls } = harness([created(event), { status: 200, body: { id: OLD, status: 'cancelled' } }]);
+      const result = await scheduleEvent(event, { relayMode: 'all', relays: [], replaces: OLD }, deps);
+      expect(result).toMatchObject({ ok: true, replacement: 'replaced' });
+      expect(calls.map((c) => `${c.method} ${c.url.replace(ORIGIN, '')}`)).toEqual([
+        'POST /api/schedule',
+        `DELETE /api/schedule/${OLD}`
+      ]);
+    });
+
+    it('the original already went out: the new one is taken back and the result is not_replaceable', async () => {
+      const event = signed();
+      const { deps, calls } = harness([
+        created(event),
+        { status: 409, body: { error: 'not_cancellable', status: 'sent' } },
+        { status: 200, body: { id: event.id, status: 'cancelled' } }
+      ]);
+      const result = await scheduleEvent(event, { relayMode: 'all', relays: [], replaces: OLD }, deps);
+      expect(result).toEqual({ ok: false, code: 'not_replaceable', status: 'sent' });
+      expect(calls[2].method).toBe('DELETE');
+      expect(calls[2].url).toBe(`${ORIGIN}/api/schedule/${event.id}`);
+    });
+
+    it('the original could not be cancelled for another reason: success, flagged so the person is told', async () => {
+      const event = signed();
+      const { deps } = harness([created(event), new Error('offline')]);
+      expect(await scheduleEvent(event, { relayMode: 'all', relays: [], replaces: OLD }, deps)).toMatchObject({
+        ok: true,
+        replacement: 'original_still_scheduled'
+      });
+    });
+  });
+});
+
+// ── moving a scheduled post ─────────────────────────────────────────
+
+describe('moving a scheduled post', () => {
+  const OLD_AT = NOW + 86_400;
+  const NEW_AT = NOW + 3 * 86_400 + 1800;
+  const other = getPublicKey(generateSecretKey());
+  const quotedId = 'ab'.repeat(32);
+  const nevent = nip19.neventEncode({ id: quotedId, author: other });
+  const npub = nip19.npubEncode(other);
+
+  /** The four posts the move must carry over exactly. */
+  const POSTS: Record<string, Event> = {
+    // As the web composer writes a quote: q, the quoted author's p, t, client.
+    'a web quote': signed({
+      created_at: OLD_AT,
+      content: `Great pan #Cooking\n\nnostr:${nevent}`,
+      tags: [['q', quotedId], ['p', other], ['t', 'cooking'], ['client', 'zap.cooking']]
+    }),
+    // As another app might: an @npub mention in the text, a mixed-case
+    // hashtag with no t tag, no client tag. NDKEvent.sign() would rewrite
+    // the mention and add p and t tags to this one.
+    'an app-style note with an @npub mention': signed({
+      created_at: OLD_AT,
+      content: `hey @${npub} try #Sourdough`,
+      tags: []
+    }),
+    // A NIP-10 reply: root and reply markers, relay hints, the parent's author.
+    'a reply': signed({
+      created_at: OLD_AT,
+      content: 'agreed, and salt it the night before',
+      tags: [
+        ['e', 'cd'.repeat(32), 'wss://relay.example.com', 'root', other],
+        ['e', 'ef'.repeat(32), '', 'reply'],
+        ['p', other]
+      ]
+    }),
+    // A NIP-88 poll that runs for a day.
+    'a poll': signed({
+      kind: 1068,
+      created_at: OLD_AT,
+      content: 'Best pan for a weeknight steak?',
+      tags: [
+        ['option', 'a', 'Cast iron'],
+        ['option', 'b', 'Carbon steel'],
+        ['polltype', 'singlechoice'],
+        ['endsAt', String(OLD_AT + 86_400)]
+      ]
+    })
+  };
+
+  for (const [name, original] of Object.entries(POSTS)) {
+    it(`${name}: signed again for the new time with nothing else changed`, async () => {
+      const { deps } = harness([]);
+      const result = await signMove(original, NEW_AT, deps);
+      if (!result.ok) throw new Error(`expected a signed move, got ${result.code}`);
+      const moved = result.event;
+
+      expect(moved.created_at).toBe(NEW_AT);
+      expect(moved.id).not.toBe(original.id);
+      expect(verifyEvent({ ...moved })).toBe(true);
+      expect(moved.pubkey).toBe(original.pubkey);
+      expect(moved.kind).toBe(original.kind);
+      expect(moved.content).toBe(original.content);
+      expect(moved.tags).toHaveLength(original.tags.length);
+      if (original.kind === 1068) {
+        // Only the close time differs, and by exactly as much as the post moved.
+        expect(moved.tags.slice(0, 3)).toEqual(original.tags.slice(0, 3));
+        expect(moved.tags[3]).toEqual(['endsAt', String(NEW_AT + 86_400)]);
+        expect(result.plan.pollClose).toEqual({ from: OLD_AT + 86_400, to: NEW_AT + 86_400 });
+      } else {
+        expect(moved.tags).toEqual(original.tags);
+        expect(result.plan.pollClose).toBeNull();
+      }
+      expect(isSamePostMoved(original, moved)).toBe(true);
+      // The original object was not touched.
+      expect(verifyEvent({ ...original })).toBe(true);
+      expect(original.created_at).toBe(OLD_AT);
+    });
+  }
+
+  it('the moved quote still carries the q tag and tags the quoted author', async () => {
+    const { deps } = harness([]);
+    const result = await signMove(POSTS['a web quote'], NEW_AT, deps);
+    if (!result.ok) throw new Error(result.code);
+    expect(result.event.tags).toContainEqual(['q', quotedId]);
+    expect(result.event.tags).toContainEqual(['p', other]);
+  });
+
+  it('NDKEvent.sign(), by contrast, would have changed the app-style note (why moves do not use it)', async () => {
+    const original = POSTS['an app-style note with an @npub mention'];
+    const viaNdk = new NDKEvent(new NDK({ signer: new NDKPrivateKeySigner(sk) }));
+    viaNdk.kind = original.kind;
+    viaNdk.content = original.content;
+    viaNdk.tags = [];
+    viaNdk.created_at = NEW_AT;
+    await viaNdk.sign();
+    expect(viaNdk.content).not.toBe(original.content);
+    expect(viaNdk.tags.length).toBeGreaterThan(0);
+  });
+
+  it('a zap poll moves its closed_at by the same amount', async () => {
+    const original = signed({
+      kind: 6969,
+      created_at: OLD_AT,
+      content: 'Tip the cook?',
+      tags: [['p', PUBKEY], ['poll_option', '0', 'Yes'], ['poll_option', '1', 'No'], ['closed_at', String(OLD_AT + 7200)]]
+    });
+    const plan = planMove(original, NEW_AT, NOW);
+    if (!plan.ok) throw new Error(plan.code);
+    expect(plan.tags[3]).toEqual(['closed_at', String(NEW_AT + 7200)]);
+    expect(plan.pollClose).toEqual({ from: OLD_AT + 7200, to: NEW_AT + 7200 });
+  });
+
+  it('an endsAt tag on something that is not a poll is left alone', () => {
+    const original = signed({ created_at: OLD_AT, tags: [['endsAt', String(OLD_AT + 500)]] });
+    const plan = planMove(original, NEW_AT, NOW);
+    expect(plan.ok && plan.tags).toEqual([['endsAt', String(OLD_AT + 500)]]);
+    expect(plan.ok && plan.pollClose).toBeNull();
+  });
+
+  describe('expiration', () => {
+    const withExpiry = (at: number) => signed({ created_at: OLD_AT, tags: [['expiration', String(at)]] });
+
+    it('a post that would already have expired at the new time cannot be moved there', async () => {
+      const original = withExpiry(NEW_AT - 60);
+      expect(planMove(original, NEW_AT, NOW)).toEqual({ ok: false, code: 'expires_before_publish' });
+      expect(planMove(withExpiry(NEW_AT), NEW_AT, NOW)).toEqual({ ok: false, code: 'expires_before_publish' });
+      const { deps, calls } = harness([]);
+      expect(await signMove(original, NEW_AT, deps)).toEqual({ ok: false, code: 'expires_before_publish' });
+      expect(calls).toHaveLength(0);
+    });
+
+    it('moved to before its expiry, the tag is carried over unchanged', () => {
+      const plan = planMove(withExpiry(NEW_AT + 3600), NEW_AT, NOW);
+      expect(plan.ok && plan.tags).toEqual([['expiration', String(NEW_AT + 3600)]]);
+    });
+  });
+
+  describe('published_at', () => {
+    it('moves with the post when it was the old publish time', () => {
+      const original = signed({ kind: 30023, created_at: OLD_AT, tags: [['d', 'slug'], ['published_at', String(OLD_AT)]] });
+      const plan = planMove(original, NEW_AT, NOW);
+      if (!plan.ok) throw new Error(plan.code);
+      expect(plan.tags).toEqual([['d', 'slug'], ['published_at', String(NEW_AT)]]);
+      expect(plan.publishedAtMoves).toBe(true);
+    });
+
+    it('stays when it is some other date (the article was first published earlier)', () => {
+      const original = signed({ kind: 30023, created_at: OLD_AT, tags: [['published_at', String(NOW - 86_400)]] });
+      const plan = planMove(original, NEW_AT, NOW);
+      if (!plan.ok) throw new Error(plan.code);
+      expect(plan.tags).toEqual(original.tags);
+      expect(plan.publishedAtMoves).toBe(false);
+    });
+  });
+
+  it('refuses a time in the past, under 5 minutes out, or past 90 days; the first minute inside each bound is fine', () => {
+    const original = POSTS['a reply'];
+    for (const at of [NOW - 3600, NOW, NOW + 299, NOW + 90 * 86_400, NOW + 91 * 86_400, NOW + 600.5]) {
+      expect(planMove(original, at, NOW), String(at - NOW)).toEqual({ ok: false, code: 'bad_publish_time' });
+    }
+    expect(planMove(original, NOW + 300, NOW).ok).toBe(true);
+    expect(planMove(original, NOW + 90 * 86_400 - 60, NOW).ok).toBe(true);
+  });
+
+  it('a poll that would close within a minute of posting is refused before the server has to', () => {
+    const original = signed({ kind: 1068, created_at: OLD_AT, tags: [['endsAt', String(OLD_AT + 30)]] });
+    expect(planMove(original, NEW_AT, NOW)).toEqual({ ok: false, code: 'poll_closes_before_publish' });
+  });
+
+  describe('the guard on the signed event (isSamePostMoved)', () => {
+    const original = POSTS['a poll'];
+    const movedOk = signed({ ...original, created_at: NEW_AT, tags: [...original.tags.slice(0, 3), ['endsAt', String(NEW_AT + 86_400)]] });
+
+    it('accepts the post at a new time with its close time shifted by the same amount', () => {
+      expect(isSamePostMoved(original, movedOk)).toBe(true);
+    });
+
+    it('rejects any other difference', () => {
+      const variants: Partial<Event>[] = [
+        { content: original.content + ' ' },
+        { kind: 1 },
+        { tags: [...movedOk.tags, ['t', 'extra']] },
+        { tags: movedOk.tags.slice(1) },
+        { tags: [['option', 'a', 'Cast Iron'], ...movedOk.tags.slice(1)] },
+        { tags: [...movedOk.tags.slice(0, 3), ['endsAt', String(NEW_AT + 86_400 + 1)]] },
+        { tags: [...movedOk.tags.slice(0, 3), ['endsAt', String(NEW_AT + 86_400), 'x']] },
+        { tags: [movedOk.tags[1], movedOk.tags[0], ...movedOk.tags.slice(2)] }
+      ];
+      for (const [i, change] of variants.entries()) {
+        expect(isSamePostMoved(original, { ...movedOk, ...change }), `variant ${i}`).toBe(false);
+      }
+      expect(isSamePostMoved(original, { ...movedOk, pubkey: other })).toBe(false);
+    });
+  });
+
+  describe('signers that do not cooperate', () => {
+    it('signed out: not_signed_in, nothing sent', async () => {
+      const { deps, calls } = harness([], { rawSigner: async () => null });
+      expect(await signMove(POSTS['a reply'], NEW_AT, deps)).toEqual({ ok: false, code: 'not_signed_in' });
+      expect(calls).toHaveLength(0);
+    });
+
+    it('a different account is signed in than the one that scheduled the post: pubkey_mismatch, no signature asked for', async () => {
+      const sign = vi.fn();
+      const { deps } = harness([], { rawSigner: async () => ({ pubkey: other, sign }) });
+      expect(await signMove(POSTS['a reply'], NEW_AT, deps)).toEqual({ ok: false, code: 'pubkey_mismatch' });
+      expect(sign).not.toHaveBeenCalled();
+    });
+
+    it('the signer refuses: sign_failed', async () => {
+      const { deps } = harness([], {
+        rawSigner: async () => ({
+          pubkey: PUBKEY,
+          sign: async () => {
+            throw new Error('user rejected');
+          }
+        })
+      });
+      expect(await signMove(POSTS['a reply'], NEW_AT, deps)).toEqual({ ok: false, code: 'sign_failed' });
+    });
+
+    it('a signer that re-dates what it signs: signer_changed_event, and the move is not sent', async () => {
+      const redating = async (event: Event) => finalizeEvent({ ...event, created_at: NOW }, sk).sig;
+      const { deps, calls } = harness([], { rawSigner: async () => ({ pubkey: PUBKEY, sign: redating }) });
+      expect(await signMove(POSTS['a reply'], NEW_AT, deps)).toEqual({ ok: false, code: 'signer_changed_event' });
+      const item = itemOf(POSTS['a reply']);
+      expect(await moveScheduled(item, NEW_AT, deps)).toEqual({ ok: false, code: 'signer_changed_event' });
+      expect(calls).toHaveLength(0);
+    });
+  });
+
+  function itemOf(event: Event, extra: Partial<ScheduledItem> = {}): ScheduledItem {
+    return {
+      id: event.id,
+      publishAt: event.created_at,
+      relayMode: 'all',
+      relays: ['wss://a.example.com'],
+      status: 'pending',
+      attempts: 0,
+      lastError: null,
+      sentAt: null,
+      event,
+      ...extra
+    };
+  }
+
+  describe('moveScheduled', () => {
+    const created = (extra: Record<string, unknown>) => ({ status: 201, body: { status: 'pending', ...extra } });
+
+    it('one POST: the moved event, replaces = the old id, the old row’s relay mode and relays; no other request', async () => {
+      const original = POSTS['a web quote'];
+      const item = itemOf(original, { relayMode: 'all', relays: ['wss://a.example.com', 'wss://b.example.com'] });
+      const getWriteRelays = vi.fn(async () => ['wss://never.example.com']);
+      const { deps, calls } = harness(
+        [created({ relay_mode: 'all', relays: ['wss://a.example.com', 'wss://b.example.com'], replaced: original.id })],
+        { getWriteRelays }
+      );
+      const result = await moveScheduled(item, NEW_AT, deps);
+      if (!result.ok) throw new Error(result.code);
+
+      expect(calls).toHaveLength(1);
+      expect(calls[0].method).toBe('POST');
+      expect(calls[0].body.replaces).toBe(original.id);
+      expect(calls[0].body.relay_mode).toBe('all');
+      expect(calls[0].body.relays).toEqual(['wss://a.example.com', 'wss://b.example.com']);
+      expect(calls[0].body.event.created_at).toBe(NEW_AT);
+      expect(calls[0].body.event.tags).toEqual(original.tags);
+      expect(calls[0].body.event.content).toBe(original.content);
+      expect(getWriteRelays).not.toHaveBeenCalled();
+
+      // The new row, ready to drop into the view.
+      expect(result.replacedId).toBe(original.id);
+      expect(result.replacement).toBe('replaced');
+      expect(result.item).toMatchObject({
+        id: calls[0].body.event.id,
+        publishAt: NEW_AT,
+        relayMode: 'all',
+        relays: ['wss://a.example.com', 'wss://b.example.com'],
+        status: 'pending'
+      });
+      expect(result.item.event).toEqual(calls[0].body.event);
+    });
+
+    it('a row with no relays of its own moves with none: they are not looked up again', async () => {
+      const getWriteRelays = vi.fn(async () => ['wss://never.example.com']);
+      const { deps, calls } = harness([created({ relay_mode: 'all', relays: [], replaced: POSTS['a reply'].id })], {
+        getWriteRelays
+      });
+      await moveScheduled(itemOf(POSTS['a reply'], { relays: [] }), NEW_AT, deps);
+      expect(calls[0].body).not.toHaveProperty('relays');
+      expect(getWriteRelays).not.toHaveBeenCalled();
+    });
+
+    it('a pantry post stays a pantry post', async () => {
+      const { deps, calls } = harness([created({ relay_mode: 'pantry', relays: [], replaced: POSTS['a reply'].id })]);
+      const result = await moveScheduled(itemOf(POSTS['a reply'], { relayMode: 'pantry', relays: [] }), NEW_AT, deps);
+      expect(calls[0].body.relay_mode).toBe('pantry');
+      expect(result.ok && result.item.relayMode).toBe('pantry');
+    });
+
+    for (const [name, reply, expected, copy] of [
+      ['the post is already going out', { status: 409, body: { error: 'not_replaceable', status: 'publishing' } }, { ok: false, code: 'not_replaceable', status: 'publishing' }, 'being published right now'],
+      ['the post has already gone out', { status: 409, body: { error: 'not_replaceable', status: 'sent' } }, { ok: false, code: 'not_replaceable', status: 'sent' }, 'already been published'],
+      ['too many moves this hour', { status: 429, body: { error: 'rate_limited', limit: 'moves' } }, { ok: false, code: 'rate_limited', limit: 'moves' }, 'moved a lot'],
+      ['the post is gone', { status: 404, body: { error: 'not_found' } }, { ok: false, code: 'not_found' }, 'no longer exists'],
+      ['the server is down', { status: 500, body: { error: 'internal' } }, { ok: false, code: 'internal' }, 'Something went wrong']
+    ] as const) {
+      it(`${name}: the failure comes back as it is, with plain copy, and nothing else is sent`, async () => {
+        const { deps, calls } = harness([reply]);
+        const result = await moveScheduled(itemOf(POSTS['a reply']), NEW_AT, deps);
+        expect(result).toEqual(expected);
+        expect(calls).toHaveLength(1);
+        if (!result.ok) expect(scheduleErrorCopy(result)).toContain(copy);
+      });
+    }
+
+    it('moving back to a time the post held before sends the id it had then (A → B → A), and succeeds', async () => {
+      const a0 = POSTS['a web quote'];
+      // A → B
+      const first = harness([created({ relay_mode: 'all', relays: [], replaced: a0.id })]);
+      const toB = await moveScheduled(itemOf(a0, { relays: [] }), NEW_AT, first.deps);
+      if (!toB.ok) throw new Error(toB.code);
+      // B → A: the server revives its cancelled row A and answers 201.
+      const second = harness([created({ relay_mode: 'all', relays: [], replaced: toB.item.id })]);
+      const back = await moveScheduled(toB.item, OLD_AT, second.deps);
+      if (!back.ok) throw new Error(back.code);
+      expect(second.calls[0].body.event.id).toBe(a0.id);
+      expect(second.calls[0].body.event.sig).not.toBe(a0.sig);
+      expect(second.calls[0].body.replaces).toBe(toB.item.id);
+      expect(back.item.id).toBe(a0.id);
+      expect(back.item.event.tags).toEqual(a0.tags);
+      expect(back.replacement).toBe('replaced');
+    });
+
+    it('a server that does not revive yet (409 already_scheduled, cancelled): a failure with copy that says what to do', async () => {
+      const { deps } = harness([{ status: 409, body: { error: 'already_scheduled', status: 'cancelled' } }]);
+      const result = await moveScheduled(itemOf(POSTS['a reply']), NEW_AT, deps);
+      expect(result).toEqual({ ok: false, code: 'already_scheduled', status: 'cancelled' });
+      if (!result.ok) expect(scheduleErrorCopy(result)).toContain('Pick a different time');
+    });
+
+    it('offline: network, and the post is where it was (no request got through)', async () => {
+      const { deps } = harness([new Error('offline')]);
+      expect(await moveScheduled(itemOf(POSTS['a reply']), NEW_AT, deps)).toEqual({ ok: false, code: 'network' });
+    });
+
+    it('a bad time is refused before anything is signed or sent', async () => {
+      const sign = vi.fn();
+      const { deps, calls } = harness([], { rawSigner: async () => ({ pubkey: PUBKEY, sign }) });
+      expect(await moveScheduled(itemOf(POSTS['a reply']), NOW + 60, deps)).toEqual({ ok: false, code: 'bad_publish_time' });
+      expect(sign).not.toHaveBeenCalled();
+      expect(calls).toHaveLength(0);
+    });
   });
 });

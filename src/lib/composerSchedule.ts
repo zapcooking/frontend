@@ -4,7 +4,9 @@
  * chosen time is shown, and the one decision that matters most, where
  * a submitted note goes.
  *
- * A note leaves the composer by exactly one of three routes:
+ * A note leaves the composer by exactly one of three routes (or, while
+ * it is a reschedule of a post that is still scheduled, by the first
+ * one only: see ReschedulingTarget):
  *
  *   'schedule'  a publish time is set → sign for that time and hand it
  *               to /api/schedule ($lib/scheduleClient). Nothing else.
@@ -135,6 +137,69 @@ export function pollCloseForSchedule(
   return publishAt + duration;
 }
 
+// ── rescheduling a post that is still scheduled ─────────────────────
+
+/**
+ * The scheduled post the composer is rescheduling. Reschedule cancels
+ * nothing up front: the original stays scheduled, exactly as it is,
+ * until the new one is stored, and the two are swapped in one step
+ * (POST /api/schedule with `replaces`). While this is set:
+ *
+ *   - Schedule sends `replaces: id`, so there is never a moment with
+ *     both posts scheduled or with neither.
+ *   - Closing the composer, or doing nothing, leaves the original alone.
+ *   - Posting NOW is refused. The text in the composer is a copy of a
+ *     post that will still go out at its old time, so publishing it now
+ *     would post it twice. Publishing now and cancelling the original
+ *     cannot be made one step (a publish to relays and a cancel on our
+ *     server), and either half failing alone is a double post or a lost
+ *     one. A refusal can do neither. The person cancels the original in
+ *     Scheduled first if now is what they want.
+ */
+export interface ReschedulingTarget {
+  /** Event id of the pending post being replaced. */
+  id: string;
+  /** When it is set to go out (unix seconds). */
+  publishAt: number;
+  relayMode: ScheduleRelayMode;
+  /** The relays it was scheduled with, carried to the replacement. */
+  relays: string[];
+}
+
+/** A ReschedulingTarget read back from storage, or null if it is not one. */
+export function parseReschedulingTarget(raw: unknown): ReschedulingTarget | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.id !== 'string' || !/^[0-9a-f]{64}$/.test(r.id)) return null;
+  if (typeof r.publishAt !== 'number' || !Number.isInteger(r.publishAt)) return null;
+  return {
+    id: r.id,
+    publishAt: r.publishAt,
+    relayMode: r.relayMode === 'pantry' ? 'pantry' : 'all',
+    relays: Array.isArray(r.relays) ? r.relays.filter((x): x is string => typeof x === 'string') : []
+  };
+}
+
+/** The line the composer shows while it holds a reschedule. */
+export function reschedulingNotice(target: ReschedulingTarget, nowSeconds: number, locale?: string): string {
+  return `Editing a post scheduled for ${formatScheduleTime(target.publishAt, nowSeconds, locale)}. It stays scheduled as it is until you press Schedule.`;
+}
+
+/** Why "post now" is refused while rescheduling, and what to do instead. */
+export function postNowRefusedCopy(target: ReschedulingTarget, nowSeconds: number, locale?: string): string {
+  return `This post is still scheduled for ${formatScheduleTime(target.publishAt, nowSeconds, locale)}, so posting it now would post it twice. Pick a new time, or cancel it in My Kitchen › Scheduled first.`;
+}
+
+/**
+ * After a failed replace: is the original out of the picture (already
+ * published, going out, cancelled, failed or gone)? Then the composer
+ * stops rescheduling it: the text stays, and whatever is done with it
+ * next is a new post.
+ */
+export function originalIsSettled(outcome: { ok: boolean; code?: string }): boolean {
+  return !outcome.ok && (outcome.code === 'not_replaceable' || outcome.code === 'not_found');
+}
+
 // ── where a submitted note goes ─────────────────────────────────────
 
 export type SubmitRoute = 'schedule' | 'mine' | 'publish';
@@ -163,11 +228,21 @@ export interface SubmitInput {
   scheduledAt: number | null;
   powBits: number | null;
   relayMode: ScheduleRelayMode;
+  /** Set while this note is a reschedule of a post that is still scheduled. */
+  rescheduling?: ReschedulingTarget | null;
 }
 
 export interface SubmitDeps<TPublish> {
-  /** Sign for `publishAt` and store with the scheduler. Must not publish. */
-  schedule: (event: NDKEvent, publishAt: number, relayMode: ScheduleRelayMode) => Promise<ScheduleOutcome>;
+  /**
+   * Sign for `publishAt` and store with the scheduler. Must not publish.
+   * `rescheduling` is the post the new one replaces, when there is one.
+   */
+  schedule: (
+    event: NDKEvent,
+    publishAt: number,
+    relayMode: ScheduleRelayMode,
+    rescheduling: ReschedulingTarget | null
+  ) => Promise<ScheduleOutcome>;
   /** Hand the note to the background miner, which publishes it when done. */
   mine: (event: NDKEvent, bits: number, relayMode: ScheduleRelayMode) => void;
   /** Runs just before an ordinary publish starts (the modal closes here). */
@@ -177,6 +252,8 @@ export interface SubmitDeps<TPublish> {
 }
 
 export type SubmitResult<TPublish> =
+  /** Nothing was signed, sent or published: posting now would double a post that is still scheduled. */
+  | { route: 'refused'; reason: 'still_scheduled' }
   | { route: 'schedule'; outcome: ScheduleOutcome }
   | { route: 'mine' }
   | { route: 'publish'; result: TPublish };
@@ -192,12 +269,16 @@ export async function submitComposedNote<TPublish>(
   deps: SubmitDeps<TPublish>
 ): Promise<SubmitResult<TPublish>> {
   const route = composerSubmitRoute(input);
+  const rescheduling = input.rescheduling ?? null;
   if (route === 'schedule') {
     return {
       route,
-      outcome: await deps.schedule(input.event, input.scheduledAt as number, input.relayMode)
+      outcome: await deps.schedule(input.event, input.scheduledAt as number, input.relayMode, rescheduling)
     };
   }
+  // Not the schedule route, so this would go out now, while the post it
+  // is a copy of is still scheduled. See ReschedulingTarget.
+  if (rescheduling) return { route: 'refused', reason: 'still_scheduled' };
   if (route === 'mine') {
     deps.mine(input.event, input.powBits as number, input.relayMode);
     return { route };
@@ -210,14 +291,25 @@ export async function submitComposedNote<TPublish>(
  * The schedule route's two steps with the real client: sign a copy for
  * the publish time, then store it. A signing failure stops here and the
  * API is never called.
+ *
+ * With `rescheduling`, the new event is stored in place of that post
+ * (`replaces`), and goes to the relays the original was scheduled with
+ * as long as it is still headed for the public relays.
  */
 export async function scheduleComposedNote(
   event: NDKEvent,
   publishAt: number,
   relayMode: ScheduleRelayMode,
-  client: Pick<typeof import('./scheduleClient'), 'signForSchedule' | 'scheduleEvent'>
+  client: Pick<typeof import('./scheduleClient'), 'signForSchedule' | 'scheduleEvent'>,
+  rescheduling: ReschedulingTarget | null = null
 ): Promise<ScheduleOutcome> {
   const signed = await client.signForSchedule(event, publishAt);
   if (!signed.ok) return signed;
-  return client.scheduleEvent(signed.event, { relayMode });
+  if (!rescheduling) return client.scheduleEvent(signed.event, { relayMode });
+  const keepRelays = relayMode === 'all' && rescheduling.relayMode === 'all' && rescheduling.relays.length > 0;
+  return client.scheduleEvent(signed.event, {
+    relayMode,
+    replaces: rescheduling.id,
+    ...(keepRelays ? { relays: rescheduling.relays } : {})
+  });
 }

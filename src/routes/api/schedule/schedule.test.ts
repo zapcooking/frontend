@@ -146,8 +146,10 @@ function fakeD1(rows: Row[] = []) {
             async run() {
               if (sql.includes('INSERT INTO scheduled_events')) {
                 const [id, pubkey, kind, publish_at, relay_mode, ciphertext, iv, now, relays] = args;
-                if (args.length !== 9 || !/\brelays\)/.test(sql)) {
-                  throw new Error('fakeD1: INSERT must name and bind the relays column');
+                // A plain create: `replaces` is bound last and is null
+                // (replaces and revival run against real SQLite below).
+                if (args.length !== 10 || args[9] !== null || !/\brelays, replaces\)/.test(sql)) {
+                  throw new Error('fakeD1: INSERT must name and bind the relays and replaces columns');
                 }
                 if (rows.some((r) => r.id === id)) {
                   throw new Error('UNIQUE constraint failed: scheduled_events.id');
@@ -528,7 +530,8 @@ describe('POST /api/schedule — success path', () => {
   });
 
   it('409 already_scheduled carries the row’s CURRENT status, so a retry can tell it was sent', async () => {
-    for (const status of ['publishing', 'sent', 'failed', 'cancelled']) {
+    // Not `cancelled`: a cancelled row is revived (see "revival" below).
+    for (const status of ['publishing', 'sent', 'failed']) {
       const db = fakeD1();
       const event = futureEvent({ content: `was ${status}` });
       expect((await post(db, { event, relay_mode: 'all' })).res.status).toBe(201);
@@ -1042,6 +1045,7 @@ function sqliteD1() {
     }
   });
   const db = {
+    sqlite,
     /** Runs just before a batch executes: stands in for the sweep winning a race. */
     beforeBatch: null as null | (() => void),
     prepare: (sql: string) => statement(sql),
@@ -1346,6 +1350,327 @@ describe('POST /api/schedule — replaces', () => {
     const { res } = await post(asDb(db), { event: moved(), relay_mode: 'all', replaces: old.id }, { authHeader: null });
     expect(res.status).toBe(401);
     expect(db.row(old.id)?.status).toBe('pending');
+  });
+});
+
+// ── revival: the same post scheduled for the same time again ────────
+//
+// An event id is a hash of author, time, kind, tags and content. Moving a
+// post back to a time it held before, or cancelling a post and scheduling
+// it again unchanged, sends an event with the id of a row that is already
+// there as `cancelled`. That row is revived. Real SQLite, as above.
+
+describe('POST /api/schedule — revival of a cancelled row', () => {
+  // One clock reading for the whole block. These tests sign "the same
+  // post for the same time" twice and expect one id; reading the clock on
+  // each call made the two times differ whenever a second ticked over in
+  // between (seen once on CI).
+  const START = nowSec();
+  const T = (days: number) => START + days * 86400;
+  /** The post, signed for a time. Signing twice for one time gives one id and two signatures. */
+  const at = (when: number) => futureEvent({ content: 'the post', created_at: when });
+  const replace = (db: ReturnType<typeof sqliteD1>, event: ReturnType<typeof at>, oldId: string, extra = {}) =>
+    post(asDb(db), { event, relay_mode: 'all', replaces: oldId, ...extra });
+  const pendingIds = (db: ReturnType<typeof sqliteD1>) =>
+    (db as any).sqlite
+      .prepare("SELECT id FROM scheduled_events WHERE status = 'pending' ORDER BY id")
+      .all()
+      .map((r: any) => r.id);
+
+  async function scheduled(when: number) {
+    const db = sqliteD1();
+    const a = at(when);
+    expect((await post(asDb(db), { event: a, relay_mode: 'all' })).res.status).toBe(201);
+    return { db, a };
+  }
+
+  it('the premise: the same post signed twice for one time has one id and two signatures', () => {
+    const when = T(1);
+    const one = at(when);
+    const two = at(when);
+    expect(two.id).toBe(one.id);
+    expect(two.sig).not.toBe(one.sig);
+  });
+
+  it('move A → B → A: the third request revives row A and cancels B, in one step', async () => {
+    const { db, a } = await scheduled(T(1));
+    const b = at(T(2));
+    expect((await replace(db, b, a.id)).res.status).toBe(201);
+    // Make the cancelled row look used, to see it is reset.
+    (db as any).sqlite
+      .prepare('UPDATE scheduled_events SET attempts = 3, last_error = ?, created_at = ? WHERE id = ?')
+      .run('blocked: earlier', nowSec() - 5000, a.id);
+
+    const a2 = at(T(1));
+    expect(a2.id).toBe(a.id);
+    const { res, data } = await replace(db, a2, b.id, { relays: ['wss://a.example.com'] });
+
+    expect(res.status).toBe(201);
+    expect(data).toEqual({
+      id: a.id,
+      publish_at: a.created_at,
+      relay_mode: 'all',
+      relays: ['wss://a.example.com'],
+      status: 'pending',
+      replaced: b.id
+    });
+    const row = db.row(a.id)! as any;
+    expect(row.status).toBe('pending');
+    expect(row.replaces).toBe(b.id);
+    expect(row.attempts).toBe(0);
+    expect(row.last_error).toBeNull();
+    expect(row.sent_at).toBeNull();
+    expect(JSON.parse(row.relays)).toEqual(['wss://a.example.com']);
+    // created_at is now, so the hourly caps count the revival.
+    expect(row.created_at).toBeGreaterThanOrEqual(nowSec() - 5);
+    // Fresh ciphertext: what is stored is the event from THIS request.
+    const key = await importScheduleKey(ENC_KEY);
+    expect(JSON.parse(await decryptScheduledEvent(key, row.ciphertext, row.iv)).sig).toBe(a2.sig);
+    expect(db.row(b.id)?.status).toBe('cancelled');
+    expect(db.count()).toBe(2);
+    expect(pendingIds(db)).toEqual([a.id]);
+
+    const listed = await list(asDb(db));
+    expect(listed.data.items.map((i: any) => i.id)).toEqual([a.id]);
+    expect(listed.data.items[0].event.sig).toBe(a2.sig);
+  });
+
+  it('move A → B → C → A', async () => {
+    const { db, a } = await scheduled(T(1));
+    const b = at(T(2));
+    const c = at(T(3));
+    expect((await replace(db, b, a.id)).res.status).toBe(201);
+    expect((await replace(db, c, b.id)).res.status).toBe(201);
+    const back = await replace(db, at(T(1)), c.id);
+    expect(back.res.status).toBe(201);
+    expect(back.data.replaced).toBe(c.id);
+    expect(pendingIds(db)).toEqual([a.id]);
+    expect(db.row(b.id)?.status).toBe('cancelled');
+    expect(db.row(c.id)?.status).toBe('cancelled');
+    expect(db.row(a.id)?.replaces).toBe(c.id);
+    expect(db.count()).toBe(3);
+  });
+
+  it('back and forth many times: always exactly one pending row, never a new row', async () => {
+    const { db, a } = await scheduled(T(1));
+    const bId = at(T(2)).id;
+    let current = a.id;
+    for (let i = 0; i < 6; i++) {
+      const next = at(current === a.id ? T(2) : T(1));
+      const { res } = await replace(db, next, current);
+      expect(res.status, `move ${i + 1}`).toBe(201);
+      current = next.id;
+      expect(pendingIds(db)).toEqual([current]);
+    }
+    expect(db.count()).toBe(2);
+    expect([a.id, bId]).toContain(current);
+  });
+
+  it('cancel, then schedule the identical post again: the row is revived as a plain create', async () => {
+    const db = sqliteD1();
+    const a = at(T(1));
+    await post(asDb(db), { event: a, relay_mode: 'all', relays: ['wss://a.example.com'] });
+    expect((await cancel(asDb(db), a.id)).res.status).toBe(200);
+
+    const again = at(T(1));
+    const { res, data } = await post(asDb(db), { event: again, relay_mode: 'pantry', relays: ['wss://b.example.com'] });
+    expect(res.status).toBe(201);
+    // relay_mode and relays are this request's: pantry keeps no client relays.
+    expect(data).toEqual({ id: a.id, publish_at: a.created_at, relay_mode: 'pantry', relays: [], status: 'pending' });
+    const row = db.row(a.id)!;
+    expect(row.status).toBe('pending');
+    expect(row.relay_mode).toBe('pantry');
+    expect(row.relays).toBeNull();
+    expect(row.replaces).toBeNull();
+    expect(db.count()).toBe(1);
+    // And it can be cancelled again like any pending post.
+    expect((await cancel(asDb(db), a.id)).data).toEqual({ id: a.id, status: 'cancelled' });
+  });
+
+  it('a row that was revived by a replace and cancelled again loses its `replaces` when revived plainly', async () => {
+    const { db, a } = await scheduled(T(1));
+    const b = at(T(2));
+    await replace(db, b, a.id);
+    await replace(db, at(T(1)), b.id); // A again, replaces = B
+    await cancel(asDb(db), a.id);
+    const { res, data } = await post(asDb(db), { event: at(T(1)), relay_mode: 'all' });
+    expect(res.status).toBe(201);
+    expect(data).not.toHaveProperty('replaced');
+    expect(db.row(a.id)?.replaces).toBeNull();
+  });
+
+  describe('limits', () => {
+    it('plain revival at 50 pending is refused like any create; the row stays cancelled', async () => {
+      const { db, a } = await scheduled(T(1));
+      await cancel(asDb(db), a.id);
+      for (let i = 0; i < MAX_PENDING_PER_PUBKEY; i++) db.seed();
+      const { res, data } = await post(asDb(db), { event: at(T(1)), relay_mode: 'all' });
+      expect(res.status).toBe(400);
+      expect(data).toEqual({ error: 'quota_exceeded' });
+      expect(db.row(a.id)?.status).toBe('cancelled');
+    });
+
+    it('revival with replaces works at 50 pending, and leaves 50 pending', async () => {
+      const { db, a } = await scheduled(T(1));
+      const b = at(T(2));
+      await replace(db, b, a.id);
+      for (let i = 0; i < MAX_PENDING_PER_PUBKEY - 1; i++) db.seed();
+      expect(db.count("status = 'pending'")).toBe(MAX_PENDING_PER_PUBKEY);
+      const { res } = await replace(db, at(T(1)), b.id);
+      expect(res.status).toBe(201);
+      expect(db.count("status = 'pending'")).toBe(MAX_PENDING_PER_PUBKEY);
+      expect(db.row(a.id)?.status).toBe('pending');
+    });
+
+    it('plain revival is refused at 30 creates in the hour, and counts as a create once it happens', async () => {
+      const { db, a } = await scheduled(T(1));
+      await cancel(asDb(db), a.id);
+      // Age the row out of the hour, then fill the hour with other creates.
+      (db as any).sqlite.prepare('UPDATE scheduled_events SET created_at = ? WHERE id = ?').run(nowSec() - 7200, a.id);
+      for (let i = 0; i < MAX_CREATES_PER_HOUR; i++) db.seed({ status: 'cancelled', created_at: nowSec() - 60 });
+      const refused = await post(asDb(db), { event: at(T(1)), relay_mode: 'all' });
+      expect(refused.res.status).toBe(429);
+      expect(refused.data).toEqual({ error: 'rate_limited' });
+      expect(db.row(a.id)?.status).toBe('cancelled');
+
+      // One fewer create this hour: the revival goes through and takes the last place.
+      (db as any).sqlite.prepare("DELETE FROM scheduled_events WHERE id = (SELECT id FROM scheduled_events WHERE status = 'cancelled' AND id != ? LIMIT 1)").run(a.id);
+      expect((await post(asDb(db), { event: at(T(1)), relay_mode: 'all' })).res.status).toBe(201);
+      const next = await post(asDb(db), { event: futureEvent({ content: 'one more' }), relay_mode: 'all' });
+      expect(next.data).toEqual({ error: 'rate_limited' });
+    });
+
+    it('revival with replaces is counted under the 60 moves an hour, not the 30 creates', async () => {
+      const { db, a } = await scheduled(T(1));
+      const b = at(T(2));
+      await replace(db, b, a.id);
+      for (let i = 0; i < MAX_CREATES_PER_HOUR; i++) db.seed({ status: 'cancelled', created_at: nowSec() - 60 });
+      // Creates are exhausted; the move back still goes through.
+      expect((await replace(db, at(T(1)), b.id)).res.status).toBe(201);
+
+      for (let i = 0; i < MAX_MOVES_PER_HOUR; i++) {
+        db.seed({ status: 'cancelled', created_at: nowSec() - 60, replaces: 'f'.repeat(64) });
+      }
+      const refused = await replace(db, at(T(2)), a.id);
+      expect(refused.res.status).toBe(429);
+      expect(refused.data).toEqual({ error: 'rate_limited', limit: 'moves' });
+      expect(pendingIds(db)).toContain(a.id);
+      expect(db.row(b.id)?.status).toBe('cancelled');
+    });
+  });
+
+  describe('what is never revived', () => {
+    for (const status of ['failed', 'sent']) {
+      it(`a ${status} row: 409 already_scheduled (${status}), plain or with replaces, and nothing changes`, async () => {
+        const { db, a } = await scheduled(T(1));
+        db.setStatus(a.id, status);
+        const plain = await post(asDb(db), { event: at(T(1)), relay_mode: 'all' });
+        expect(plain.res.status).toBe(409);
+        expect(plain.data).toEqual({ error: 'already_scheduled', status });
+
+        const other = futureEvent({ content: 'another post', created_at: T(4) });
+        await post(asDb(db), { event: other, relay_mode: 'all' });
+        const swap = await replace(db, at(T(1)), other.id);
+        expect(swap.res.status).toBe(409);
+        expect(swap.data).toEqual({ error: 'already_scheduled', status });
+        expect(db.row(a.id)?.status).toBe(status);
+        expect(db.row(other.id)?.status).toBe('pending');
+      });
+    }
+
+    for (const status of ['pending', 'publishing']) {
+      it(`a ${status} row keeps today's 409, which a client reads as "already done"`, async () => {
+        const { db, a } = await scheduled(T(1));
+        db.setStatus(a.id, status);
+        const { res, data } = await post(asDb(db), { event: at(T(1)), relay_mode: 'all' });
+        expect(res.status).toBe(409);
+        expect(data).toEqual({ error: 'already_scheduled', status });
+        expect(db.count()).toBe(1);
+      });
+    }
+
+    it('a row cannot replace itself: 400 bad_request, pending or cancelled, and nothing changes', async () => {
+      const { db, a } = await scheduled(T(1));
+      const self = await replace(db, at(T(1)), a.id);
+      expect(self.res.status).toBe(400);
+      expect(self.data).toEqual({ error: 'bad_request' });
+      expect(db.row(a.id)?.status).toBe('pending');
+
+      await cancel(asDb(db), a.id);
+      const cancelledSelf = await replace(db, at(T(1)), a.id);
+      expect(cancelledSelf.data).toEqual({ error: 'bad_request' });
+      expect(db.row(a.id)?.status).toBe('cancelled');
+    });
+  });
+
+  describe('the swap stays all-or-nothing when the new row is a revival', () => {
+    it('the sweep claims the row to be replaced mid-swap: 409, the cancelled row is NOT revived, nothing is doubled', async () => {
+      const { db, a } = await scheduled(T(1));
+      const b = at(T(2));
+      await replace(db, b, a.id);
+      db.beforeBatch = () => db.setStatus(b.id, 'publishing');
+
+      const { res, data } = await replace(db, at(T(1)), b.id);
+      expect(res.status).toBe(409);
+      expect(data).toEqual({ error: 'not_replaceable', status: 'publishing' });
+      expect(db.row(a.id)?.status).toBe('cancelled');
+      expect(db.row(b.id)?.status).toBe('publishing');
+      expect(pendingIds(db)).toEqual([]);
+    });
+
+    for (const status of ['sent', 'failed', 'cancelled']) {
+      it(`the row to be replaced is already ${status}: 409 not_replaceable, the cancelled row is not revived`, async () => {
+        const { db, a } = await scheduled(T(1));
+        const b = at(T(2));
+        await replace(db, b, a.id);
+        db.setStatus(b.id, status);
+        const { res, data } = await replace(db, at(T(1)), b.id);
+        expect(res.status).toBe(409);
+        expect(data).toEqual({ error: 'not_replaceable', status });
+        expect(db.row(a.id)?.status).toBe('cancelled');
+      });
+    }
+
+    it('the row to be replaced does not exist: 404, the cancelled row is not revived', async () => {
+      const { db, a } = await scheduled(T(1));
+      await cancel(asDb(db), a.id);
+      const { res, data } = await replace(db, at(T(1)), 'e'.repeat(64));
+      expect(res.status).toBe(404);
+      expect(data).toEqual({ error: 'not_found' });
+      expect(db.row(a.id)?.status).toBe('cancelled');
+    });
+
+    it('the cancelled row is revived by another request first: this one changes nothing and says it is already scheduled', async () => {
+      const { db, a } = await scheduled(T(1));
+      const b = at(T(2));
+      await replace(db, b, a.id);
+      // Between this request's lookup and its swap, row A comes back on its own.
+      db.beforeBatch = () => db.setStatus(a.id, 'pending');
+      const { res, data } = await replace(db, at(T(1)), b.id);
+      expect(res.status).toBe(409);
+      expect(data.error).toBe('already_scheduled');
+      expect(data.status).toBe('pending');
+      // B was not cancelled by this request, so it must not claim to have replaced it.
+      expect(data).not.toHaveProperty('replaced');
+      expect(db.row(b.id)?.status).toBe('pending');
+    });
+  });
+
+  it('`replaced` on a 409 is only given while it is true: not once the replaced row is pending again', async () => {
+    const { db, a } = await scheduled(T(1));
+    const b = at(T(2));
+    const moved = await replace(db, b, a.id); // B pending, replaces A; A cancelled
+    expect(moved.res.status).toBe(201);
+    // A retry now: the swap is done, and the answer says so.
+    const retry = await replace(db, b, a.id);
+    expect(retry.data).toEqual({ error: 'already_scheduled', status: 'pending', replaced: a.id });
+
+    // A is scheduled again on its own (cancel-then-schedule of the same post).
+    expect((await post(asDb(db), { event: at(T(1)), relay_mode: 'all' })).res.status).toBe(201);
+    const later = await replace(db, b, a.id);
+    expect(later.res.status).toBe(409);
+    expect(later.data).toEqual({ error: 'already_scheduled', status: 'pending' });
+    expect(pendingIds(db).sort()).toEqual([a.id, b.id].sort());
   });
 });
 

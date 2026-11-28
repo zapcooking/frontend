@@ -5,9 +5,11 @@
  * client's reading of it and should change with it.
  *
  *   signForSchedule(event, publishAt)   sign with created_at = publish time
- *   scheduleEvent(signed, { relayMode, relays })
+ *   scheduleEvent(signed, { relayMode, relays, replaces })
  *   listScheduled({ status })
  *   cancelScheduled(id)
+ *   planMove(event, newPublishAt)       what moving a post would change
+ *   moveScheduled(item, newPublishAt)   move it: re-sign verbatim, swap atomically
  *
  * Every function resolves to a typed result and never throws. A
  * failure is `{ ok: false, code }` with one code per error in the
@@ -21,9 +23,11 @@
  * lazily from the app by default and replaced wholesale in tests.
  */
 
-import { verifyEvent, type Event as NostrEvent } from 'nostr-tools';
+import { getEventHash, verifyEvent, type Event as NostrEvent } from 'nostr-tools';
 import { NDKEvent } from '@nostr-dev-kit/ndk';
 import { isPublicRelayUrl, ENDED_HOST_RELAYS_NEVER } from './live/endedEvent';
+import { POLL_ENDS_AT_TAG, ZAP_POLL_CLOSED_AT_TAG } from './polls';
+import { pickedTimeProblem } from './composerSchedule';
 import {
   MAX_SCHEDULE_RELAYS,
   MAX_SCHEDULE_RELAY_URL_LENGTH,
@@ -31,6 +35,9 @@ import {
 } from './scheduleRelays';
 
 // ── types ───────────────────────────────────────────────────────────
+
+/** Contract: at most this many posts pending per account. */
+export const MAX_PENDING_SCHEDULED = 50;
 
 export type ScheduleRelayMode = 'all' | 'pantry';
 export type ScheduleStatus = 'pending' | 'publishing' | 'sent' | 'failed' | 'cancelled';
@@ -86,6 +93,8 @@ export type ScheduleErrorCode =
   | 'not_signed_in'
   | 'sign_failed'
   | 'signer_changed_event'
+  | 'expires_before_publish'
+  | 'move_changed_post'
   | 'network'
   | 'unknown';
 
@@ -117,9 +126,12 @@ export interface ScheduleFailure<C extends ScheduleErrorCode = ScheduleErrorCode
   code: C;
   /**
    * The row's status, where the server reports one: `already_scheduled`
-   * (the existing row is cancelled or failed) and `not_cancellable`.
+   * (the existing row is cancelled or failed), `not_cancellable` and
+   * `not_replaceable`.
    */
   status?: ScheduleStatus;
+  /** On `rate_limited`: 'moves' when it was the replace limit, not the create limit. */
+  limit?: 'moves';
 }
 
 type CommonFailure = 'auth_failed' | 'not_configured' | 'internal' | 'not_signed_in' | 'network' | 'unknown';
@@ -139,6 +151,13 @@ export type ScheduleEventResult =
       status: ScheduleStatus;
       /** True when an earlier attempt had already stored this exact event. */
       alreadyScheduled: boolean;
+      /**
+       * Only for a call with `replaces`: 'replaced' when the old post is
+       * no longer scheduled, 'original_still_scheduled' in the rare case
+       * where the new post was stored but the old one could not be
+       * cancelled (the caller must tell the person). Absent otherwise.
+       */
+      replacement?: 'replaced' | 'original_still_scheduled';
     }
   | ScheduleFailure<
       | CommonFailure
@@ -155,10 +174,17 @@ export type ScheduleEventResult =
       | 'already_scheduled'
       | 'quota_exceeded'
       | 'rate_limited'
+      | 'not_found'
+      | 'not_replaceable'
     >;
 
 export type ListScheduledResult =
-  | { ok: true; items: ScheduledItem[] }
+  | {
+      ok: true;
+      items: ScheduledItem[];
+      /** True when the account has more matching rows than the server returns (its 100-row cap). */
+      truncated: boolean;
+    }
   | ScheduleFailure<CommonFailure | 'bad_status'>;
 
 export type CancelScheduledResult =
@@ -180,6 +206,13 @@ export interface ScheduleClientDeps {
   getWriteRelays: (pubkey: string) => Promise<string[]>;
   /** Wake a remote (NIP-46) signer before asking it to sign. */
   prepareSigner: () => Promise<void>;
+  /**
+   * The session signer, asked for a signature and nothing else: the
+   * caller has already built and hashed the event, and gets back the
+   * `sig` for exactly that. Null when signed out. (NDKEvent.sign() is
+   * not this: it rewrites tags and content before signing.)
+   */
+  rawSigner: () => Promise<{ pubkey: string; sign: (event: NostrEvent) => Promise<string> } | null>;
   now: () => number;
 }
 
@@ -199,6 +232,12 @@ async function defaultDeps(): Promise<ScheduleClientDeps> {
       const { getAuthManager } = await import('./authManager');
       await getAuthManager()?.ensureNip46SignerReady();
     },
+    rawSigner: async () => {
+      const signer = get(nostr.ndk)?.signer;
+      if (!signer) return null;
+      const user = await signer.user();
+      return { pubkey: user.pubkey, sign: (event) => signer.sign(event) };
+    },
     now: () => Math.floor(Date.now() / 1000)
   };
 }
@@ -206,7 +245,7 @@ async function defaultDeps(): Promise<ScheduleClientDeps> {
 async function resolveDeps(overrides?: Partial<ScheduleClientDeps>): Promise<ScheduleClientDeps> {
   const complete =
     overrides &&
-    (['fetch', 'origin', 'signAuthHeader', 'getWriteRelays', 'prepareSigner', 'now'] as const).every(
+    (['fetch', 'origin', 'signAuthHeader', 'getWriteRelays', 'prepareSigner', 'rawSigner', 'now'] as const).every(
       (k) => overrides[k] !== undefined
     );
   // A complete override never touches the app modules (tests).
@@ -324,6 +363,254 @@ export async function signForSchedule(
   return { ok: true, event: raw };
 }
 
+// ── moving a scheduled post ─────────────────────────────────────────
+
+/** Tags whose value is a time that belongs with the publish time. */
+const POLL_CLOSE_TAG_BY_KIND: Record<number, string> = {
+  1068: POLL_ENDS_AT_TAG,
+  6969: ZAP_POLL_CLOSED_AT_TAG
+};
+
+function tagSeconds(tag: readonly string[]): number | null {
+  if (!/^\d+$/.test(tag[1] ?? '')) return null;
+  const n = parseInt(tag[1], 10);
+  return Number.isSafeInteger(n) ? n : null;
+}
+
+export interface MovePlan {
+  ok: true;
+  /** Where the post is now, and where it would go (unix seconds). */
+  from: number;
+  to: number;
+  /** The tags the moved event will carry: the original's, with only the time tags below changed. */
+  tags: string[][];
+  /** A poll's closing time, before and after. It keeps its length: it moves by as much as the post does. */
+  pollClose: { from: number; to: number } | null;
+  /** True when a `published_at` tag that equalled the old publish time moves with it. */
+  publishedAtMoves: boolean;
+}
+
+export type MovePlanResult =
+  | MovePlan
+  | ScheduleFailure<'bad_publish_time' | 'expires_before_publish' | 'poll_closes_before_publish'>;
+
+/**
+ * What moving `original` to `newPublishAt` would do, without signing or
+ * sending anything. The move dialog shows this and asks before any
+ * signature is requested.
+ *
+ * A move changes the TIME and nothing else. Kind, content and every tag
+ * are the original's own, as they were signed, with three exceptions
+ * that are themselves times:
+ *
+ *   - a poll's closing time (`endsAt` on kind 1068, `closed_at` on 6969)
+ *     moves by the same amount as the post, so the poll runs as long as
+ *     it was set to;
+ *   - `published_at` moves with the post only where it was the old
+ *     publish time; a different value is the author's own date and stays;
+ *   - an `expiration` tag (NIP-40) is never changed. If the post would
+ *     already have expired at the new time, the move is refused.
+ *
+ * The time must be one the picker would offer: at least 5 minutes from
+ * now and inside 90 days.
+ */
+export function planMove(original: NostrEvent, newPublishAt: number, nowSeconds: number): MovePlanResult {
+  if (!Number.isInteger(newPublishAt) || pickedTimeProblem(newPublishAt, nowSeconds)) {
+    return { ok: false, code: 'bad_publish_time' };
+  }
+  const from = original.created_at;
+  const delta = newPublishAt - from;
+  const pollCloseTag = POLL_CLOSE_TAG_BY_KIND[original.kind];
+  let pollClose: MovePlan['pollClose'] = null;
+  let publishedAtMoves = false;
+
+  const tags: string[][] = [];
+  for (const tag of original.tags) {
+    const copy = [...tag];
+    const seconds = tagSeconds(tag);
+    if (seconds !== null) {
+      if (tag[0] === 'expiration' && seconds <= newPublishAt) {
+        return { ok: false, code: 'expires_before_publish' };
+      }
+      if (pollCloseTag && tag[0] === pollCloseTag) {
+        copy[1] = String(seconds + delta);
+        pollClose ??= { from: seconds, to: seconds + delta };
+      } else if (tag[0] === 'published_at' && seconds === from) {
+        copy[1] = String(newPublishAt);
+        publishedAtMoves = true;
+      }
+    }
+    tags.push(copy);
+  }
+  // The server's own rule, checked here so it is never the first to say so.
+  if (pollClose && pollClose.to <= newPublishAt + 60) {
+    return { ok: false, code: 'poll_closes_before_publish' };
+  }
+  return { ok: true, from, to: newPublishAt, tags, pollClose, publishedAtMoves };
+}
+
+/**
+ * Is `moved` the original post at a new time and nothing else? Checked
+ * on the SIGNED event, independently of how it was built: same author,
+ * kind and content, the same tags in the same order, and where a tag
+ * differs it is one of the time tags, changed only in its value, to
+ * exactly what the rules in planMove allow.
+ */
+export function isSamePostMoved(original: NostrEvent, moved: NostrEvent): boolean {
+  if (moved.pubkey !== original.pubkey || moved.kind !== original.kind || moved.content !== original.content) {
+    return false;
+  }
+  if (!Array.isArray(moved.tags) || moved.tags.length !== original.tags.length) return false;
+  const delta = moved.created_at - original.created_at;
+  const pollCloseTag = POLL_CLOSE_TAG_BY_KIND[original.kind];
+  for (let i = 0; i < original.tags.length; i++) {
+    const a = original.tags[i];
+    const b = moved.tags[i];
+    if (!Array.isArray(b) || a.length !== b.length) return false;
+    for (let j = 0; j < a.length; j++) {
+      if (a[j] === b[j]) continue;
+      if (j !== 1) return false;
+      const was = tagSeconds(a);
+      if (was === null) return false;
+      const isPollClose = !!pollCloseTag && a[0] === pollCloseTag && b[1] === String(was + delta);
+      const isPublishedAt = a[0] === 'published_at' && was === original.created_at && b[1] === String(moved.created_at);
+      if (!isPollClose && !isPublishedAt) return false;
+    }
+  }
+  return true;
+}
+
+export type SignMoveResult =
+  | { ok: true; event: NostrEvent; plan: MovePlan }
+  | ScheduleFailure<
+      | 'not_signed_in'
+      | 'sign_failed'
+      | 'signer_changed_event'
+      | 'pubkey_mismatch'
+      | 'bad_publish_time'
+      | 'expires_before_publish'
+      | 'poll_closes_before_publish'
+      | 'move_changed_post'
+    >;
+
+/**
+ * Sign `original` again for a new publish time, changing nothing else.
+ *
+ * NOT through NDKEvent.sign(), which signForSchedule uses for a post
+ * fresh from the composer: that call re-derives tags from the content
+ * (it adds `t`, `p` and `e` tags, and rewrites `@npub…` to `nostr:npub…`
+ * in the text), which is right for a new post and wrong for one that
+ * was already signed as its author wanted it, possibly by another app.
+ * Here the event is built and hashed locally and the signer is asked
+ * for the signature alone.
+ *
+ * Nothing is returned unless the signed event verifies, carries the new
+ * time, and is the same post (isSamePostMoved).
+ */
+export async function signMove(
+  original: NostrEvent,
+  newPublishAt: number,
+  depsOverride?: Partial<ScheduleClientDeps>
+): Promise<SignMoveResult> {
+  const deps = await resolveDeps(depsOverride);
+  const plan = planMove(original, newPublishAt, deps.now());
+  if (!plan.ok) return plan;
+
+  let moved: NostrEvent;
+  try {
+    await deps.prepareSigner();
+    const signer = await deps.rawSigner();
+    if (!signer) return { ok: false, code: 'not_signed_in' };
+    // A different account is signed in than the one that scheduled this.
+    if (signer.pubkey !== original.pubkey) return { ok: false, code: 'pubkey_mismatch' };
+    const unsigned = {
+      kind: original.kind,
+      content: original.content,
+      tags: plan.tags.map((tag) => [...tag]),
+      created_at: newPublishAt,
+      pubkey: original.pubkey
+    };
+    const id = getEventHash(unsigned);
+    const sig = await signer.sign({ ...unsigned, id, sig: '' });
+    // Our own copy, with the signer's signature: whatever the signer did
+    // to the object it was handed, this is what was asked to be signed.
+    moved = { ...unsigned, id, sig };
+  } catch (err) {
+    console.warn('[Schedule] signing the move failed:', err);
+    return { ok: false, code: 'sign_failed' };
+  }
+
+  let verified = false;
+  try {
+    verified = verifyEvent({ ...moved });
+  } catch {
+    verified = false;
+  }
+  // A signer that re-dated or otherwise changed what it signed returns a
+  // signature for some other event; it does not verify against ours.
+  if (!verified || moved.created_at !== newPublishAt) {
+    console.warn('[Schedule] the signer returned a signature for a different event than the move');
+    return { ok: false, code: 'signer_changed_event' };
+  }
+  if (!isSamePostMoved(original, moved)) return { ok: false, code: 'move_changed_post' };
+  return { ok: true, event: moved, plan };
+}
+
+export type MoveScheduledResult =
+  | {
+      ok: true;
+      /** The row as it now stands, built from the answer: the caller updates its view without a refetch. */
+      item: ScheduledItem;
+      /** The id of the row it replaced. */
+      replacedId: string;
+      /** See ScheduleEventResult.replacement. */
+      replacement: 'replaced' | 'original_still_scheduled';
+    }
+  | Exclude<SignMoveResult, { ok: true }>
+  | Exclude<ScheduleEventResult, { ok: true }>;
+
+/**
+ * Move a pending scheduled post to a new time: sign it again verbatim
+ * (signMove) and swap it for the old row in one step (`replaces`), with
+ * the relay mode and relays the old row had. On any failure the post is
+ * where it was.
+ *
+ * Two signatures: the post, then the request. Call it only after the
+ * person has confirmed the move (show them planMove's result first).
+ */
+export async function moveScheduled(
+  item: ScheduledItem,
+  newPublishAt: number,
+  depsOverride?: Partial<ScheduleClientDeps>
+): Promise<MoveScheduledResult> {
+  const deps = await resolveDeps(depsOverride);
+  const signed = await signMove(item.event, newPublishAt, deps);
+  if (!signed.ok) return signed;
+  const stored = await scheduleEvent(
+    signed.event,
+    // The old row's own relays, [] included: a move never re-derives them.
+    { relayMode: item.relayMode, relays: item.relays, replaces: item.id },
+    deps
+  );
+  if (!stored.ok) return stored;
+  return {
+    ok: true,
+    replacedId: item.id,
+    replacement: stored.replacement ?? 'replaced',
+    item: {
+      id: stored.id,
+      publishAt: stored.publishAt,
+      relayMode: stored.relayMode,
+      relays: stored.relays,
+      status: stored.status,
+      attempts: 0,
+      lastError: null,
+      sentAt: null,
+      event: signed.event
+    }
+  };
+}
+
 // ── transport ───────────────────────────────────────────────────────
 
 type Sent =
@@ -423,6 +710,14 @@ export interface ScheduleEventOptions {
    * through pickScheduleRelays first.
    */
   relays?: readonly string[];
+  /**
+   * The id of the caller's pending post that this event takes the place
+   * of (a reschedule or an edit). The server stores the new event and
+   * cancels the old one in one step, or does neither: `not_replaceable`
+   * (the old one is already going out, sent, failed or cancelled; see
+   * `status`) or `not_found`. Nothing is stored on those.
+   */
+  replaces?: string;
 }
 
 const SCHEDULE_CODES = [
@@ -439,7 +734,9 @@ const SCHEDULE_CODES = [
   'poll_closes_before_publish',
   'already_scheduled',
   'quota_exceeded',
-  'rate_limited'
+  'rate_limited',
+  'not_found',
+  'not_replaceable'
 ] as const;
 
 /**
@@ -477,7 +774,8 @@ export async function scheduleEvent(
       JSON.stringify({
         event: signedEvent,
         relay_mode: options.relayMode,
-        ...(withRelays.length > 0 ? { relays: withRelays } : {})
+        ...(withRelays.length > 0 ? { relays: withRelays } : {}),
+        ...(options.replaces ? { replaces: options.replaces } : {})
       })
     );
 
@@ -493,15 +791,30 @@ export async function scheduleEvent(
 
   const { status, data } = sent;
   if (status === 201) {
-    return {
-      ok: true,
+    const created = {
+      ok: true as const,
       id: typeof data.id === 'string' ? data.id : signedEvent.id,
       publishAt: typeof data.publish_at === 'number' ? data.publish_at : signedEvent.created_at,
-      relayMode: data.relay_mode === 'pantry' ? 'pantry' : 'all',
+      relayMode: (data.relay_mode === 'pantry' ? 'pantry' : 'all') as ScheduleRelayMode,
       relays: Array.isArray(data.relays) ? data.relays.filter((r): r is string => typeof r === 'string') : [],
       status: asStatus(data.status) ?? 'pending',
       alreadyScheduled: false
     };
+    if (!options.replaces) return created;
+    if (data.replaced === options.replaces) return { ...created, replacement: 'replaced' };
+
+    // Contract: a 201 without `replaced` means the server did not act on
+    // `replaces`, so BOTH posts are scheduled. Cancel the old one now.
+    console.warn('[Schedule] the server ignored `replaces`; cancelling the original by hand');
+    const cancelOld = await cancelScheduled(options.replaces, deps);
+    if (cancelOld.ok || cancelOld.code === 'not_found') return { ...created, replacement: 'replaced' };
+    if (cancelOld.code === 'not_cancellable' && (cancelOld.status === 'publishing' || cancelOld.status === 'sent')) {
+      // The original is going out or has gone out: the new one must not
+      // follow it. Take it back, and report what the atomic path would have.
+      const undo = await cancelScheduled(created.id, deps);
+      if (undo.ok) return { ok: false, code: 'not_replaceable', status: cancelOld.status };
+    }
+    return { ...created, replacement: 'original_still_scheduled' };
   }
 
   const code = serverCode(data);
@@ -516,13 +829,32 @@ export async function scheduleEvent(
         relayMode: options.relayMode,
         relays,
         status: rowStatus,
-        alreadyScheduled: true
+        alreadyScheduled: true,
+        // `replaced` on this answer says the swap happened (an earlier
+        // attempt of this same request). Without it, this exact post was
+        // already scheduled some other way and the one it was meant to
+        // replace may well still be: the caller must say so.
+        ...(options.replaces
+          ? {
+              replacement:
+                data.replaced === options.replaces ? ('replaced' as const) : ('original_still_scheduled' as const)
+            }
+          : {})
       };
     }
-    // Cancelled or failed (or a status we do not know): this exact
-    // event will not go out. The caller must sign a new one to retry.
+    // Failed (or a status we do not know, or `cancelled` from a server
+    // that does not yet revive cancelled rows): this exact event will
+    // not go out. The caller must sign a new one to retry.
     return failure(code, SCHEDULE_CODES, rowStatus);
   }
+  if (!options.replaces) {
+    // These two are answers to `replaces` only; on a plain create they
+    // are not something the contract says can happen.
+    if (code === 'not_found' || code === 'not_replaceable') return { ok: false, code: 'unknown' };
+    return failure(code, SCHEDULE_CODES);
+  }
+  if (code === 'not_replaceable') return failure(code, SCHEDULE_CODES, asStatus(data.status));
+  if (code === 'rate_limited' && data.limit === 'moves') return { ok: false, code, limit: 'moves' };
   return failure(code, SCHEDULE_CODES);
 }
 
@@ -561,7 +893,9 @@ function parseItem(raw: unknown): ScheduledItem | null {
 
 /**
  * The signed-in account's scheduled events, newest publish time first
- * (the server's order), at most 100. `status` narrows to one status.
+ * (the server's order), at most 100. `status` narrows to one status;
+ * without it, every status except cancelled. `truncated` says the cap
+ * cut the result (the oldest publish times are the ones dropped).
  * Rows this client cannot read are skipped rather than failing the list.
  */
 export async function listScheduled(
@@ -574,7 +908,7 @@ export async function listScheduled(
   if (sent.kind === 'failure') return sent.failure;
   if (sent.status === 200 && Array.isArray(sent.data.items)) {
     const items = sent.data.items.map(parseItem).filter((i): i is ScheduledItem => i !== null);
-    return { ok: true, items };
+    return { ok: true, items, truncated: sent.data.truncated === true };
   }
   return failure(serverCode(sent.data), [...COMMON, 'bad_status'] as const);
 }
@@ -621,7 +955,8 @@ const COPY: Record<ScheduleErrorCode, string> = {
   bad_publish_time: 'Pick a time at least 5 minutes from now and within 90 days.',
   too_large: 'This post is too long to schedule.',
   poll_closes_before_publish: "This poll would close before it's posted. Move the closing time later.",
-  already_scheduled: "This post was already scheduled and then cancelled or failed, so it won't be sent. Schedule it again to retry.",
+  already_scheduled:
+    "This exact post was scheduled for that time before and didn't go out, so it can't be scheduled for it again. Pick a different time, even by a minute.",
   quota_exceeded: 'You have 50 posts scheduled, the most allowed. Cancel one, or wait for one to go out.',
   rate_limited: "You've scheduled a lot in the last hour. Try again later.",
   bad_status: "Couldn't load your scheduled posts. Please try again.",
@@ -634,6 +969,10 @@ const COPY: Record<ScheduleErrorCode, string> = {
   sign_failed: "Your signer didn't sign the post. Check your signer and try again.",
   signer_changed_event:
     "Your signer changed this post's time, so it can't be scheduled. Try a different signer, or post it now instead.",
+  expires_before_publish:
+    "This post is set to expire before that time, so it can't be moved there. Pick an earlier time, or edit the post.",
+  move_changed_post:
+    "This post couldn't be moved without changing it, so nothing was done. Use Edit to change it in the composer.",
   network: "Couldn't reach Zap Cooking. Check your connection and try again.",
   unknown: 'Something went wrong. Please try again.'
 };
@@ -644,13 +983,30 @@ const NOT_CANCELLABLE_COPY: Partial<Record<ScheduleStatus, string>> = {
   failed: "This post already failed and won't be sent."
 };
 
+const NOT_REPLACEABLE_COPY: Partial<Record<ScheduleStatus, string>> = {
+  publishing: "This post is being published right now and can't be changed.",
+  sent: 'This post has already been published.',
+  cancelled: 'This post was cancelled.',
+  failed: "This post already failed and won't be sent."
+};
+
 /**
  * Plain wording for a failure, for showing to a person. Total over
  * ScheduleErrorCode, so a new code cannot ship without copy.
  */
-export function scheduleErrorCopy(result: { code: ScheduleErrorCode; status?: ScheduleStatus }): string {
+export function scheduleErrorCopy(result: {
+  code: ScheduleErrorCode;
+  status?: ScheduleStatus;
+  limit?: 'moves';
+}): string {
   if (result.code === 'not_cancellable' && result.status) {
     return NOT_CANCELLABLE_COPY[result.status] ?? COPY.not_cancellable;
+  }
+  if (result.code === 'not_replaceable' && result.status) {
+    return NOT_REPLACEABLE_COPY[result.status] ?? COPY.not_replaceable;
+  }
+  if (result.code === 'rate_limited' && result.limit === 'moves') {
+    return "You've moved a lot of posts in the last hour. Try again later.";
   }
   return COPY[result.code];
 }

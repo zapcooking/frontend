@@ -30,7 +30,13 @@
     toggleHashtag
   } from '$lib/hashtagPills';
   import type { NDKEvent as NDKEventType } from '@nostr-dev-kit/ndk';
-  import { clearQuotedNote, composerPrefillText, composerRestore, postComposerOpen } from '$lib/postComposerStore';
+  import {
+    clearQuotedNote,
+    composerPrefillText,
+    composerRestore,
+    composerSchedulePreset,
+    postComposerOpen
+  } from '$lib/postComposerStore';
   import { appendPrefill } from '$lib/live/share';
   import { requireAuth, signedIn } from '$lib/auth/requireAuth';
   import { publishQueue, publishQueueState } from '$lib/publishQueue';
@@ -71,7 +77,12 @@
     pollCloseForSchedule,
     powActive,
     submitComposedNote,
-    scheduleComposedNote
+    scheduleComposedNote,
+    parseReschedulingTarget,
+    reschedulingNotice,
+    postNowRefusedCopy,
+    originalIsSettled,
+    type ReschedulingTarget
   } from '$lib/composerSchedule';
 
   // Clear stuck posts from the publish queue
@@ -429,31 +440,65 @@
   // are kept, so clearing the schedule brings them back.
   $: powOn = powActive({ scheduledAt, powBits });
 
-  function openSchedulePicker() {
+  /**
+   * @param startAt A time for the field to show to begin with (unix
+   * seconds), used when it is one the picker would offer. Also the click
+   * handler of two buttons, so anything that is not a number is ignored.
+   */
+  function openSchedulePicker(startAt?: unknown) {
     const now = nowSeconds();
     const { min, max } = pickerBounds(now);
     scheduleMin = toLocalInputValue(min);
     scheduleMax = toLocalInputValue(max);
-    // Start from the time already chosen, or an hour from now on the
-    // next quarter hour.
+    // Start from the time asked for, else the time already chosen, else
+    // an hour from now on the next quarter hour.
     const start =
-      scheduledAt !== null && scheduledAt >= min ? scheduledAt : Math.ceil((now + 3600) / 900) * 900;
+      typeof startAt === 'number' && startAt >= min && startAt <= max
+        ? startAt
+        : scheduledAt !== null && scheduledAt >= min
+          ? scheduledAt
+          : Math.ceil((now + 3600) / 900) * 900;
     scheduleInput = toLocalInputValue(start);
     schedulePickError = '';
     showSchedulePicker = true;
   }
 
-  function applySchedulePick() {
+  /**
+   * Take the time in the picker's field if it is one we can use. Returns
+   * whether it was taken.
+   *
+   * This runs on every change of the field, not only from the Done
+   * button: the browser's own calendar opens over the popover (on a
+   * desktop it covers the button), and the click that dismisses it lands
+   * outside the popover and closes it. A pick that needed a second,
+   * separate confirmation was lost that way. Now whatever closes the
+   * popover, the time the field shows is the time that is set, and the
+   * "Will post …" line under the tools says so.
+   */
+  function takeSchedulePick(quiet = false): boolean {
     const picked = fromLocalInputValue(scheduleInput);
     if (picked === null || pickedTimeProblem(picked, nowSeconds())) {
-      schedulePickError = SCHEDULE_TIME_COPY;
-      return;
+      // Mid-edit the field is briefly empty or out of range: no complaint
+      // until the person has finished with it.
+      if (!quiet) schedulePickError = SCHEDULE_TIME_COPY;
+      return false;
     }
     scheduledAt = picked;
     schedulePickError = '';
     scheduleError = '';
-    showSchedulePicker = false;
+    return true;
   }
+
+  /** Done / Enter: take the time and close. An unusable time keeps the picker open with the reason. */
+  function applySchedulePick() {
+    if (takeSchedulePick()) showSchedulePicker = false;
+  }
+
+  // ── Rescheduling a post that is still scheduled ────────────────
+  // Set when the composer was opened by Reschedule. Nothing has been
+  // cancelled: see ReschedulingTarget in $lib/composerSchedule for what
+  // that means for Schedule, for closing, and for posting now.
+  let rescheduling: ReschedulingTarget | null = null;
 
   /** Back to an ordinary post: the next submit publishes now. */
   function clearSchedule() {
@@ -461,6 +506,12 @@
     schedulePickError = '';
     scheduleError = '';
     showSchedulePicker = false;
+  }
+
+  function refusePostNow() {
+    if (!rescheduling) return;
+    scheduleError = postNowRefusedCopy(rescheduling, nowSeconds());
+    openSchedulePicker();
   }
 
   const DRAFT_KEY = 'zapcooking_note_draft';
@@ -578,7 +629,22 @@
           imageAlts?: Record<string, string>;
           videos?: string[];
           savedAt?: number;
+          rescheduling?: unknown;
         };
+        // A draft marked as a reschedule is a copy of a post that is still
+        // scheduled. It is used only when Reschedule has just handed it
+        // over (the store below says which post). Found any other way (a
+        // reload, a crash, another composer on the page) it is discarded:
+        // kept, it would be a second copy of that post waiting to be sent.
+        const draftTarget = parseReschedulingTarget(draft.rescheduling);
+        const handedOver = variant === 'modal' ? get(composerRestore)?.rescheduling : null;
+        if (draftTarget && handedOver?.id !== draftTarget.id) {
+          localStorage.removeItem(DRAFT_KEY);
+          draft.content = '';
+          draft.media = [];
+          draft.images = [];
+          draft.videos = [];
+        }
         let restored: MediaAttachment[] = [];
         if (Array.isArray(draft.media)) {
           restored = draft.media.filter((m): m is MediaAttachment => !!m && typeof m.url === 'string');
@@ -630,7 +696,18 @@
         zapPollConfig = restore.zapPoll;
         pollConfiguredAt = nowSeconds();
         scheduledAt = pickedTimeProblem(restore.publishAt, nowSeconds()) ? null : restore.publishAt;
+        rescheduling = restore.rescheduling;
         if (restore.openPicker) openSchedulePicker();
+      }
+      // A time chosen in the Scheduled calendar: an empty slot (the time is
+      // set, no picker) or a day's "+" (the picker opens on that day).
+      const preset = get(composerSchedulePreset);
+      if (preset) {
+        composerSchedulePreset.set(null);
+        if (preset.publishAt !== null && !pickedTimeProblem(preset.publishAt, nowSeconds())) {
+          scheduledAt = preset.publishAt;
+        }
+        if (preset.pickerAt !== null) openSchedulePicker(preset.pickerAt);
       }
       focusComposer();
     }
@@ -687,6 +764,7 @@
     quotedNote = null;
     pollConfig = null;
     zapPollConfig = null;
+    rescheduling = null;
     clearSchedule();
     if (composerEl) {
       composerEl.innerHTML = '';
@@ -695,6 +773,19 @@
 
   function closeComposer() {
     if (posting) return;
+
+    // Closing a reschedule abandons it. The original is still scheduled
+    // and was never touched, so there is nothing to undo; the copy in the
+    // composer is dropped, not parked as a draft, so it cannot be posted
+    // as well later.
+    if (rescheduling) {
+      if (draftTimer) clearTimeout(draftTimer);
+      draftTimer = null;
+      resetComposerState();
+      if (variant === 'modal') dispatch('close');
+      else isComposerOpen = false;
+      return;
+    }
 
     // Persist the latest content before we tear anything down
     flushDraftSave();
@@ -889,6 +980,14 @@
       return;
     }
 
+    // Rescheduling with no time set: this would publish now, while the
+    // original is still scheduled. Refused before anything is signed; the
+    // same rule is enforced again in submitComposedNote.
+    if (rescheduling && scheduledAt === null) {
+      refusePostNow();
+      return;
+    }
+
     // A time picked a while ago may no longer be far enough off. Ask for a
     // new one before anything is signed.
     if (scheduledAt !== null && submitTimeProblem(scheduledAt, nowSeconds())) {
@@ -1011,14 +1110,14 @@
       // a publish time is set, otherwise the miner or the publish queue. A
       // scheduled note never reaches the other two, pass or fail.
       const submitted = await submitComposedNote(
-        { event, scheduledAt, powBits, relayMode },
+        { event, scheduledAt, powBits, relayMode, rescheduling },
         {
           // Signs a COPY for the publish time (`event` itself is left
           // unsigned with created_at unset), then stores it with the
           // scheduler. The composer stays open until the answer is back, so
           // a failure leaves everything the person wrote on screen.
-          schedule: (e, publishAt, mode) =>
-            scheduleComposedNote(e, publishAt, mode, { signForSchedule, scheduleEvent }),
+          schedule: (e, publishAt, mode, target) =>
+            scheduleComposedNote(e, publishAt, mode, { signForSchedule, scheduleEvent }, target),
 
           // ── Proof of work runs OUTSIDE the composer ──
           //
@@ -1053,21 +1152,44 @@
         }
       );
 
+      if (submitted.route === 'refused') {
+        refusePostNow();
+        return;
+      }
+
       if (submitted.route === 'schedule') {
         const outcome = submitted.outcome;
         if (outcome.ok) {
-          showToast(
-            'success',
-            `Scheduled for ${formatScheduleTime(outcome.publishAt, nowSeconds())}`,
-            12000,
-            { label: 'View scheduled', href: '/my-kitchen/scheduled' }
-          );
+          const when = formatScheduleTime(outcome.publishAt, nowSeconds());
+          if (outcome.replacement === 'original_still_scheduled') {
+            // Rare (a server that ignored `replaces`, then a failed cancel):
+            // both are scheduled, and the person has to know.
+            showToast(
+              'error',
+              `Scheduled for ${when}, but the original is still scheduled too. Cancel it in Scheduled so it isn't posted twice.`,
+              20000,
+              { label: 'View scheduled', href: '/my-kitchen/scheduled' }
+            );
+          } else {
+            showToast('success', `${outcome.replacement === 'replaced' ? 'Rescheduled' : 'Scheduled'} for ${when}`, 12000, {
+              label: 'View scheduled',
+              href: '/my-kitchen/scheduled'
+            });
+          }
           // The Scheduled list, if it is on screen, refetches.
           window.dispatchEvent(new CustomEvent('zc:scheduled-changed'));
           // Same clearing as a published note: the stored draft goes too.
           resetComposerState();
           isComposerOpen = false;
           if (variant === 'modal') dispatch('close');
+        } else if (rescheduling && originalIsSettled(outcome)) {
+          // The original went out, is going out, or was cancelled or lost
+          // somewhere else. Nothing was stored. Everything written stays
+          // here; it is no longer a reschedule of anything.
+          scheduleError = `${scheduleErrorCopy(outcome)} Nothing was changed, and your text is still here. Scheduling or posting it now makes a new post.`;
+          rescheduling = null;
+          flushDraftSave();
+          window.dispatchEvent(new CustomEvent('zc:scheduled-changed'));
         } else {
           scheduleError = scheduleErrorCopy(outcome);
           if (outcome.code === 'bad_publish_time') openSchedulePicker();
@@ -1141,7 +1263,9 @@
         JSON.stringify({
           content: text,
           media,
-          savedAt: Date.now()
+          savedAt: Date.now(),
+          // Marks the stored text as a copy of a scheduled post; see onMount.
+          ...(rescheduling ? { rescheduling } : {})
         })
       );
       draftSaved = true;
@@ -1707,6 +1831,8 @@
                         bind:value={scheduleInput}
                         min={scheduleMin}
                         max={scheduleMax}
+                        on:input={() => takeSchedulePick(true)}
+                        on:change={() => takeSchedulePick()}
                         on:keydown={(e) => {
                           if (e.key === 'Enter') {
                             e.preventDefault();
@@ -1723,7 +1849,7 @@
                         {#if scheduledAt !== null}
                           <button type="button" class="schedule-popover-clear" on:click={clearSchedule}>Clear</button>
                         {/if}
-                        <button type="button" class="schedule-popover-set" on:click={applySchedulePick}>Set time</button>
+                        <button type="button" class="schedule-popover-set" on:click={applySchedulePick}>Done</button>
                       </div>
                     </div>
                   {/if}
@@ -1796,6 +1922,15 @@
             </div>
           </div>
 
+          <!-- A reschedule: say what is being rescheduled, and that nothing
+               has happened to it yet. -->
+          {#if rescheduling}
+            <p class="reschedule-note" role="status">
+              <CalendarBlankIcon size={16} class="flex-shrink-0 mt-0.5" />
+              <span>{reschedulingNotice(rescheduling, nowSeconds())} Close to leave it as it is.</span>
+            </p>
+          {/if}
+
           <!-- The chosen publish time, with a way back to an ordinary post. -->
           {#if scheduledAt !== null}
             <div class="schedule-chip">
@@ -1814,7 +1949,7 @@
                 class="schedule-chip-clear"
                 on:click={clearSchedule}
                 disabled={posting}
-                aria-label="Clear schedule and post now instead"
+                aria-label={rescheduling ? 'Clear the new time' : 'Clear schedule and post now instead'}
                 title="Clear schedule"
               >
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2541,6 +2676,21 @@
 
   .schedule-popover-set:hover {
     background: var(--color-action-hover);
+  }
+
+  .reschedule-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.8125rem;
+    border-radius: 0.75rem;
+    color: var(--color-text-primary);
+    background: var(--color-input-bg);
+    border: 1px solid var(--color-input-border);
+  }
+  .reschedule-note :global(svg) {
+    color: var(--color-primary);
   }
 
   .schedule-chip {

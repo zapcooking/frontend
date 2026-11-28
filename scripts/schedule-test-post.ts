@@ -11,12 +11,18 @@
  *   Proves the API contract in docs/schedule-contract.md: create with a
  *   `relays` value, 409 `already_scheduled` with `status` on a repeat
  *   POST, list with ?status=pending, `bad_relays`,
- *   `kind_not_allowed_for_relay_mode`, and cancel. Then it stops. A
+ *   `kind_not_allowed_for_relay_mode`, the atomic swap (`replaces`: the
+ *   old row turns cancelled and the new one is pending in its place, a
+ *   retry says so, and replacing an already-cancelled row is refused
+ *   with nothing written), moving the post back to its first time (which
+ *   revives the cancelled row with that id), cancelling and scheduling
+ *   the identical post again, and cancel. Then it stops. A
  *   preview deployment writes to zapcooking-scheduler-preview, which the
  *   cron worker never sweeps (workers/cron/wrangler.toml binds the
  *   production database only), so a preview row can never reach `sent`.
- *   The one row it creates is scheduled a day out and cancelled before
- *   the script exits. Takes a few seconds.
+ *   The two rows it creates (the post and its replacement) are scheduled
+ *   a day out and both are cancelled before the script exits. Takes a
+ *   few seconds.
  *
  * https://zap.cooking (production) — FULL PIPELINE
  *   Schedules a kind 1 from a throwaway key 180 s out in 'pantry' mode,
@@ -135,21 +141,22 @@ async function runApiCheck(baseUrl: string): Promise<void> {
   log('setup', `throwaway pubkey ${pubkey}`);
   log('setup', `event ${event.id}, publish_at ${publishAt} (a day out; it will be cancelled)`);
 
-  let created = false;
-  let cancelled = false;
+  // The id of the row that is pending right now, if any: the one a
+  // failure must cancel on the way out.
+  let liveId: string | null = null;
   try {
     // 1. Create, with a relays value that needs normalizing.
     const createBody = { event, relay_mode: 'all', relays: ['wss://Relay.Example.com/'] };
     const create = await api(sk, 'POST', scheduleUrl, createBody);
     check(create.status === 201, `create: expected 201, got ${show(create)}`);
-    created = true;
+    liveId = event.id;
     check(create.data.id === event.id, `create: id mismatch: ${show(create)}`);
     check(create.data.status === 'pending', `create: status is not pending: ${show(create)}`);
     check(
       JSON.stringify(create.data.relays) === JSON.stringify(['wss://relay.example.com']),
       `create: relays not stored normalized: ${show(create)}`
     );
-    log('1/6 create', `201, relays stored as ${JSON.stringify(create.data.relays)}`);
+    log('1/11 create', `201, relays stored as ${JSON.stringify(create.data.relays)}`);
 
     // 2. The same signed event again: 409 with the row's status.
     const repeat = await api(sk, 'POST', scheduleUrl, createBody);
@@ -158,7 +165,7 @@ async function runApiCheck(baseUrl: string): Promise<void> {
       repeat.data.error === 'already_scheduled' && repeat.data.status === 'pending',
       `repeat POST: expected already_scheduled with status pending, got ${show(repeat)}`
     );
-    log('2/6 repeat', '409 already_scheduled, status pending');
+    log('2/11 repeat', '409 already_scheduled, status pending');
 
     // 3. List with the status filter.
     const listed = await api(sk, 'GET', `${scheduleUrl}?status=pending`);
@@ -175,7 +182,7 @@ async function runApiCheck(baseUrl: string): Promise<void> {
       `list: relays missing from the item: ${JSON.stringify(item.relays)}`
     );
     check(item.event?.id === event.id && item.event?.sig === event.sig, 'list: event not returned intact');
-    log('3/6 list', `?status=pending returned the row (${items.length} pending), relays and event intact`);
+    log('3/11 list', `?status=pending returned the row (${items.length} pending), relays and event intact`);
 
     // 4. A relay the server must refuse. Nothing is stored.
     const badRelayEvent = finalizeEvent(
@@ -191,7 +198,7 @@ async function runApiCheck(baseUrl: string): Promise<void> {
       badRelays.status === 400 && badRelays.data.error === 'bad_relays',
       `bad relays: expected 400 bad_relays, got ${show(badRelays)}`
     );
-    log('4/6 bad_relays', '400 bad_relays for wss://localhost');
+    log('4/11 bad_relays', '400 bad_relays for wss://localhost');
 
     // 5. A comment (kind 1111) cannot be scheduled to pantry. Nothing is stored.
     const commentEvent = finalizeEvent(
@@ -203,51 +210,185 @@ async function runApiCheck(baseUrl: string): Promise<void> {
       pantryKind.status === 400 && pantryKind.data.error === 'kind_not_allowed_for_relay_mode',
       `pantry kind: expected 400 kind_not_allowed_for_relay_mode, got ${show(pantryKind)}`
     );
-    log('5/6 pantry kind', '400 kind_not_allowed_for_relay_mode for kind 1111 with pantry');
+    log('5/11 pantry kind', '400 kind_not_allowed_for_relay_mode for kind 1111 with pantry');
 
-    // 6. Cancel, and see that it took.
+    // 6. Replace: a new signed event takes the old one's place in one step.
+    const movedAt = publishAt + 3600;
+    const moved = finalizeEvent(
+      { kind: 1, created_at: movedAt, tags: [], content: `zap.cooking scheduler API check ${stamp}` },
+      sk
+    );
+    const replaceBody = {
+      event: moved,
+      relay_mode: 'all',
+      relays: ['wss://relay.example.com'],
+      replaces: event.id
+    };
+    const replace = await api(sk, 'POST', scheduleUrl, replaceBody);
+    check(replace.status === 201, `replace: expected 201, got ${show(replace)}`);
+    liveId = moved.id;
+    check(
+      replace.data.id === moved.id && replace.data.status === 'pending' && replace.data.publish_at === movedAt,
+      `replace: the new row is not pending at the new time: ${show(replace)}`
+    );
+    check(
+      replace.data.replaced === event.id,
+      `replace: no "replaced" in the answer, so this deployment ignored "replaces" and BOTH rows are pending: ${show(replace)}`
+    );
+    log('6/11 replace', `201, replaced ${event.id.slice(0, 8)}… with ${moved.id.slice(0, 8)}…`);
+
+    // 7. What the database now holds, read back through the API.
+    const pendingNow = await api(sk, 'GET', `${scheduleUrl}?status=pending`);
+    const cancelledNow = await api(sk, 'GET', `${scheduleUrl}?status=cancelled`);
+    const unfiltered = await api(sk, 'GET', scheduleUrl);
+    check(
+      pendingNow.status === 200 && cancelledNow.status === 200 && unfiltered.status === 200,
+      `lists after replace: ${show(pendingNow)} / ${show(cancelledNow)} / ${show(unfiltered)}`
+    );
+    const ids = (r: ApiResult) => ((r.data?.items ?? []) as any[]).map((i) => i.id);
+    check(
+      JSON.stringify(ids(pendingNow)) === JSON.stringify([moved.id]),
+      `after replace: pending should be exactly the new row, got ${JSON.stringify(ids(pendingNow))}`
+    );
+    check(
+      JSON.stringify(ids(cancelledNow)) === JSON.stringify([event.id]),
+      `after replace: cancelled should be exactly the old row, got ${JSON.stringify(ids(cancelledNow))}`
+    );
+    check(
+      JSON.stringify(ids(unfiltered)) === JSON.stringify([moved.id]),
+      `after replace: the unfiltered list should hold the new row and no cancelled row, got ${JSON.stringify(ids(unfiltered))}`
+    );
+    // The list does not return the `replaces` column; a repeat of the
+    // same request does, and stores nothing.
+    const replaceAgain = await api(sk, 'POST', scheduleUrl, replaceBody);
+    check(
+      replaceAgain.status === 409 &&
+        replaceAgain.data.error === 'already_scheduled' &&
+        replaceAgain.data.status === 'pending' &&
+        replaceAgain.data.replaced === event.id,
+      `repeat replace: expected 409 already_scheduled, pending, replaced = the old id, got ${show(replaceAgain)}`
+    );
+    log(
+      '7/11 after replace',
+      'old row cancelled; new row pending with replaces = the old id; unfiltered list leaves the cancelled row out'
+    );
+
+    // 8. Replacing the row that is already cancelled: refused, nothing written.
+    const third = finalizeEvent(
+      { kind: 1, created_at: movedAt + 1, tags: [], content: `not_replaceable probe ${stamp}` },
+      sk
+    );
+    const refused = await api(sk, 'POST', scheduleUrl, { event: third, relay_mode: 'all', replaces: event.id });
+    check(
+      refused.status === 409 && refused.data.error === 'not_replaceable' && refused.data.status === 'cancelled',
+      `second replace: expected 409 not_replaceable (cancelled), got ${show(refused)}`
+    );
+    const allAfter: string[] = [];
+    for (const status of ['pending', 'publishing', 'sent', 'failed', 'cancelled']) {
+      const r = await api(sk, 'GET', `${scheduleUrl}?status=${status}`);
+      check(r.status === 200, `list ?status=${status}: expected 200, got ${show(r)}`);
+      allAfter.push(...ids(r));
+    }
+    check(
+      JSON.stringify([...allAfter].sort()) === JSON.stringify([event.id, moved.id].sort()),
+      `second replace: this key should still have exactly two rows, got ${JSON.stringify(allAfter)}`
+    );
+    log('8/11 replace a cancelled row', '409 not_replaceable (cancelled); still exactly two rows for this key');
+
+    // 9. Move it BACK to the first time. The same post at the same time
+    // has the same event id as the first row, which is there as cancelled:
+    // that row is revived, and the swap is still one step.
+    const back = finalizeEvent(
+      { kind: 1, created_at: publishAt, tags: [], content: `zap.cooking scheduler API check ${stamp}` },
+      sk
+    );
+    check(back.id === event.id, 'move back: the re-signed event should have the first event id');
+    check(back.sig !== event.sig, 'move back: the re-signed event should carry a new signature');
+    const moveBack = await api(sk, 'POST', scheduleUrl, { event: back, relay_mode: 'all', replaces: moved.id });
+    check(
+      moveBack.status === 201 && moveBack.data.id === event.id && moveBack.data.replaced === moved.id,
+      `move back (A → B → A): expected 201 for the first id with replaced = the second, got ${show(moveBack)}`
+    );
+    liveId = event.id;
+    const pendingBack = await api(sk, 'GET', `${scheduleUrl}?status=pending`);
+    const cancelledBack = await api(sk, 'GET', `${scheduleUrl}?status=cancelled`);
+    check(
+      JSON.stringify(ids(pendingBack)) === JSON.stringify([event.id]) &&
+        JSON.stringify(ids(cancelledBack)) === JSON.stringify([moved.id]),
+      `after moving back: expected pending = the first row, cancelled = the second, got ${JSON.stringify(ids(pendingBack))} / ${JSON.stringify(ids(cancelledBack))}`
+    );
+    const revived = (pendingBack.data.items as any[])[0];
+    check(
+      revived.event?.sig === back.sig && revived.attempts === 0 && revived.last_error === null,
+      'after moving back: the revived row should hold the newly signed event, with attempts 0 and no error'
+    );
+    log('9/11 move back (A → B → A)', '201; the cancelled row was revived with the new signature; still two rows, one pending');
+
+    // 10. Cancel it, then schedule the identical post again: a plain
+    // create that revives the row.
+    const cancelFirst = await api(sk, 'DELETE', `${scheduleUrl}/${event.id}`);
+    check(
+      cancelFirst.status === 200 && cancelFirst.data.status === 'cancelled',
+      `cancel before re-scheduling: expected 200 cancelled, got ${show(cancelFirst)}`
+    );
+    liveId = null;
+    const again1 = finalizeEvent(
+      { kind: 1, created_at: publishAt, tags: [], content: `zap.cooking scheduler API check ${stamp}` },
+      sk
+    );
+    const reschedule = await api(sk, 'POST', scheduleUrl, { event: again1, relay_mode: 'all' });
+    check(
+      reschedule.status === 201 && reschedule.data.id === event.id && !('replaced' in reschedule.data),
+      `cancel then schedule the same post again: expected a plain 201, got ${show(reschedule)}`
+    );
+    liveId = event.id;
+    const selfReplace = await api(sk, 'POST', scheduleUrl, { event: again1, relay_mode: 'all', replaces: event.id });
+    check(
+      selfReplace.status === 400 && selfReplace.data.error === 'bad_request',
+      `a row replacing itself: expected 400 bad_request, got ${show(selfReplace)}`
+    );
+    log('10/11 cancel, schedule again', '201 for the same post at the same time; a row replacing itself is 400 bad_request');
+
+    // 11. Cancel it, and see that it took.
     const cancel = await api(sk, 'DELETE', `${scheduleUrl}/${event.id}`);
     check(
       cancel.status === 200 && cancel.data.status === 'cancelled',
       `cancel: expected 200 cancelled, got ${show(cancel)}`
     );
-    cancelled = true;
+    liveId = null;
     const after = await api(sk, 'GET', `${scheduleUrl}?status=pending`);
     check(after.status === 200, `list after cancel: expected 200, got ${show(after)}`);
-    check(
-      !(after.data.items as any[]).some((i) => i.id === event.id),
-      'list after cancel: the row is still pending'
-    );
+    check((after.data.items as any[]).length === 0, 'list after cancel: this key still has a pending row');
     const again = await api(sk, 'DELETE', `${scheduleUrl}/${event.id}`);
     check(
       again.status === 409 && again.data.error === 'not_cancellable' && again.data.status === 'cancelled',
       `second cancel: expected 409 not_cancellable (cancelled), got ${show(again)}`
     );
-    log('6/6 cancel', '200 cancelled; gone from ?status=pending; a second cancel is 409 not_cancellable');
+    log('11/11 cancel', '200 cancelled; nothing pending for this key; a second cancel is 409 not_cancellable');
   } catch (err) {
-    if (created && !cancelled) {
-      const cleanup = await api(sk, 'DELETE', `${scheduleUrl}/${event.id}`).catch(() => null);
+    if (liveId) {
+      const cleanup = await api(sk, 'DELETE', `${scheduleUrl}/${liveId}`).catch(() => null);
       const ok = cleanup?.status === 200;
-      console.error(`LEFT BEHIND: event ${event.id}`);
+      console.error(`LEFT BEHIND: event ${liveId}`);
       console.error(
         ok
           ? '  The scheduled row was cancelled during cleanup. Nothing will be published.'
-          : `  A PENDING row for this event remains on ${baseUrl}, due ${new Date(publishAt * 1000).toISOString()}, ` +
+          : `  A PENDING row for this event may remain on ${baseUrl}, due about ${new Date(publishAt * 1000).toISOString()}, ` +
               `relay_mode all. Cleanup cancel answered ${cleanup ? show(cleanup) : 'nothing'}. ` +
               'The throwaway key is gone, so it cannot be cancelled through the API; ' +
-              "cancel it in D1: UPDATE scheduled_events SET status='cancelled' WHERE id='<that id>'."
+              `cancel it in D1: UPDATE scheduled_events SET status='cancelled' WHERE pubkey='${pubkey}' AND status='pending'.`
       );
     }
     throw err;
   }
 
-  log('done', 'API CHECK PASSED: create, repeat (409), list, bad_relays, pantry kind gate, cancel.');
+  log('done', 'API CHECK PASSED: create, repeat (409), list, bad_relays, pantry kind gate, replace, move back, schedule again, cancel.');
   log(
     'done',
     `Stopping here: ${new URL(baseUrl).host} is not production. The cron worker sweeps only the production ` +
       "database, so a row scheduled here can never reach 'sent'. Run against https://zap.cooking for the full pipeline."
   );
-  log('done', 'Left behind: one cancelled row for a throwaway pubkey. Nothing was published.');
+  log('done', 'Left behind: two cancelled rows for a throwaway pubkey. Nothing was published.');
 }
 
 // ── pantry: authenticated read and delete over a raw WebSocket ──────

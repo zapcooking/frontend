@@ -26,6 +26,11 @@ import {
   powActive,
   submitComposedNote,
   scheduleComposedNote,
+  parseReschedulingTarget,
+  reschedulingNotice,
+  postNowRefusedCopy,
+  originalIsSettled,
+  type ReschedulingTarget,
   type SubmitDeps
 } from './composerSchedule';
 import { signForSchedule, type ScheduleClientDeps } from './scheduleClient';
@@ -195,6 +200,7 @@ const clientDeps: ScheduleClientDeps = {
   signAuthHeader: async () => 'Nostr test',
   getWriteRelays: async () => [],
   prepareSigner: async () => {},
+  rawSigner: async () => null,
   now: () => NOW
 };
 
@@ -265,7 +271,7 @@ describe('submitComposedNote', () => {
     const event = draft();
     const schedule = vi.fn(async () => ({ ok: false as const, code: 'network' as const }));
     await submitComposedNote({ event, scheduledAt: NOW + 900, powBits: null, relayMode: 'pantry' }, spies({ schedule }).deps);
-    expect(schedule).toHaveBeenCalledWith(event, NOW + 900, 'pantry');
+    expect(schedule).toHaveBeenCalledWith(event, NOW + 900, 'pantry', null);
   });
 
   it('not scheduled, proof of work on: handed to the miner; the publish queue is not called here', async () => {
@@ -386,5 +392,144 @@ describe('scheduleComposedNote', () => {
     });
     expect(outcome).toEqual({ ok: false, code: 'sign_failed' });
     expect(scheduleEvent).not.toHaveBeenCalled();
+  });
+});
+
+describe('rescheduling a post that is still scheduled', () => {
+  const target: ReschedulingTarget = {
+    id: 'b'.repeat(64),
+    publishAt: NOW + 86_400,
+    relayMode: 'all',
+    relays: ['wss://a.example.com']
+  };
+
+  it('Schedule: the scheduler is given the post being replaced; nothing is published or mined', async () => {
+    const schedule = vi.fn(async () => ({
+      ok: true as const,
+      id: 'x',
+      publishAt: NOW + 600,
+      relayMode: 'all' as const,
+      relays: [],
+      status: 'pending' as const,
+      alreadyScheduled: false,
+      replacement: 'replaced' as const
+    }));
+    const { calls, deps } = spies({ schedule });
+    const result = await submitComposedNote(
+      { event: draft(), scheduledAt: NOW + 600, powBits: 20, relayMode: 'all', rescheduling: target },
+      deps
+    );
+    expect(result.route).toBe('schedule');
+    expect(schedule).toHaveBeenCalledTimes(1);
+    expect((schedule.mock.calls[0] as unknown[])[3]).toEqual(target);
+    expect(calls).toEqual([]);
+  });
+
+  it('a plain schedule passes null: nothing is replaced', async () => {
+    const schedule = vi.fn(async () => ({ ok: false as const, code: 'network' as const }));
+    const { deps } = spies({ schedule });
+    await submitComposedNote({ event: draft(), scheduledAt: NOW + 600, powBits: null, relayMode: 'all' }, deps);
+    expect((schedule.mock.calls[0] as unknown[])[3]).toBeNull();
+  });
+
+  it('POST NOW IS REFUSED: schedule cleared while rescheduling → nothing is signed, scheduled, mined or published', async () => {
+    for (const powBits of [null, 20]) {
+      const { calls, deps } = spies();
+      const event = draft();
+      const result = await submitComposedNote(
+        { event, scheduledAt: null, powBits, relayMode: 'all', rescheduling: target },
+        deps
+      );
+      expect(result).toEqual({ route: 'refused', reason: 'still_scheduled' });
+      expect(calls).toEqual([]);
+      expect(event.sig).toBeUndefined();
+    }
+  });
+
+  it('once it is no longer a reschedule, posting now is an ordinary publish again', async () => {
+    const { calls, deps } = spies();
+    const result = await submitComposedNote(
+      { event: draft(), scheduledAt: null, powBits: null, relayMode: 'all', rescheduling: null },
+      deps
+    );
+    expect(result.route).toBe('publish');
+    expect(calls).toEqual(['beforePublish', 'publish']);
+  });
+
+  it('scheduleComposedNote sends replaces and the original relays', async () => {
+    const scheduleEvent = vi.fn(async (signed: Event) => ({
+      ok: true as const,
+      id: signed.id,
+      publishAt: signed.created_at,
+      relayMode: 'all' as const,
+      relays: [],
+      status: 'pending' as const,
+      alreadyScheduled: false,
+      replacement: 'replaced' as const
+    }));
+    await scheduleComposedNote(
+      draft(),
+      NOW + 600,
+      'all',
+      { signForSchedule: (ev, t) => signForSchedule(ev, t, clientDeps), scheduleEvent },
+      target
+    );
+    expect((scheduleEvent.mock.calls[0] as unknown[])[1]).toEqual({
+      relayMode: 'all',
+      replaces: target.id,
+      relays: ['wss://a.example.com']
+    });
+  });
+
+  it('the original relays are not carried when the relay mode is changed to pantry, or when it had none', async () => {
+    const scheduleEvent = vi.fn(async () => ({ ok: false as const, code: 'network' as const }));
+    const client = { signForSchedule: (ev: NDKEvent, t: number) => signForSchedule(ev, t, clientDeps), scheduleEvent };
+    await scheduleComposedNote(draft(), NOW + 600, 'pantry', client, target);
+    expect((scheduleEvent.mock.calls[0] as unknown[])[1]).toEqual({ relayMode: 'pantry', replaces: target.id });
+    await scheduleComposedNote(draft(), NOW + 600, 'all', client, { ...target, relays: [] });
+    // No relays of its own: left for the client to fill from NIP-65, as for any post.
+    expect((scheduleEvent.mock.calls[1] as unknown[])[1]).toEqual({ relayMode: 'all', replaces: target.id });
+  });
+
+  it('a signing failure stops before the API, so the original is untouched', async () => {
+    const scheduleEvent = vi.fn();
+    const outcome = await scheduleComposedNote(
+      draft(),
+      NOW + 600,
+      'all',
+      { signForSchedule: async () => ({ ok: false, code: 'sign_failed' }), scheduleEvent },
+      target
+    );
+    expect(outcome).toEqual({ ok: false, code: 'sign_failed' });
+    expect(scheduleEvent).not.toHaveBeenCalled();
+  });
+
+  it('originalIsSettled: only when the server says the original is out of the picture', () => {
+    expect(originalIsSettled({ ok: false, code: 'not_replaceable' })).toBe(true);
+    expect(originalIsSettled({ ok: false, code: 'not_found' })).toBe(true);
+    for (const code of ['network', 'rate_limited', 'sign_failed', 'bad_publish_time', 'internal', 'auth_failed']) {
+      expect(originalIsSettled({ ok: false, code }), code).toBe(false);
+    }
+    expect(originalIsSettled({ ok: true })).toBe(false);
+  });
+
+  it('the notice names the old time and says nothing has changed; the refusal says why and what to do', () => {
+    const notice = reschedulingNotice(target, NOW, 'en-US');
+    expect(notice).toContain('Editing a post scheduled for Tomorrow');
+    expect(notice).toContain('stays scheduled');
+    const refusal = postNowRefusedCopy(target, NOW, 'en-US');
+    expect(refusal).toContain('still scheduled for Tomorrow');
+    expect(refusal).toContain('twice');
+  });
+
+  it('parseReschedulingTarget accepts what was stored and nothing else', () => {
+    expect(parseReschedulingTarget(JSON.parse(JSON.stringify(target)))).toEqual(target);
+    expect(parseReschedulingTarget({ id: target.id, publishAt: target.publishAt })).toEqual({
+      ...target,
+      relays: []
+    });
+    for (const bad of [null, undefined, 'x', {}, { id: 'abc', publishAt: 1 }, { id: target.id, publishAt: '1' }, { id: target.id.toUpperCase(), publishAt: 1 }]) {
+      expect(parseReschedulingTarget(bad)).toBeNull();
+    }
   });
 });
