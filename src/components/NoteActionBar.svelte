@@ -98,7 +98,7 @@
       ? 'rounded p-0.5 transition-colors'
       : 'hover:bg-accent-gray rounded px-1 py-0.5 transition-colors';
   $: zapWrapClass = isFull
-    ? 'hover:bg-amber-50/50 rounded-full p-1 transition-colors'
+    ? 'hover:bg-accent-gray rounded-full p-1 transition-colors'
     : iconWrapClass;
 </script>
 

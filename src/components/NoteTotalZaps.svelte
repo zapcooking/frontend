@@ -314,7 +314,7 @@
         ? `Zap ${getOneTapAmount()} sats (hold for custom amount)`
         : 'Send a zap'}
     >
-      <LightningIcon size={20} class="text-caption" weight="regular" />
+      <LightningIcon size={20} class="text-[var(--color-text-secondary)]" weight="regular" />
     </button>
     <span class="text-caption opacity-0">0</span>
   </div>
@@ -383,7 +383,7 @@
       <span class="bolt-sparkle-wrap">
         <LightningIcon
           size={18}
-          class="{isZapping || totalSats > 0 ? 'text-[var(--color-warning)]' : 'text-caption'} {isZapping
+          class="{isZapping || totalSats > 0 ? 'text-[var(--color-warning)]' : 'text-[var(--color-text-secondary)]'} {isZapping
             ? 'animate-pulse'
             : ''} {boltShimmer ? 'bolt-shimmer' : ''}"
           weight={isZapping || $store.zaps.userZapped ? 'fill' : 'regular'}
@@ -463,7 +463,7 @@
           size={24}
           class="{isZapping || $store.zaps.totalAmount > 0
             ? 'text-[var(--color-warning)]'
-            : 'text-caption'} {isZapping ? 'animate-pulse' : ''} {boltShimmer
+            : 'text-[var(--color-text-secondary)]'} {isZapping ? 'animate-pulse' : ''} {boltShimmer
             ? 'bolt-shimmer'
             : ''}"
           weight={isZapping || $store.zaps.userZapped ? 'fill' : 'regular'}
@@ -483,7 +483,7 @@
 
     <!-- Count Button - Opens ZappersListModal -->
     <button
-      class="hover:bg-input rounded px-1 transition-colors text-caption {$store.zaps.count > 0
+      class="hover:bg-input rounded px-1 transition-colors text-[var(--color-text-secondary)] {$store.zaps.count > 0
         ? 'cursor-pointer'
         : ''}"
       on:click={handleCountClick}
